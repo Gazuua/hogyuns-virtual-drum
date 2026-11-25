@@ -1,0 +1,9 @@
+# 글 파일은 줄바꿈을 LF로 통일한다.
+* text=auto eol=lf
+
+# 소리와 그림은 그대로 둔다.
+*.flac binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.png binary

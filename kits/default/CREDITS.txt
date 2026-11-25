@@ -1,0 +1,5 @@
+이 킷의 샘플은 Karoryfer Samples - Big Rusty Drums에서 가져왔습니다.
+출처: https://github.com/sfzinstruments/karoryfer.big-rusty-drums.git (커밋 f07ce00df34a46b6b08375be56fe116cf15782bc)
+라이선스: CC0 1.0 Universal (퍼블릭 도메인 기증)
+
+tools/build_default_kit.py 가 마이크별 파일을 섞고 48kHz로 변환해 만들었습니다.

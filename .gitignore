@@ -1,0 +1,37 @@
+# 빌드 산출물
+/build/
+
+# 내려받은 외부 소스 (scripts/fetch-juce.ps1, scripts/fetch-samples.ps1 로 다시 받을 수 있음)
+/external/JUCE/
+/external/sample-libraries/
+
+# 편집기와 OS가 만드는 파일
+.vs/
+.vscode/
+*.user
+Thumbs.db
+
+# 녹음한 WAV와 내보낸 MIDI
+/recordings/
+
+# 연주 로그 (프로그램이 켜져 있는 동안 친 것)
+/logs/
+
+# 킷과 키 배열의 이전 내용 (프로그램이 바뀔 때마다 남기는 백업)
+/backups/
+
+# 킷을 가져오는 동안 쓰는 임시 폴더
+/kits/.importing/
+
+# 리듬 게임: 곡에서 받아 적은 채보와 드럼을 뺀 반주, 드럼 분리 도구의 가상환경
+/charts/
+/tools/demucs-env/
+/tools/chartmaker/
+
+# 작업 메모 (이 PC에만 둔다)
+/CLAUDE.md
+/.claude/
+
+# 사용자의 음악 폴더나 연주 기록이 찍힌 화면
+/docs/screenshots/game.png
+/docs/screenshots/practice.png

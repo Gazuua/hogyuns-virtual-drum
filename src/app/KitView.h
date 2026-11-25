@@ -1,0 +1,87 @@
+#pragma once
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <functional>
+#include <vector>
+
+/** 드럼 세트를 드러머 자리에서 내려다본 모습으로 그린다. 북은 쉘과 테와 헤드가 있는 원통으로, 심벌은 황동 원판으로 그리고,
+    치면 헤드가 번쩍이고 심벌이 흔들린다. 배치 편집을 켜면 끌어서 옮길 수 있다. */
+class KitView final : public juce::Component
+{
+public:
+    struct Item
+    {
+        juce::String id, name;
+        juce::StringArray keys;    // 이 패드를 치는 키들
+        float x = 0.5f;            // 가운데 위치. 0(왼쪽) ~ 1(오른쪽)
+        float y = 0.5f;            // 0(멀리, 위) ~ 1(가까이, 아래)
+        float size = 0.2f;         // 지름. 화면 높이에 대한 비율
+        bool hasSound = true;
+    };
+
+    KitView();
+
+    void setItems (std::vector<Item> newItems);
+    const std::vector<Item>& getItems() const noexcept    { return items; }
+
+    void flash (int index, float strength);
+
+    /** 번쩍임과 흔들림을 한 단계 진행한다. 다시 그려야 하면 true를 돌려준다. */
+    bool fade();
+
+    void setEditing (bool shouldEdit);
+    bool isEditing() const noexcept                       { return editing; }
+
+    /** 이름과 키를 그림 위에 적을지. */
+    void setShowingLabels (bool shouldShow);
+    bool isShowingLabels() const noexcept                 { return showLabels; }
+
+    /** 패드 id로 고르는 기본 자리. index는 킷 안에서의 순서다. */
+    static void defaultPlacement (const juce::String& padId, int index, float& x, float& y, float& size);
+
+    std::function<void (int index)> onPadClicked;
+
+    /** 배치 편집에서 패드를 옮기거나 크기를 바꾼 뒤에 불린다. */
+    std::function<void (int index)> onItemChanged;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    /** 패드가 어떤 악기 모양으로 그려지는지. */
+    enum class Kind { kick, snare, tom, floorTom, hihat, crash, china, ride, bell, pedal, zone };
+
+    static Kind kindOf (const juce::String& padId);
+
+private:
+    /** 치고 난 뒤의 움직임. */
+    struct Motion
+    {
+        float level = 0.0f;       // 번쩍임 0 ~ 1
+        float strength = 0.0f;    // 친 세기
+        float age = 100.0f;       // 친 뒤로 흐른 시간(초)
+    };
+
+    juce::Point<float> centreOf (const Item& item) const;
+    float radiusOf (const Item& item) const;
+    int itemAt (juce::Point<float> position) const;
+    void drawFloor (juce::Graphics&) const;
+    void drawItem (juce::Graphics&, int index, int layer) const;
+    void drawLabel (juce::Graphics&, int index) const;
+
+    std::vector<Item> items;
+    std::vector<Kind> kinds;
+    std::vector<Motion> motions;
+    std::vector<int> drawOrder;    // 멀리 있는 것부터
+    juce::Image floorImage;        // 바닥은 크기가 바뀔 때만 다시 그린다
+    bool editing = false;
+    bool showLabels = true;
+    int dragged = -1;
+    juce::Point<float> dragOffset;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KitView)
+};
