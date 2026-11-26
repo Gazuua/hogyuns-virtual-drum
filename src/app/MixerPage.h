@@ -46,6 +46,7 @@ private:
     juce::Viewport viewport;
     juce::Component holder;
     bool dirty = false;
+    bool masterDirty = false;
     bool updating = false;
     int tickCount = 0;
 

@@ -333,7 +333,7 @@ void TrackPage::refresh()
 
     trackName.setText (session.getTrackFile() != juce::File()
                            ? session.getTrackFile().getFileName()
-                           : ko ("아직 연 음악이 없습니다. 파일을 이 화면에 끌어다 놓아도 됩니다."),
+                           : ko ("연 음악이 없습니다. 파일을 끌어다 놓아도 됩니다."),
                        juce::dontSendNotification);
 
     playButton.setButtonText (track.isPlaying() ? ko ("일시 정지") : ko ("재생"));
@@ -494,7 +494,7 @@ void TrackPage::tick()
     else if (audio.getRecordingFile() != juce::File())
         recordLabel.setText (ko ("저장했습니다: ") + audio.getRecordingFile().getFullPathName(), juce::dontSendNotification);
     else
-        recordLabel.setText (ko ("지금 나오는 드럼 소리를 파일로 저장합니다. 메트로놈 소리는 들어가지 않습니다."), juce::dontSendNotification);
+        recordLabel.setText (ko ("드럼 소리를 WAV로 저장합니다. 메트로놈은 빠집니다."), juce::dontSendNotification);
 
     juce::String takeText;
 
@@ -505,7 +505,7 @@ void TrackPage::tick()
     else if (session.hasTake())
         takeText << ko ("기록: 타격 ") << session.getTakeHitCount() << ko ("개, 길이 ") << ui::formatTime (session.getTakeLength());
     else
-        takeText << ko ("친 것을 그대로 기록해 두었다가 다시 듣거나, MIDI 파일로 내보내 다른 음악 프로그램에서 쓸 수 있습니다.");
+        takeText << ko ("친 것을 기록해 다시 듣거나 MIDI로 내보냅니다.");
 
     takeLabel.setText (takeText, juce::dontSendNotification);
 
@@ -515,7 +515,7 @@ void TrackPage::tick()
     juce::String timingText;
 
     if (! session.getEngine().isMetronomeOn())
-        timingText << ko ("메트로놈을 켜고 치면, 타격이 16분음표 자리에서 얼마나 벗어났는지 보여 줍니다.");
+        timingText << ko ("메트로놈을 켜고 치면 16분음표에서 얼마나 벗어났는지 보여 줍니다.");
     else if (timing.count == 0)
         timingText << ko ("메트로놈에 맞춰 쳐 보세요.");
     else

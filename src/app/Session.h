@@ -189,8 +189,11 @@ public:
     hvd::ReportInterval getReportInterval (bool ofPedal) const;
 
     //==============================================================================
-    // 전체 음량
-    void setMasterGain (float gain);
+    // 전체 음량 (드럼과 메트로놈에 곱하는 배율. 0 ~ AudioHost::maxMasterGain)
+    /** 소리에는 바로 반영한다. save가 true이면 settings.json에도 적는다.
+        슬라이더는 끄는 동안 false로 부르고, 마우스를 놓은 뒤에 rememberMasterGain()을 부른다. */
+    void setMasterGain (float gain, bool save = true);
+    void rememberMasterGain()                                { setSetting ("masterGain", audio.getMasterGain()); }
     float getMasterGain() const noexcept                     { return audio.getMasterGain(); }
 
     /** 마지막 poll() 사이에 내보낸 소리의 최대 크기(0 ~ 1). 레벨 미터와 상태 표시가 함께 쓴다. */

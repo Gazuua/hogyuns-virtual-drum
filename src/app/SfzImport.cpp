@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Text.h"
+#include "core/Kit.h"
 
 namespace
 {
@@ -340,7 +341,7 @@ SfzImportResult importSfz (const juce::File& sfzFile, const juce::File& kitsFold
         pad->setProperty ("id", id);
         pad->setProperty ("name", name);
         pad->setProperty ("midiNote", note);
-        pad->setProperty ("volume", juce::roundToInt (juce::jlimit (0.0, 4.0, std::pow (10.0, first.volumeDb / 20.0)) * 100.0) / 100.0);
+        pad->setProperty ("volume", juce::roundToInt (juce::jlimit (0.0, static_cast<double> (hvd::maxPadVolume), std::pow (10.0, first.volumeDb / 20.0)) * 100.0) / 100.0);
         pad->setProperty ("pan", juce::jlimit (-1.0, 1.0, first.pan / 100.0));
 
         // SFZ: off_by=X인 소리는 group=X인 소리가 날 때 끊긴다.

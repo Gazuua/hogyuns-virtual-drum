@@ -43,6 +43,7 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     void updateTempoControls();
+    void updateMasterControl();
     void tapTempoFromButton();
     void showAudioSettings();
 
@@ -59,8 +60,12 @@ private:
     float statusPeak = 0.0f;
     int tick = 0;
 
-    juce::Label titleLabel, hintLabel, statusLabel, messageLabel, tempoLabel;
+    juce::Label titleLabel, hintLabel, statusLabel, messageLabel, tempoLabel, masterCaption;
     juce::TextButton audioButton, tempoDownButton, tempoUpButton, tapButton, metronomeButton;
+
+    // 전체 음량. 어느 화면에서든 보이게 윗줄에 둔다 (믹서 화면의 "전체 음량"과 같은 값).
+    juce::Slider masterSlider;
+    bool masterDirty = false;
     juce::Component::SafePointer<juce::DialogWindow> settingsDialog;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

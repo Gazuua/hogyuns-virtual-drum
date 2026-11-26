@@ -496,7 +496,7 @@ void Session::pushPadParams (int pad)
     const auto anySolo = std::find (solo.begin(), solo.end(), true) != solo.end();
 
     hvd::PadParams params;
-    params.volume = static_cast<float> (juce::jlimit (0.0, 4.0, getPadValue (pad, "volume")));
+    params.volume = static_cast<float> (juce::jlimit (0.0, static_cast<double> (hvd::maxPadVolume), getPadValue (pad, "volume")));
     params.pan = static_cast<float> (juce::jlimit (-1.0, 1.0, getPadValue (pad, "pan")));
     params.pitchRatio = static_cast<float> (std::pow (2.0, juce::jlimit (-24.0, 24.0, getPadValue (pad, "pitch")) / 12.0));
     params.reverbSend = static_cast<float> (juce::jlimit (0.0, 1.0, getPadValue (pad, "reverbSend")));
@@ -976,10 +976,12 @@ hvd::ReportInterval Session::getReportInterval (bool ofPedal) const
 }
 
 //==============================================================================
-void Session::setMasterGain (float gain)
+void Session::setMasterGain (float gain, bool save)
 {
     audio.setMasterGain (juce::jlimit (0.0f, AudioHost::maxMasterGain, gain));
-    setSetting ("masterGain", audio.getMasterGain());
+
+    if (save)
+        rememberMasterGain();
 }
 
 juce::String Session::loadTrack (const juce::File& file)

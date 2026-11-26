@@ -322,7 +322,7 @@ KeysPage::KeysPage (Session& sessionToUse)
 
     ui::setupButton (*this, duplicateButton, ko ("복제"), [this]
     {
-        ui::promptForText (this, ko ("키 배열 복제"), ko ("지금 키 배열을 복사해 새로 만듭니다. 새 이름을 적으세요."),
+        ui::promptForText (this, ko ("키 배열 복제"), ko ("지금 키 배열을 복사해 새로 만듭니다. 이름을 적으세요."),
                            session.getKeymapName() + "-2",
                            [this] (juce::String name)
                            {
@@ -355,7 +355,7 @@ KeysPage::KeysPage (Session& sessionToUse)
                 ui::showMessage (ko ("되돌리지 못했습니다"), error);
         });
     });
-    restoreButton.setTooltip (ko ("키 배열을 고칠 때마다 고치기 전의 상태가 남습니다. 그 가운데 하나로 되돌립니다."));
+    restoreButton.setTooltip (ko ("고치기 전 상태로 되돌립니다."));
 
     ui::setupLabel (*this, quickCaption, ko ("빠른 지정"), 14.0f, ui::quietText);
     ui::setupCombo (*this, quickPadCombo, [] {});
@@ -853,7 +853,7 @@ void KeysPage::showBinding()
     removeButton.setEnabled (count > 0);
 
     emptyHint.setText (hasKey ? ko ("이 키에는 아직 지정된 동작이 없습니다. \"이 키에 동작 추가\"를 누르세요.")
-                              : ko ("위 그림에서 키를 클릭하거나 키보드의 키를 누르면 그 키가 선택됩니다."),
+                              : ko ("위 그림의 키를 클릭하거나 키보드에서 누르세요."),
                        juce::dontSendNotification);
 
     for (auto& row : rows)
@@ -1060,7 +1060,7 @@ void KeysPage::updatePedalStatus()
         }
         else
         {
-            text = ko ("풋스위치를 꽂고 등록하면 키보드의 키와 따로 지정할 수 있습니다");
+            text = ko ("풋스위치를 등록하면 키보드와 따로 정할 수 있습니다");
         }
 
         // 견주어 볼 수 있게 키보드의 것도 보여 준다.

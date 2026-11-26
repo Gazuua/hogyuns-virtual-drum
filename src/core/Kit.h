@@ -27,6 +27,10 @@ struct Layer
     std::vector<std::uint32_t> samples;    // Kit::samples의 번호. 칠 때마다 번갈아 쓴다
 };
 
+/** 패드 음량(배율)의 한도. 킷 화면과 믹서의 슬라이더, 킷 불러오기가 모두 이 값을 쓴다.
+    10배는 +20dB다. 드럼 버스의 리미터가 꼭대기를 붙잡으므로 크게 올려도 찢어지지는 않는다. */
+constexpr float maxPadVolume = 10.0f;
+
 /** 소리가 나는 단위 하나. 예: 스네어, 라이드 벨. */
 struct Pad
 {

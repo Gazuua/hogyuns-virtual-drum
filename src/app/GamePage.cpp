@@ -6,9 +6,9 @@ namespace
 const char* const levelNames[hvd::numChartLevels] = { "가볍게", "보통", "어렵게", "원곡" };
 
 const char* const levelHints[hvd::numChartLevels] = {
-    "킥과 스네어만, 4분음표 자리에서",
-    "킥과 스네어는 8분음표, 하이햇과 라이드는 4분음표 자리에서",
-    "킥과 스네어는 16분음표, 하이햇과 라이드는 8분음표 자리에서",
+    "킥·스네어만, 4분음표",
+    "킥·스네어 8분, 하이햇·라이드 4분음표",
+    "킥·스네어 16분, 하이햇·라이드 8분음표",
     "받아 적은 그대로",
 };
 
@@ -154,13 +154,13 @@ GamePage::GamePage (Session& sessionToUse)
 
     setupToggle (*this, drumlessToggle, ko ("원곡의 드럼을 빼고 틀기"), [this] { session.setSetting ("gameDrumless", drumlessToggle.getToggleState()); });
     drumlessToggle.setToggleState (static_cast<bool> (session.getSetting ("gameDrumless", true)), juce::dontSendNotification);
-    drumlessToggle.setTooltip (ko ("드럼을 분리해 채보를 만든 곡에서만 쓸 수 있습니다. 내가 치는 드럼만 들립니다."));
+    drumlessToggle.setTooltip (ko ("드럼을 분리한 곡에서만 됩니다. 내가 친 드럼만 들립니다."));
 
     setupToggle (*this, relaxedToggle, ko ("비슷한 악기는 바꿔 쳐도 인정"), [this] { session.setSetting ("gameRelaxed", relaxedToggle.getToggleState()); });
     relaxedToggle.setToggleState (static_cast<bool> (session.getSetting ("gameRelaxed", false)), juce::dontSendNotification);
-    relaxedToggle.setTooltip (ko ("탐끼리, 심벌끼리(크래시, 하이햇, 라이드)는 다른 것을 쳐도 맞은 것으로 봅니다."));
+    relaxedToggle.setTooltip (ko ("탐끼리, 심벌끼리는 바꿔 쳐도 맞은 것으로 봅니다."));
 
-    setupToggle (*this, autoplayToggle, ko ("오토 모드 (프로그램이 대신 완벽하게 연주)"), [] {});
+    setupToggle (*this, autoplayToggle, ko ("오토 모드 (대신 연주)"), [] {});
     autoplayToggle.setTooltip (ko ("프로그램이 채보대로 정확한 박자에 대신 칩니다. 기록은 남지 않습니다. 연주 도중에도 아래의 \"오토\" 버튼으로 켜고 끌 수 있습니다."));
 
     ui::setupLabel (*this, orderLabel, ko ("레인 순서"), 13.5f, ui::quietText);
@@ -198,7 +198,7 @@ GamePage::GamePage (Session& sessionToUse)
         // 많은 곡은 오래 걸리므로 한 번 물어본다.
         if (wanted.size() > 20)
             ui::confirm (this, ko ("여러 곡 분석"),
-                         juce::String (static_cast<int> (wanted.size())) + ko ("곡의 채보를 만듭니다. 곡마다 30초에서 1분쯤 걸리고, 중간에 멈출 수 있습니다. 시작할까요?"),
+                         juce::String (static_cast<int> (wanted.size())) + ko ("곡의 채보를 만듭니다. 곡당 30초~1분, 중간에 멈출 수 있습니다. 시작할까요?"),
                          queue);
         else
             queue();
@@ -221,7 +221,7 @@ GamePage::GamePage (Session& sessionToUse)
     library.setUseSeparator (separatorToggle.getToggleState());
 
     if (! library.isSeparatorInstalled())
-        separatorToggle.setTooltip (ko ("드럼 분리 도구가 설치돼 있지 않습니다 (tools/setup-demucs.ps1). 완성곡에서 바로 받아 적습니다."));
+        separatorToggle.setTooltip (ko ("드럼 분리 도구가 없어 완성곡에서 바로 받아 적습니다 (tools/setup-demucs.ps1)."));
 
     ui::setupLabel (*this, progressLabel, {}, 13.0f, ui::warningText);
     progressLabel.setJustificationType (juce::Justification::topLeft);
@@ -240,7 +240,7 @@ GamePage::GamePage (Session& sessionToUse)
     ui::setupButton (*this, autoButton, ko ("오토"), [this] { runner.setAutoplay (autoButton.getToggleState()); });
     autoButton.setClickingTogglesState (true);
     autoButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff7a5a1e));
-    autoButton.setTooltip (ko ("켜면 그때부터 프로그램이 대신 칩니다. 한 번이라도 켜면 그 판은 기록으로 남지 않습니다."));
+    autoButton.setTooltip (ko ("프로그램이 대신 칩니다. 켠 판은 기록이 남지 않습니다."));
     ui::setupButton (*this, retryButton, ko ("다시 하기"), [this]
     {
         if (playingSong >= 0)
@@ -259,7 +259,7 @@ GamePage::GamePage (Session& sessionToUse)
         applyOffsetButton.setButtonText (ko ("보정했습니다"));
     });
 
-    ui::setupLabel (*this, playHintLabel, ko ("Esc: 잠깐 멈춤  ·  노트가 흰 줄에 닿을 때 그 레인의 악기를 칩니다. 킥은 가로 막대입니다.  ·  \"오토\"를 켜면 프로그램이 대신 칩니다."), 13.5f, ui::quietText);
+    ui::setupLabel (*this, playHintLabel, ko ("Esc: 잠깐 멈춤  ·  노트가 흰 줄에 닿을 때 치기 (킥은 가로 막대)  ·  오토: 대신 연주"), 13.5f, ui::quietText);
 
     library.addChangeListener (this);
     session.addChangeListener (this);
@@ -414,7 +414,7 @@ void GamePage::updateSelection()
     if (! valid)
     {
         songTitleLabel.setText (ko ("곡을 고르세요"), juce::dontSendNotification);
-        songInfoLabel.setText (ko ("왼쪽 목록에서 곡을 고르면 채보를 만들고 시작할 수 있습니다. 두 번 누르면 바로 시작합니다."), juce::dontSendNotification);
+        songInfoLabel.setText (ko ("왼쪽에서 곡을 고르세요. 두 번 누르면 바로 시작합니다."), juce::dontSendNotification);
     }
 
     for (int level = 0; level < hvd::numChartLevels; ++level)
@@ -463,7 +463,7 @@ void GamePage::updateSelection()
     }
     else
     {
-        info << ko ("아직 채보가 없습니다. 시작을 누르면 먼저 채보를 만듭니다.");
+        info << ko ("채보가 없습니다. 시작하면 먼저 만듭니다.");
     }
 
     songInfoLabel.setText (info, juce::dontSendNotification);

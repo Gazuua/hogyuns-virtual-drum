@@ -412,7 +412,7 @@ void PracticePage::paint (juce::Graphics& g)
     {
         g.setColour (ui::quietText);
         g.setFont (juce::FontOptions (15.0f));
-        g.drawFittedText (ko ("아직 남은 기록이 없습니다.\n\n반주 화면이나 리듬 게임에서 곡을 틀고 따라 치면 여기에 쌓입니다.\n녹음 버튼을 누를 필요는 없습니다."),
+        g.drawFittedText (ko ("기록이 없습니다.\n\n반주 화면이나 리듬 게임에서 곡을 틀고 치면 쌓입니다. 녹음은 필요 없습니다."),
                           panel.reduced (40), juce::Justification::centred, 6);
         return;
     }
@@ -436,7 +436,7 @@ void PracticePage::paint (juce::Graphics& g)
     if (! row.hasChart)
     {
         g.setFont (juce::FontOptions (15.0f));
-        g.drawFittedText (ko ("이 곡의 채보가 없어서 박자를 재지 못했습니다.\n리듬 게임 화면에서 이 곡의 채보를 만들면 여기에 박자가 나옵니다."),
+        g.drawFittedText (ko ("채보가 없어 박자를 재지 못했습니다.\n리듬 게임에서 이 곡의 채보를 만들면 나옵니다."),
                           panel.reduced (40).withTrimmedTop (80), juce::Justification::centred, 4);
         return;
     }
@@ -469,7 +469,7 @@ void PracticePage::paint (juce::Graphics& g)
     g.setColour (ui::quietText);
     g.setFont (juce::FontOptions (13.0f));
     g.drawText (ko ("악기별 박자  ·  띠는 타격의 가운데 80%, 흰 눈금은 가운뎃값"), layout.rowsCaption, juce::Justification::centredLeft);
-    g.drawText (ko ("곡의 흐름  ·  네 마디씩 묶은 가운뎃값(선)과 가운데 80%(띠), 점은 타격 하나하나"), layout.flowCaption, juce::Justification::centredLeft);
+    g.drawText (ko ("곡의 흐름  ·  선은 네 마디의 가운뎃값, 띠는 가운데 80%, 점은 타격"), layout.flowCaption, juce::Justification::centredLeft);
     g.drawText (trendText, layout.trend, juce::Justification::centredLeft, true);
 }
 
@@ -675,7 +675,7 @@ void PracticePage::showTake (int index)
 
         if (same.size() < 2)
         {
-            trendText = ko ("이 곡은 처음 친 기록입니다. 다시 치면 여기에 박에 맞은 비율이 차례로 나옵니다.");
+            trendText = ko ("이 곡의 첫 기록입니다. 다시 치면 비교가 나옵니다.");
         }
         else
         {
@@ -702,7 +702,7 @@ void PracticePage::showHover (const hvd::PracticeSection* section)
 {
     if (section == nullptr)
     {
-        hoverLabel.setText (ko ("그래프 위에 마우스를 올리면 그 구간의 수치가 나옵니다."), juce::dontSendNotification);
+        hoverLabel.setText (ko ("마우스를 올리면 구간의 수치가 나옵니다."), juce::dontSendNotification);
         return;
     }
 

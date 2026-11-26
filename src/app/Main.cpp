@@ -398,6 +398,7 @@ bool checkDocuments (const juce::File& dataRoot, const juce::File& temp, juce::S
     expect (kit.load (kitCopy), "kit: load");
     const auto numPads = kit.getPadIds().size();
     kit.setPadNumber ("snare", "volume", 0.5);
+    kit.setPadNumber ("kick", "volume", 7.5);    // 예전 한도(4)를 넘는 값도 그대로 읽혀야 한다
 
     const auto newPad = kit.addPad ("test pad");
     expect (kit.setPadSamples (newPad, juce::Array<juce::File> (outsideSample), false).isEmpty(), "kit: set samples of the new pad");
@@ -414,6 +415,8 @@ bool checkDocuments (const juce::File& dataRoot, const juce::File& temp, juce::S
         const auto snare = loaded.kit->findPad ("snare");
         const auto added2 = loaded.kit->findPad (newPad.toStdString());
         expect (snare >= 0 && std::abs (loaded.kit->pads[static_cast<std::size_t> (snare)].volume - 0.5f) < 1.0e-6f, "kit: changed volume was saved");
+        const auto kick = loaded.kit->findPad ("kick");
+        expect (kick >= 0 && std::abs (loaded.kit->pads[static_cast<std::size_t> (kick)].volume - 7.5f) < 1.0e-6f, "kit: a volume above 4 is kept (limit 10)");
         expect (added2 >= 0 && loaded.kit->pads[static_cast<std::size_t> (added2)].layers.size() == 1, "kit: new pad plays its sample");
     }
 

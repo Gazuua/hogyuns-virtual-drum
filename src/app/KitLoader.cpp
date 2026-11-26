@@ -238,7 +238,7 @@ KitLoadResult loadKit (const juce::File& kitFile)
 
         const auto name = padVar["name"].toString();
         pad.name = name.isNotEmpty() ? name.toStdString() : pad.id;
-        pad.volume = juce::jlimit (0.0f, 4.0f, numberOr (padVar, "volume", 1.0f));
+        pad.volume = juce::jlimit (0.0f, hvd::maxPadVolume, numberOr (padVar, "volume", 1.0f));
         pad.pan = juce::jlimit (-1.0f, 1.0f, numberOr (padVar, "pan", 0.0f));
         pad.pitchRatio = std::pow (2.0f, juce::jlimit (-24.0f, 24.0f, numberOr (padVar, "pitch", 0.0f)) / 12.0f);
         pad.velocityCurve = juce::jlimit (0.0f, 4.0f, numberOr (padVar, "velocityCurve", kitCurve));

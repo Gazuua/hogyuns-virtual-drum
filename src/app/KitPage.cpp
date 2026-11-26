@@ -36,7 +36,7 @@ KitPage::KitPage (Session& sessionToUse)
                 ui::showMessage (ko ("되돌리지 못했습니다"), error);
         });
     });
-    restoreButton.setTooltip (ko ("킷을 고칠 때마다 고치기 전의 상태가 남습니다. 그 가운데 하나로 되돌립니다."));
+    restoreButton.setTooltip (ko ("고치기 전 상태로 되돌립니다."));
     ui::setupLabel (*this, kitInfo, {}, 13.0f, ui::quietText);
 
     padList.setRowHeight (26);
@@ -60,15 +60,17 @@ KitPage::KitPage (Session& sessionToUse)
         double minimum, maximum, step, defaultValue;
         const char* suffix;
         int decimals;
+        double midPoint;    // 0이 아니면 슬라이더 가운데에 이 값이 오게 한다 (넓은 범위에서 자주 쓰는 쪽을 세밀하게)
     };
 
+    // 음량은 0 ~ 10배. 1.0을 가운데에 두어, 왼쪽 절반이 0 ~ 1, 오른쪽 절반이 1 ~ 10이다.
     const FieldSpec specs[] = {
-        { "volume", "음량", 0.0, 2.0, 0.01, 1.0, "", 2 },
-        { "pan", "팬 (− 왼쪽, + 오른쪽)", -1.0, 1.0, 0.01, 0.0, "", 2 },
-        { "pitch", "피치 (반음)", -12.0, 12.0, 0.1, 0.0, "", 1 },
-        { "reverbSend", "리버브로 보내는 양", 0.0, 1.0, 0.01, 1.0, "", 2 },
-        { "startMs", "시작 지점 (앞부분 건너뛰기)", 0.0, 200.0, 0.5, 0.0, " ms", 1 },
-        { "velocityCurve", "세기 곡선 (클수록 약한 타가 더 작게)", 0.2, 2.5, 0.05, 1.0, "", 2 },
+        { "volume", "음량 (0 ~ 10배)", 0.0, static_cast<double> (hvd::maxPadVolume), 0.01, 1.0, "", 2, 1.0 },
+        { "pan", "팬 (− 왼쪽, + 오른쪽)", -1.0, 1.0, 0.01, 0.0, "", 2, 0.0 },
+        { "pitch", "피치 (반음)", -12.0, 12.0, 0.1, 0.0, "", 1, 0.0 },
+        { "reverbSend", "리버브로 보내는 양", 0.0, 1.0, 0.01, 1.0, "", 2, 0.0 },
+        { "startMs", "시작 지점 (앞부분 건너뛰기)", 0.0, 200.0, 0.5, 0.0, " ms", 1, 0.0 },
+        { "velocityCurve", "세기 곡선 (클수록 약한 타가 더 작게)", 0.2, 2.5, 0.05, 1.0, "", 2, 0.0 },
     };
 
     for (std::size_t i = 0; i < fields.size(); ++i)
@@ -79,6 +81,9 @@ KitPage::KitPage (Session& sessionToUse)
         field.name = spec.name;
         ui::setupLabel (*this, field.caption, ko (spec.caption), 13.0f, ui::quietText);
         ui::setupSlider (*this, field.slider, spec.minimum, spec.maximum, spec.step, spec.defaultValue, ko (spec.suffix), spec.decimals);
+
+        if (spec.midPoint != 0.0)
+            field.slider.setSkewFactorFromMidPoint (spec.midPoint);
 
         field.slider.onValueChange = [this, &field]
         {
@@ -100,22 +105,22 @@ KitPage::KitPage (Session& sessionToUse)
     });
     ui::setupButton (*this, previousSoundButton, "<", [this] { chooseSound (session.getKitDocument().getPadSoundIndex (selectedPadId()) - 1); });
     ui::setupButton (*this, nextSoundButton, ">", [this] { chooseSound (session.getKitDocument().getPadSoundIndex (selectedPadId()) + 1); });
-    previousSoundButton.setTooltip (ko ("앞의 소리로 바꿔 들어 보기"));
-    nextSoundButton.setTooltip (ko ("다음 소리로 바꿔 들어 보기"));
+    previousSoundButton.setTooltip (ko ("앞 소리"));
+    nextSoundButton.setTooltip (ko ("다음 소리"));
 
-    familyButton.setButtonText (ko ("같은 악기의 다른 패드도 함께 바꾸기 (하이햇의 닫힘·열림·페달, 스네어의 림샷 등)"));
+    familyButton.setButtonText (ko ("같은 악기의 패드도 함께 바꾸기 (하이햇, 스네어 등)"));
     familyButton.setToggleState (true, juce::dontSendNotification);
     ui::noFocus (familyButton);
     addAndMakeVisible (familyButton);
 
-    ui::setupLabel (*this, samplesCaption, ko ("샘플 (세기 구간마다 한 줄. 같은 구간의 샘플은 칠 때마다 번갈아 납니다)"), 13.0f, ui::quietText);
+    ui::setupLabel (*this, samplesCaption, ko ("샘플 (세기 구간마다 한 줄, 같은 줄은 번갈아 냄)"), 13.0f, ui::quietText);
     ui::setupLabel (*this, samplesText, {}, 13.0f);
     samplesText.setJustificationType (juce::Justification::topLeft);
 
     ui::setupButton (*this, replaceButton, ko ("샘플 바꾸기…"), [this] { chooseSamples (false); });
     ui::setupButton (*this, appendButton, ko ("샘플 더하기…"), [this] { chooseSamples (true); });
     ui::setupLabel (*this, hintLabel,
-                    ko ("소리 파일(wav, flac, mp3, ogg)을 이 화면에 끌어다 놓아도 됩니다. 그냥 놓으면 바꾸고, Ctrl을 누른 채 놓으면 더합니다."),
+                    ko ("소리 파일을 끌어다 놓으면 바꿉니다. Ctrl을 누른 채 놓으면 더합니다."),
                     13.0f, ui::quietText);
 
     session.addChangeListener (this);
@@ -349,7 +354,7 @@ void KitPage::showPad()
     for (const auto& line : session.getKitDocument().describeSamples (id))
         lines.add (line.length() > 150 ? line.substring (0, 150) + " …" : line);
 
-    samplesText.setText (lines.isEmpty() ? ko ("아직 샘플이 없습니다. 아래 버튼으로 고르거나 파일을 끌어다 놓으세요.")
+    samplesText.setText (lines.isEmpty() ? ko ("샘플이 없습니다. 아래 버튼으로 고르거나 파일을 끌어다 놓으세요.")
                                         : lines.joinIntoString ("\n"),
                          juce::dontSendNotification);
 
@@ -466,7 +471,7 @@ void KitPage::renamePad()
 
 void KitPage::addPad()
 {
-    ui::promptForText (this, ko ("패드 추가"), ko ("새 패드의 이름을 적으세요. 만든 뒤에 샘플을 넣고, 키 배열 화면에서 키를 지정하면 됩니다."),
+    ui::promptForText (this, ko ("패드 추가"), ko ("새 패드의 이름을 적으세요. 샘플과 키는 만든 뒤에 정합니다."),
                        ko ("새 패드"),
                        [this] (juce::String name)
                        {
@@ -497,7 +502,7 @@ void KitPage::removePad()
 void KitPage::duplicateKit()
 {
     ui::promptForText (this, ko ("킷 복제"),
-                       ko ("지금 킷을 통째로 복사해 새 킷을 만듭니다. 새 킷의 이름을 적으세요."),
+                       ko ("지금 킷을 복사해 새로 만듭니다. 이름을 적으세요."),
                        session.getKitDocument().getName() + ko (" 사본"),
                        [this] (juce::String name)
                        {
@@ -567,8 +572,8 @@ void KitPage::importSfzKit()
                               if (result.numMissing > 0)
                                   summary << "\n" << ko ("찾지 못한 샘플 파일: ") << result.numMissing << ko ("개");
 
-                              summary << "\n\n" << ko ("샘플은 복사하지 않고 원래 자리의 파일을 씁니다. 그 폴더를 옮기거나 지우면 소리가 나지 않습니다.")
-                                      << "\n" << ko ("표준 드럼 번호가 아닌 패드는 키 배열 화면에서 키를 지정해 주세요.");
+                              summary << "\n\n" << ko ("샘플은 원래 자리의 파일을 씁니다. 그 폴더를 옮기면 소리가 나지 않습니다.")
+                                      << "\n" << ko ("표준 드럼 번호가 아닌 패드는 키 배열 화면에서 키를 정하세요.");
                               ui::showMessage (ko ("SFZ를 가져왔습니다"), summary);
                           });
 }

@@ -516,7 +516,7 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
     {
         g.setColour (ui::warningText);
         g.drawFittedText (setup.autoplay ? ko ("오토 모드: 프로그램이 대신 칩니다. 기록은 남지 않습니다.")
-                                         : ko ("오토 모드를 쓴 판이라 기록은 남지 않습니다."),
+                                         : ko ("오토 모드를 써서 기록이 남지 않습니다."),
                           area.removeFromTop (36), juce::Justification::topLeft, 2);
     }
 }
@@ -538,7 +538,7 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
 
     g.setColour (ui::quietText);
     g.setFont (juce::FontOptions (14.0f));
-    g.drawText (runner->wasAssisted() ? ko ("결과 (오토 모드를 써서 기록은 남지 않습니다)") : ko ("결과"), area.removeFromTop (20), juce::Justification::centred);
+    g.drawText (runner->wasAssisted() ? ko ("결과 (오토 모드, 기록 안 남음)") : ko ("결과"), area.removeFromTop (20), juce::Justification::centred);
 
     const auto grade = game.getGrade();
     g.setColour (grade == 'S' ? perfectColour : (grade == 'A' ? greatColour : (grade == 'B' ? goodColour : juce::Colours::white)));

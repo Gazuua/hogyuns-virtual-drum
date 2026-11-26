@@ -18,13 +18,13 @@ const char* const pageNames[MainComponent::numPages] = { "play", "kit", "keys", 
 const char* const pageTitles[MainComponent::numPages] = { "연주", "킷", "키 배열", "믹서", "반주 · 녹음", "리듬 게임", "연습 기록" };
 
 const char* const pageHints[MainComponent::numPages] = {
-    "이 창이 맨 앞에 있을 때 키를 누르면 연주됩니다. 패드를 클릭해도 소리가 납니다.",
-    "패드를 골라 샘플을 바꾸고 소리를 다듬습니다. 고치면 바로 저장됩니다.",
-    "키를 골라 그 키가 할 일을 정합니다. 고치면 바로 저장되고 연주에 반영됩니다.",
-    "패드별 음량과 드럼 전체의 이펙트입니다. 킷 파일에 함께 저장됩니다.",
-    "음악에 맞춰 치고, 친 것을 녹음하거나 기록해 다시 들어 봅니다.",
-    "음악 폴더의 곡에서 드럼을 받아 적어, 내려오는 노트에 맞춰 칩니다.",
-    "곡을 틀고 따라 친 것이 저절로 쌓입니다. 박자가 얼마나 맞았는지 봅니다.",
+    "키를 누르거나 패드를 클릭해 연주합니다.",
+    "패드마다 소리를 고르고 다듬습니다. 바로 저장됩니다.",
+    "키마다 칠 패드와 주법을 정합니다. 바로 저장됩니다.",
+    "패드별 음량과 드럼 전체 이펙트. 킷에 저장됩니다.",
+    "음악에 맞춰 치고 녹음합니다.",
+    "곡에서 뽑은 채보에 맞춰 칩니다.",
+    "곡에 맞춰 친 기록과 박자.",
 };
 
 } // namespace
@@ -73,6 +73,19 @@ MainComponent::MainComponent (const Options& options)
     tempoLabel.setFont (juce::FontOptions (15.0f, juce::Font::bold));
     tempoLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (tempoLabel);
+
+    // 전체 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다(timerCallback). 두 번 누르면 기본값.
+    ui::setupLabel (*this, masterCaption, ko ("전체 음량"), 13.0f, ui::quietText);
+    masterCaption.setJustificationType (juce::Justification::centredRight);
+    ui::setupSlider (*this, masterSlider, 0.0, AudioHost::maxMasterGain, 0.01, AudioHost::defaultMasterGain);
+    masterSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 22);
+    masterSlider.setTooltip (ko ("드럼과 메트로놈의 음량. 두 번 누르면 ") + juce::String (AudioHost::defaultMasterGain, 1));
+    masterSlider.setValue (session.getMasterGain(), juce::dontSendNotification);
+    masterSlider.onValueChange = [this]
+    {
+        session.setMasterGain (static_cast<float> (masterSlider.getValue()), false);
+        masterDirty = true;
+    };
 
     statusLabel.setFont (juce::FontOptions (13.0f));
     statusLabel.setColour (juce::Label::textColourId, ui::quietText);
@@ -164,6 +177,9 @@ void MainComponent::resized()
     tempoUpButton.setBounds (tempoRow.removeFromRight (30));
     tempoLabel.setBounds (tempoRow.removeFromRight (88));
     tempoDownButton.setBounds (tempoRow.removeFromRight (30));
+    tempoRow.removeFromRight (16);
+    masterSlider.setBounds (tempoRow.removeFromRight (170));
+    masterCaption.setBounds (tempoRow.removeFromRight (64));
     tempoRow.removeFromRight (12);
     hintLabel.setBounds (tempoRow);
 
@@ -223,6 +239,12 @@ void MainComponent::updateTempoControls()
     metronomeButton.setColour (juce::TextButton::buttonColourId,
                                on ? metronomeOnColour
                                   : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+}
+
+void MainComponent::updateMasterControl()
+{
+    if (! masterSlider.isMouseButtonDown() && std::abs (masterSlider.getValue() - session.getMasterGain()) > 0.001)
+        masterSlider.setValue (session.getMasterGain(), juce::dontSendNotification);
 }
 
 void MainComponent::tapTempoFromButton()
@@ -356,6 +378,13 @@ void MainComponent::timerCallback()
     {
         refreshStatus();
         updateTempoControls();    // 키로 템포나 메트로놈을 바꿨을 때 화면에 반영한다
+        updateMasterControl();    // 믹서 화면에서 전체 음량을 바꿨을 때 반영한다
+    }
+
+    if (masterDirty && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+    {
+        masterDirty = false;
+        session.rememberMasterGain();
     }
 
     // 창이 다시 만들어져 핸들이 바뀌는 경우에 대비해 주기적으로 맞춰 둔다.

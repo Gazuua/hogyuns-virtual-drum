@@ -56,7 +56,9 @@ public:
 
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::TextBoxBelow, false, stripWidth - 10, 18);
-        fader.setRange (0.0, 2.0, 0.01);
+        // 패드 음량은 0 ~ 10배. 1.0이 가운데에 오게 해서 자주 쓰는 0 ~ 2를 세밀하게 움직인다.
+        fader.setRange (0.0, static_cast<double> (hvd::maxPadVolume), 0.01);
+        fader.setSkewFactorFromMidPoint (1.0);
         fader.setDoubleClickReturnValue (true, 1.0);
         fader.setScrollWheelEnabled (false);
         ui::noFocus (fader);
@@ -178,10 +180,14 @@ MixerPage::MixerPage (Session& sessionToUse)
     ui::setupSlider (*this, reverbDamp, 0.0, 1.0, 0.01, 0.5);
     addAndMakeVisible (masterMeter);
 
+    // 전체 음량은 윗줄의 슬라이더와 같은 값이다. 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다.
     masterSlider.onValueChange = [this]
     {
-        if (! updating)
-            session.setMasterGain (static_cast<float> (masterSlider.getValue()));
+        if (updating)
+            return;
+
+        session.setMasterGain (static_cast<float> (masterSlider.getValue()), false);
+        masterDirty = true;
     };
 
     for (auto* slider : { &eqLow, &eqMid, &eqHigh, &comp, &reverbLevel, &reverbSize, &reverbDamp })
@@ -346,6 +352,13 @@ void MixerPage::tick()
         const auto reduction = session.getEngine().getGainReductionDb();
         reductionLabel.setText (comp.getValue() > 0.0 ? ko ("지금 줄이는 양: ") + juce::String (reduction, 1) + " dB" : juce::String(),
                                 juce::dontSendNotification);
+
+        // 윗줄의 전체 음량 슬라이더로 바꾼 값을 따라간다.
+        if (! masterSlider.isMouseButtonDown() && std::abs (masterSlider.getValue() - session.getMasterGain()) > 0.001)
+        {
+            const juce::ScopedValueSetter<bool> guard (updating, true);
+            masterSlider.setValue (session.getMasterGain(), juce::dontSendNotification);
+        }
     }
 
     // 고친 값은 마우스를 놓은 뒤에 킷 파일에 저장한다.
@@ -353,5 +366,11 @@ void MixerPage::tick()
     {
         dirty = false;
         session.saveKit (false);
+    }
+
+    if (masterDirty && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+    {
+        masterDirty = false;
+        session.rememberMasterGain();
     }
 }
