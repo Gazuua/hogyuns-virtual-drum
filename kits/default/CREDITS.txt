@@ -1,5 +1,40 @@
-이 킷의 샘플은 Karoryfer Samples - Big Rusty Drums에서 가져왔습니다.
-출처: https://github.com/sfzinstruments/karoryfer.big-rusty-drums.git (커밋 f07ce00df34a46b6b08375be56fe116cf15782bc)
-라이선스: CC0 1.0 Universal (퍼블릭 도메인 기증)
+이 킷의 소리는 아래 라이브러리에서 만들었습니다. 마이크별 파일을 섞고, 48kHz로 바꾸고, 세기 단계와 번갈아 낼 샘플을
+골라 담고, 음량을 맞췄습니다(tools/build_default_kit.py, tools/build_sounds.py). 원래 녹음을 가공한 것입니다.
 
-tools/build_default_kit.py 가 마이크별 파일을 섞고 48kHz로 변환해 만들었습니다.
+소리는 samples/<패드>/<소리 id>/에 있고, 소리 id의 앞부분이 라이브러리입니다.
+"original"과 크래시 후보 셋(crash_bright, crash_trash, crash_stack)은 Big Rusty Drums입니다.
+
+
+[CC0 1.0 Universal (퍼블릭 도메인 기증)] https://creativecommons.org/publicdomain/zero/1.0/
+
+- Big Rusty Drums, Karoryfer Samples
+  https://github.com/sfzinstruments/karoryfer.big-rusty-drums  (소리 id: original, big-rusty-*)
+- Frankensnare, Karoryfer Samples
+  https://github.com/sfzinstruments/karoryfer.frankensnare  (frank-*)
+- Swirly Drums, Karoryfer Samples
+  https://github.com/sfzinstruments/karoryfer.swirly-drums  (swirly*)
+- Gogodze Phu Vol II, Karoryfer Samples
+  https://github.com/sfzinstruments/karoryfer.gogodze-phu-vol-ii  (gogodze*)
+- Virtuosity Drums, Versilian Studios와 Karoryfer Samples
+  https://github.com/sfzinstruments/virtuosity_drums  (virtuosity*)
+
+
+[CC BY 4.0 (출처 표시)] https://creativecommons.org/licenses/by/4.0/
+
+- Naked Drums, Wilkinson Audio
+  https://github.com/sfzinstruments/WilkinsonAudio.NakedDrums  (naked*)
+- DRSKit, DrumGizmo (Lars Muldjord, Bent Bisballe Nyeng). SFZ 변환 kinwie
+  https://github.com/sfzinstruments/DrumGizmo.DRSKit  (drs*)
+- MuldjordKit, DrumGizmo (Lars Muldjord, Bent Bisballe Nyeng). SFZ 변환 kinwie
+  https://github.com/sfzinstruments/DrumGizmo.MuldjordKit  (muldjord*)
+
+
+[CC BY-SA (출처 표시, 동일 조건 변경 허락)]
+아래 라이브러리에서 만든 소리는 원본과 같은 라이선스로 공개합니다.
+
+- Sam's Sonor (Sonor Force 3001), Sam Greene. SFZ 재구성 kinwie. CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/
+  https://github.com/sfzinstruments/SamsSonor  (sonor*)
+- AVL Drumkits (Black Pearl, Red Zeppelin), Glen MacArthur. CC BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+  https://www.bandshed.net/avldrumkits/ , https://github.com/studiorack/avl-drumkits  (avl-pearl*, avl-zeppelin*)
+- Salamander Drumkit, Alexander Holm. CC BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+  https://archive.org/details/SalamanderDrumkit  (salamander*)

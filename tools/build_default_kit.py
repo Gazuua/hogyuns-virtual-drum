@@ -470,7 +470,7 @@ def main() -> int:
     kit = {
         "name": "Big Rusty (기본 킷)",
         "source": f"{SOURCE_NAME} ({REPO_URL} @ {commit[:12]})",
-        "license": "CC0-1.0",
+        "license": "CC0 등",
         "build": {"scale": round(scale, 6)},
         # 칠 때마다 음량과 음높이를 조금씩 흔든다. 사용자가 고친 값이 있으면 그 값을 유지한다.
         "humanize": previous.get("humanize", {"volume": 0.04, "pitchCents": 3}),

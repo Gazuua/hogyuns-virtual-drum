@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """모아 둔 소리를 만든다.
 
-external/sample-libraries 에 받아 둔 드럼 라이브러리(모두 CC0)에서 악기별 소리를 골라, 마이크별로 나뉜
+external/sample-libraries 에 받아 둔 드럼 라이브러리(CC0, CC BY, CC BY-SA. 출처는 kits/default/CREDITS.txt)에서 악기별 소리를 골라, 마이크별로 나뉜
 파일을 하나로 섞고 48kHz FLAC으로 저장한 뒤, 킷의 패드마다 "sounds" 목록에 적어 넣는다.
 프로그램의 킷 화면에서 패드마다 이 목록 가운데 하나를 골라 쓴다.
 
@@ -73,15 +73,12 @@ ORIGINALS = {
 # 마이크 배율은 각 라이브러리의 기본 프로그램이 정해 둔 값(0~127)을 127로 나눈 것이다.
 BR_CYMBAL = {"cl": 0.31, "oh": 0.79}
 FRANK = {"top": 0.47, "btm": 0.79, "oh": 0.79}
-UNRULY_13 = {"top": 0.63, "btm": 0.31, "ohl": (0.87, "L"), "ohr": (0.87, "R")}
-UNRULY_14 = {"top": 0.63, "btm": 0.63, "ohl": (0.79, "L"), "ohr": (0.79, "R")}
-UNRULY_22 = {"top": 0.63, "btm": 0.79, "ohl": (0.87, "L"), "ohr": (0.87, "R")}
-# Unruly의 기본 프로그램은 킥의 안쪽 마이크와 심벌·하이햇의 가까운 마이크를 꺼 둔다(오버헤드만 쓴다).
 # 여기서는 타격이 또렷하도록 조금 섞는다.
-UNRULY_KICK = {"out": 0.79, "in": 0.40, "oh": 0.31}
-UNRULY_HAT = {"cl": 0.30, "ohl": (0.63, "L"), "ohr": (0.63, "R")}
-UNRULY_CYMBAL = {"cl": 0.25, "oh": 0.63}
 ONE_FILE = {"-": 1.0}    # 마이크가 나뉘지 않은 소리
+# Gogodze Phu Vol II의 기본 프로그램(Kit.sfz, 마이크 섞기 80): 킥은 킥 마이크 100%에 나머지 60%, 다른 악기는 모두 100%.
+# 오버헤드는 오른쪽, 옆 마이크는 왼쪽. 창가(wndw)와 레트로 마이크는 기본에서 꺼져 있다.
+GOGODZE_KICK = {"kick_mic": 1.0, "snare_mic": 0.6, "oh_mic": (0.6, "R"), "side_mic": (0.6, "L"), "front_mic": 0.6}
+GOGODZE = {"kick_mic": 1.0, "snare_mic": 1.0, "oh_mic": (1.0, "R"), "side_mic": (1.0, "L"), "front_mic": 1.0}
 VIRT = {"kickmic": 1.0, "snaremic": 1.0, "oh": 1.0}
 
 SOUNDS: list[dict] = []
@@ -155,37 +152,6 @@ sound("snare", "frank-20m-tight", "Frankensnare 20x12 오리나무 (조인 것)"
       "Samples/20m_tight/{mic}/sn_vl{v}_rr{r}.flac", FRANK)
 
 # ---------------------------------------------------------------------------------------------------
-# Unruly Drums: 모든 드럼에 스네어 와이어가 달린 킷
-for size, mics in (("13", UNRULY_13), ("14", UNRULY_14)):
-    for pad, part in (("snare", "center"), ("snare_rim", "rimshot"), ("sidestick", "sstick")):
-        sound(pad, f"unruly-s{size}", f"Unruly {size}인치", "unruly-drums", f"unruly/s{size}",
-              f"Samples/s{size}/{{mic}}/rr{{r}}/s{size}_{part}_vl{{v}}_rr{{r}}.flac", mics)
-
-for pad, drum, part, mics, label in (("tom_high", "s13", "tom_clean", UNRULY_13, "13인치"),
-                                     ("tom_mid", "s14", "tom_clean", UNRULY_14, "14인치"),
-                                     ("tom_floor", "s22", "tom_clean_edge", UNRULY_22, "22인치 가장자리"),
-                                     ("tom_low", "s22", "tom_clean", UNRULY_22, "22인치")):
-    sound(pad, "unruly-toms", f"Unruly {label} (와이어를 푼 것)", "unruly-drums", "unruly/toms",
-          f"Samples/{drum}/{{mic}}/rr{{r}}/{drum}_{part}_vl{{v}}_rr{{r}}.flac", mics)
-
-sound("kick", "unruly-k20", "Unruly 20인치", "unruly-drums", "unruly/kick",
-      "Samples/k20/{mic}/rr{r}/kick_clean_vl{v}_rr{r}.flac", UNRULY_KICK)
-sound("kick", "unruly-k20-dirty", "Unruly 20인치 (와이어가 울림)", "unruly-drums", "unruly/kick-dirty",
-      "Samples/k20/{mic}/rr{r}/kick_dirty_vl{v}_rr{r}.flac", UNRULY_KICK)
-
-for pad, part in (("hihat_closed", "closed_tip"), ("hihat_half", "half_tip"), ("hihat_open", "open_tip"), ("hihat_pedal", "footchik")):
-    sound(pad, "unruly-h14", "Unruly 14인치", "unruly-drums", "unruly/hihat",
-          f"Samples/h14/{{mic}}/rr{{r}}/hh_{part}_vl{{v}}_rr{{r}}.flac", UNRULY_HAT)
-
-for pad in ("crash1", "crash2"):
-    sound(pad, "unruly-c16", "Unruly 16인치", "unruly-drums", "unruly/crash",
-          "Samples/c16/{mic}/rr{r}/cr_edge_vl{v}_rr{r}.flac", UNRULY_CYMBAL)
-
-for pad, part in (("ride", "bow"), ("ride_bell", "bell"), ("ride_edge", "edge")):
-    sound(pad, "unruly-r20", "Unruly 20인치", "unruly-drums", "unruly/ride",
-          f"Samples/r20/{{mic}}/rr{{r}}/ride_{part}_vl{{v}}_rr{{r}}.flac", UNRULY_CYMBAL)
-
-# ---------------------------------------------------------------------------------------------------
 # Virtuosity Drums: 재즈 킷. 마이크 이름이 폴더와 파일 이름 양쪽에 들어 있다.
 def virtuosity(part: str, round_robin: bool) -> str:
     return f"Samples/{{mic}}/{part.split('_')[0]}/{{mic}}_{part}_vl{{v}}" + ("_rr{r}.flac" if round_robin else ".flac")
@@ -245,11 +211,20 @@ sound("china", "swirly-china", "Swirly 차이나", "swirly-drums", "", "Samples/
 sound("ride", "swirly", "Swirly 라이드", "swirly-drums", "swirly/ride", "Samples/ride/ride_vl{v}_rr{r}.wav", ONE_FILE)
 
 # ---------------------------------------------------------------------------------------------------
-# The Hat With The Phat: 20인치 라이드 두 장을 겹친 큰 하이햇
-for pad, folder, part in (("hihat_closed", "closed", "closed_bow"), ("hihat_half", "loose", "loose_bow"),
-                          ("hihat_open", "open", "open_bow"), ("hihat_pedal", "chik", "chik")):
-    sound(pad, "phat-hat", "The Hat With The Phat 20인치", "hat-with-the-phat", "phat/hihat",
-          f"Samples/{folder}/hat_20_{part}_vl{{v}}_rr{{r}}.wav", ONE_FILE)
+# Gogodze Phu Vol II: 1973년 김정미 "Now" 앨범의 드럼 소리를 노리고 만든 작은 킷(킥, 스네어, 탐 셋, 하이햇).
+# 파일 이름: Samples/<마이크>/<주법>_vl<세기>_rr<번갈아>.wav. 탐이 셋이라 가장 낮은 탐은 낮은 탐을 3반음 내려서 만든다.
+sound("kick", "gogodze", "Gogodze 킥 (70년대)", "gogodze-phu-vol-ii", "", "Samples/{mic}/ks_vl{v}_rr{r}.wav", GOGODZE_KICK)
+
+for pad, part in (("snare", "sc"), ("snare_rim", "se"), ("sidestick", "ss")):
+    sound(pad, "gogodze", "Gogodze 스네어 (70년대)", "gogodze-phu-vol-ii", "gogodze/snare", f"Samples/{{mic}}/{part}_vl{{v}}_rr{{r}}.wav", GOGODZE)
+
+for pad, part in (("hihat_closed", "ht"), ("hihat_half", "hl"), ("hihat_open", "ho"), ("hihat_pedal", "hf")):
+    sound(pad, "gogodze", "Gogodze 하이햇 (70년대)", "gogodze-phu-vol-ii", "gogodze/hihat", f"Samples/{{mic}}/{part}_vl{{v}}_rr{{r}}.wav", GOGODZE)
+
+for pad, part, pitch, label in (("tom_high", "th", 0, "높은 탐"), ("tom_mid", "tm", 0, "가운데 탐"),
+                                ("tom_floor", "tl", 0, "낮은 탐"), ("tom_low", "tl", -3, "낮은 탐을 3반음 내린 것")):
+    sound(pad, "gogodze-toms", f"Gogodze {label} (70년대)", "gogodze-phu-vol-ii", "gogodze/toms",
+          f"Samples/{{mic}}/{part}_vl{{v}}_rr{{r}}.wav", GOGODZE, pitch=pitch)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -300,8 +275,368 @@ def channels_of(path: Path) -> int:
     return int(output.split(",")[0] or 1)
 
 
+# ---------------------------------------------------------------------------------------------------
+# SFZ 프로그램을 흉내 내는 소리 (sfz_sound로 적은 것)
+#
+# 파일 이름에 세기와 번갈아 번호가 드러나지 않는 라이브러리는 그 라이브러리의 SFZ 프로그램을 읽는다.
+# 건반 하나를 어떤 세기로 쳤을 때 함께 울리는 리전(마이크마다 하나씩일 수 있다)을 모두 찾아, 프로그램에 적힌
+# 음량(volume, amplitude와 그 CC 조절)과 팬대로 섞는다. 그래서 마이크를 섞는 비율은 라이브러리의 기본 프로그램을 따른다.
+# 세기 곡선(amp_veltrack, amp_velcurve)은 따르지 않는다: 녹음된 크기 그대로 두고, 세기에 따른 크기는 엔진이 맡는다.
+# 읽는 것: #define, #include, <control>(default_path, set_ccN), <global>/<master>/<group>/<region>의 물려받기,
+# key/lokey/hikey, lovel/hivel, loccN/hiccN, seq_length/seq_position, lorand/hirand, trigger, sample.
+
+NOTE_STEPS = {"c": 0, "d": 2, "e": 4, "f": 5, "g": 7, "a": 9, "b": 11}
+SFZ_CACHE: dict = {}
+
+
+def note_number(text: str):
+    """"36", "c4"(=60), "f#2" 같은 값을 건반 번호로."""
+    text = text.strip().lower()
+
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+
+    match = re.fullmatch(r"([a-g])([#b]?)(-?\d+)", text)
+
+    if not match:
+        return None
+
+    shift = 1 if match.group(2) == "#" else (-1 if match.group(2) == "b" else 0)
+    return NOTE_STEPS[match.group(1)] + shift + (int(match.group(3)) + 1) * 12
+
+
+def read_sfz_text(path: Path, root: Path, defines: dict, depth: int = 0) -> str:
+    """#include를 펼치고 #define을 바꿔 넣은 글. include 경로는 처음 연 파일의 폴더 기준이고, 없으면 지금 파일의 폴더 기준."""
+    if depth > 20:
+        raise RuntimeError(f"#include too deep: {path}")
+
+    text = re.sub(r"/\*.*?\*/", " ", path.read_text(encoding="utf-8", errors="replace"), flags=re.S)
+    lines = []
+
+    for line in text.splitlines():
+        line = re.sub(r"(^|\s)//.*$", "", line)
+
+        # 정의 줄은 이름을 바꿔 넣기 전에 알아본다. 같은 이름을 다시 정하는 일이 흔하다 (예: 악기마다 #define $instr Snare).
+        # 한 줄에 정의가 여럿일 수도 있다 (예: #define $V51L 1   #define $V51H 27).
+        if re.match(r"\s*#define\s", line):
+            for segment in re.split(r"#define\s+", line)[1:]:
+                parts = segment.strip().split(None, 1)
+
+                if len(parts) != 2 or not parts[0].startswith("$"):
+                    continue
+
+                value = parts[1].strip()
+
+                for name in sorted(defines, key=len, reverse=True):
+                    value = value.replace(name, defines[name])
+
+                defines[parts[0]] = value
+
+            continue
+
+        for name in sorted(defines, key=len, reverse=True):
+            line = line.replace(name, defines[name])
+
+        # 한 줄에 #include가 여럿 있을 수 있다 (예: #include "global.txt" #include "kick.txt").
+        parts = re.split(r'#include\s+"([^"]+)"', line)
+
+        for index, part in enumerate(parts):
+            if index % 2 == 0:
+                if part.strip():
+                    lines.append(part)
+                continue
+
+            name = part.replace("\\", "/")
+            target = root / name if (root / name).exists() else path.parent / name
+            lines.append(read_sfz_text(target, root, defines, depth + 1))
+
+    return "\n".join(lines)
+
+
+def parse_sfz(program: Path):
+    """SFZ 파일의 리전 목록(물려받은 값을 모두 합친 것)과 <control>의 CC 기본값."""
+    if program in SFZ_CACHE:
+        return SFZ_CACHE[program]
+
+    text = read_sfz_text(program, program.parent, {})
+    blocks = []
+    tokens = list(re.finditer(r"<(\w+)>|([A-Za-z_]\w*)=", text))
+
+    for index, token in enumerate(tokens):
+        end = tokens[index + 1].start() if index + 1 < len(tokens) else len(text)
+
+        if token.group(1):
+            blocks.append((token.group(1).lower(), {}))
+        elif blocks:
+            blocks[-1][1][token.group(2).lower()] = text[token.end():end].strip()
+
+    control, global_, master, group = {}, {}, {}, {}
+    cc_defaults = {}
+    regions = []
+
+    for header, opcodes in blocks:
+        # 키 스위치의 처음 값. 어느 머리글에 적혀 있어도 프로그램 전체의 처음 상태로 본다.
+        if "sw_default" in opcodes:
+            try:
+                cc_defaults["sw"] = float(note_number(opcodes["sw_default"]) or float(opcodes["sw_default"].split()[0]))
+            except (ValueError, IndexError):
+                pass
+
+        if header == "control":
+            control.update(opcodes)
+
+            for name, value in opcodes.items():
+                match = re.fullmatch(r"set_(hd)?cc(\d+)", name)
+
+                if match:
+                    try:
+                        number = float(value.split()[0])
+                    except (ValueError, IndexError):
+                        continue
+
+                    # set_hdcc는 0 ~ 1로 적는다. 여기서는 모두 0 ~ 127로 다룬다.
+                    cc_defaults[int(match.group(2))] = number * 127.0 if match.group(1) else number
+        elif header == "global":
+            global_, master, group = dict(opcodes), {}, {}
+        elif header == "master":
+            master, group = dict(opcodes), {}
+        elif header == "group":
+            group = dict(opcodes)
+        elif header == "region":
+            region = {**global_, **master, **group, **opcodes}
+            region["_default_path"] = control.get("default_path", "")
+            regions.append(region)
+
+    SFZ_CACHE[program] = (regions, cc_defaults)
+    return SFZ_CACHE[program]
+
+
+def sfz_number(region: dict, name: str, default: float) -> float:
+    value = region.get(name)
+
+    if value is None:
+        return default
+
+    if name in ("key", "lokey", "hikey"):
+        number = note_number(value)
+
+        if number is not None:
+            return float(number)
+
+    try:
+        return float(value.split()[0])
+    except (ValueError, IndexError):
+        return default
+
+
+def sfz_regions_at(program: Path, key: int, velocity: int, sequence: int, cc: dict) -> list:
+    """key를 velocity로 칠 때 울리는 리전들. sequence는 seq_position으로 번갈아 재생할 때 몇 번째인지(1부터)."""
+    regions, cc_defaults = parse_sfz(program)
+    values = {**cc_defaults, **cc}
+    playing = []
+
+    for region in regions:
+        if "key" in region:
+            low = high = sfz_number(region, "key", -1)
+        else:
+            low, high = sfz_number(region, "lokey", 0), sfz_number(region, "hikey", 127)
+
+        if not low <= key <= high:
+            continue
+
+        if not sfz_number(region, "lovel", 1) <= velocity <= sfz_number(region, "hivel", 127):
+            continue
+
+        if region.get("trigger", "attack") not in ("attack", "first", "legato"):
+            continue
+
+        sample = region.get("sample", "")
+
+        if not sample or sample.startswith("*"):
+            continue
+
+        allowed = True
+
+        for name, value in region.items():
+            match = re.fullmatch(r"(lo|hi)(hd)?cc(\d+)", name)
+
+            if match:
+                try:
+                    limit = float(value.split()[0])
+                except (ValueError, IndexError):
+                    continue    # 정의되지 않은 $값 같은 것: 원래 프로그램(sforzando)도 이 조건을 무시한다
+
+                current = values.get(int(match.group(3)), 0.0) / (127.0 if match.group(2) else 1.0)
+
+                if (match.group(1) == "lo" and current < limit) or (match.group(1) == "hi" and current > limit):
+                    allowed = False
+
+        if not allowed:
+            continue
+
+        if sfz_number(region, "seq_length", 1) > 1 and int(sfz_number(region, "seq_position", 1)) != sequence:
+            continue
+
+        # 키 스위치: 지금 눌린 스위치(처음에는 sw_default)에 맞는 리전만 운다. 처음 값이 없으면 따지지 않는다.
+        switch = values.get("sw")
+
+        if switch is not None:
+            if "sw_last" in region and sfz_number(region, "sw_last", -1) != switch:
+                continue
+
+            if ("sw_lolast" in region or "sw_hilast" in region) and not (
+                    sfz_number(region, "sw_lolast", 0) <= switch <= sfz_number(region, "sw_hilast", 127)):
+                continue
+
+        playing.append(region)
+
+    return playing
+
+
+def sfz_variants(program: Path, key: int, velocity: int, cc: dict) -> list:
+    """번갈아 재생의 갈래들. seq_length면 1..길이, lorand/hirand면 구간마다 그 가운데 값, 둘 다 없으면 [1]."""
+    regions = sfz_regions_at(program, key, velocity, 1, cc)
+    length = max((int(sfz_number(region, "seq_length", 1)) for region in regions), default=1)
+
+    if length > 1:
+        return list(range(1, length + 1))
+
+    bounds = sorted({0.0, 1.0} | {sfz_number(r, "lorand", 0.0) for r in regions} | {sfz_number(r, "hirand", 1.0) for r in regions})
+
+    if len(bounds) > 2:
+        return [(bounds[i] + bounds[i + 1]) / 2.0 for i in range(len(bounds) - 1)]
+
+    return [1]
+
+
+def sfz_mix(program: Path, key: int, velocity: int, variant, cc: dict) -> list:
+    """한 번 칠 때 섞을 소리들: 파일, 배율, 팬(-1 ~ 1)."""
+    regions, cc_defaults = parse_sfz(program)
+    values = {**cc_defaults, **cc}
+    sequence = variant if isinstance(variant, int) else 1
+    sources = []
+
+    for region in sfz_regions_at(program, key, velocity, sequence, cc):
+        if isinstance(variant, float) and not sfz_number(region, "lorand", 0.0) <= variant < sfz_number(region, "hirand", 1.0):
+            continue
+
+        decibels = sfz_number(region, "volume", 0.0)
+        amplitude = sfz_number(region, "amplitude", 100.0) / 100.0
+        pan = sfz_number(region, "pan", 0.0)
+
+        for name, value in region.items():
+            match = re.fullmatch(r"(volume|amplitude|pan)_(?:on)?cc(\d+)", name)
+
+            if not match:
+                continue
+
+            try:
+                depth = float(value.split()[0])
+            except (ValueError, IndexError):
+                continue
+
+            # CC 값을 곡선에 넣은 값만큼 조절한다 (ARIA의 기본 곡선. 적지 않으면 0번, 곧은 0 ~ 1).
+            # 팬은 흔히 1번(가운데 64가 0인 -1 ~ 1)을 쓰고, 곧게 셈하면 오른쪽으로 쏠린다.
+            position = max(0.0, min(1.0, values.get(int(match.group(2)), 0.0) / 127.0))
+            curve = int(sfz_number(region, f"{match.group(1)}_curvecc{match.group(2)}", 0))
+            shaped = {0: position, 1: position * 2.0 - 1.0, 2: 1.0 - position, 3: 1.0 - position * 2.0,
+                      4: position * position, 5: position ** 0.5, 6: (1.0 - position) ** 0.5}.get(curve, position)
+            amount = depth * shaped
+
+            if match.group(1) == "volume":
+                decibels += amount
+            elif match.group(1) == "amplitude":
+                amplitude *= max(0.0, amount) / 100.0
+            else:
+                pan += amount
+
+        gain = amplitude * 10 ** (decibels / 20.0)
+        sample = (region["_default_path"] + region["sample"]).replace("\\", "/")
+        file = (program.parent / sample).resolve()
+
+        if gain > 1.0e-4 and file.exists():
+            sources.append({"path": file, "gain": round(gain, 5), "pan": max(-1.0, min(1.0, pan / 100.0))})
+
+    return sources
+
+
+def plan_sfz(spec: dict) -> list:
+    """SFZ 프로그램을 흉내 내는 소리의 타격 목록."""
+    program = LIBRARIES / spec["lib"] / spec["program"]
+    key, cc = spec["key"], spec.get("cc", {})
+    layers_wanted, rr_wanted, max_seconds = SHAPES[spec["pad"]]
+
+    # 세기 1 ~ 127을 훑어, 울리는 파일들이 같은 세기끼리 묶는다. 묶음마다 가장 센 세기로 친다.
+    zones, previous = [], None
+
+    for velocity in range(1, 128):
+        signature = tuple(sorted(str(source["path"]) for source in sfz_mix(program, key, velocity, 1, cc)))
+
+        if not signature:
+            previous = None
+            continue
+
+        if signature == previous:
+            zones[-1] = velocity
+        else:
+            zones.append(velocity)
+
+        previous = signature
+
+    if not zones:
+        raise RuntimeError(f"nothing plays on key {key} in {spec['program']}")
+
+    if len(zones) > layers_wanted:
+        zones = zones[len(zones) // 5:]    # 가장 여린 단계들은 거의 들리지 않는다
+
+    if len(sfz_variants(program, key, zones[-1], cc)) == 1 and len(zones) > layers_wanted:
+        # 번갈아 재생할 샘플이 따로 없는 프로그램: 세기 단계들을 묶음으로 나누고, 묶음마다 센 쪽의 몇 단계를 번갈아 낸다.
+        bounds = [round(i * len(zones) / layers_wanted) for i in range(layers_wanted + 1)]
+        groups = [list(reversed(zones[bounds[i]:bounds[i + 1]][-rr_wanted:])) for i in range(layers_wanted)]
+    else:
+        groups = [[zones[i]] for i in pick_evenly(len(zones), layers_wanted)]
+
+    chosen = groups
+    hits = []
+
+    for layer_number, velocities in enumerate(groups, start=1):
+        if len(velocities) > 1:
+            takes = [(velocity, 1) for velocity in velocities]
+        else:
+            takes = [(velocities[0], variant) for variant in sfz_variants(program, key, velocities[0], cc)[:rr_wanted]]
+
+        for rr_number, (velocity, variant) in enumerate(takes, start=1):
+            sources = sfz_mix(program, key, velocity, variant, cc)
+
+            if not sources:
+                continue
+
+            hits.append({
+                "layer": layer_number,
+                "up_to": 1.0 if layer_number == len(chosen) else round(layer_number / len(chosen), 4),
+                "output": f"samples/{spec['pad']}/{spec['id']}/{spec['id']}_v{layer_number:02d}_r{rr_number}.flac",
+                "sources": sources,
+                "max_seconds": max_seconds,
+                "pitch": spec.get("pitch", 0),
+                "top": layer_number == len(chosen),
+            })
+
+    return hits
+
+
+def sfz_sound(pad: str, sound_id: str, name: str, lib: str, family: str, program: str, key: int, cc=None, **extra) -> None:
+    """SFZ 프로그램을 흉내 내는 소리를 적는다. program은 라이브러리 폴더 기준 경로, key는 건반 번호, cc는 바꿔 둘 CC 값."""
+    if pad in SINGLE_PADS:
+        family = ""
+
+    SOUNDS.append(dict(pad=pad, id=sound_id, name=name, lib=lib, family=family, program=program, key=key, cc=cc or {}, **extra))
+
+
 def plan(spec: dict) -> list[dict]:
     """소리 하나에 쓸 타격 목록. 타격마다 섞을 마이크 파일들을 적는다."""
+    if "program" in spec:
+        return plan_sfz(spec)
+
     library = LIBRARIES / spec["lib"]
     layers_wanted, rr_wanted, max_seconds = SHAPES[spec["pad"]]
     levels = discover(spec)
@@ -367,7 +702,15 @@ def filter_graph(hit: dict, tail: str) -> str:
         if "channels" not in source:
             source["channels"] = channels_of(source["path"])
 
-        if source["channels"] >= 2:
+        if "pan" in source:
+            # SFZ의 팬: 가운데는 양쪽 그대로, 한쪽으로 갈수록 반대쪽을 줄인다.
+            left_gain, right_gain = min(1.0, 1.0 - source["pan"]), min(1.0, 1.0 + source["pan"])
+
+            if source["channels"] >= 2:
+                shape = f"aformat=channel_layouts=stereo,pan=stereo|c0={left_gain:.4f}*c0|c1={right_gain:.4f}*c1,"
+            else:
+                shape = f"pan=stereo|c0={left_gain:.4f}*c0|c1={right_gain:.4f}*c0,"
+        elif source["channels"] >= 2:
             shape = "aformat=channel_layouts=stereo,"
         else:
             # 모노 마이크는 가운데, 왼쪽, 오른쪽 가운데 한 자리에 놓는다.
@@ -471,6 +814,167 @@ def keep_backup(path: Path) -> None:
         shutil.copy2(path, target)
 
 
+
+# ===================================================================================================
+# 아래는 CC0가 아닌 라이브러리다(2026-11-26, 사용자가 받기로 함). 출처를 README와 kits/default/CREDITS.txt에 적는다.
+# 모두 SFZ 프로그램을 흉내 내어 만든다(sfz_sound). 마이크를 섞는 비율은 각 라이브러리의 기본 프로그램 그대로다.
+
+# ---------------------------------------------------------------------------------------------------
+# Naked Drums (Wilkinson Audio, CC-BY 4.0): 마이크 일곱까지, 번갈아 10번
+NAKED = "Wilkinson Audio/Naked Drums/Stereo/Naked Drums.sfz"
+sfz_sound("kick", "naked", "Naked Drums 킥", "naked-drums", "", NAKED, 36)
+
+for pad, key in (("snare", 38), ("snare_rim", 40), ("sidestick", 37)):
+    sfz_sound(pad, "naked", "Naked Drums 스네어", "naked-drums", "naked/snare", NAKED, key)
+
+for pad, key in (("hihat_closed", 42), ("hihat_half", 46), ("hihat_open", 49), ("hihat_pedal", 44)):
+    sfz_sound(pad, "naked", "Naked Drums 하이햇", "naked-drums", "naked/hihat", NAKED, key)
+
+sfz_sound("hihat_closed", "naked-tight", "Naked Drums 하이햇 (꽉 닫음)", "naked-drums", "", NAKED, 39)
+
+for pad, key in (("tom_high", 48), ("tom_mid", 45), ("tom_floor", 43), ("tom_low", 41)):
+    sfz_sound(pad, "naked-toms", "Naked Drums 탐", "naked-drums", "naked/toms", NAKED, key)
+
+for pad in ("crash1", "crash2"):
+    sfz_sound(pad, "naked-crash1", "Naked Drums 크래시 1", "naked-drums", "", NAKED, 55)
+    sfz_sound(pad, "naked-crash2", "Naked Drums 크래시 2", "naked-drums", "", NAKED, 57)
+    sfz_sound(pad, "naked-splash", "Naked Drums 스플래시", "naked-drums", "", NAKED, 54)
+
+sfz_sound("china", "naked-china1", "Naked Drums 차이나 1", "naked-drums", "", NAKED, 50)
+sfz_sound("china", "naked-china2", "Naked Drums 차이나 2", "naked-drums", "", NAKED, 52)
+
+for pad, key in (("ride", 51), ("ride_bell", 53)):
+    sfz_sound(pad, "naked", "Naked Drums 라이드", "naked-drums", "naked/ride", NAKED, key)
+
+# ---------------------------------------------------------------------------------------------------
+# DRS Kit (DrumGizmo, CC-BY 4.0): 마이크 열셋. 키 스위치는 기본(주법마다 건반이 따로)이라 브러시 소리는 섞이지 않는다.
+DRS = "DrumGizmo/DRSKit/Stereo/DrumGizmo DRSKit.sfz"
+sfz_sound("kick", "drs", "DRS 킥", "drs-kit", "", DRS, 35)
+sfz_sound("kick", "drs-contact", "DRS 킥 (비터를 붙인 채)", "drs-kit", "", DRS, 36)
+
+for pad, key in (("snare", 38), ("snare_rim", 37)):
+    sfz_sound(pad, "drs", "DRS 스네어", "drs-kit", "drs/snare", DRS, key)
+
+for pad, key in (("hihat_closed", 56), ("hihat_half", 46), ("hihat_open", 58), ("hihat_pedal", 44)):
+    sfz_sound(pad, "drs", "DRS 하이햇", "drs-kit", "drs/hihat", DRS, key)
+
+for pad, key, pitch, label in (("tom_high", 47, 0, "랙 탐"), ("tom_mid", 43, 0, "플로어 탐 1"), ("tom_floor", 41, 0, "플로어 탐 2"),
+                               ("tom_low", 41, -3, "플로어 탐 2를 3반음 내린 것")):
+    sfz_sound(pad, "drs-toms", f"DRS {label}", "drs-kit", "drs/toms", DRS, key, pitch=pitch)
+
+for pad in ("crash1", "crash2"):
+    sfz_sound(pad, "drs-crash-left", "DRS 왼쪽 크래시", "drs-kit", "", DRS, 49)
+    sfz_sound(pad, "drs-crash-right", "DRS 오른쪽 크래시", "drs-kit", "", DRS, 57)
+
+for pad, key in (("ride", 51), ("ride_bell", 53), ("ride_edge", 66)):
+    sfz_sound(pad, "drs", "DRS 라이드", "drs-kit", "drs/ride", DRS, key)
+
+# ---------------------------------------------------------------------------------------------------
+# Muldjord Kit (DrumGizmo, CC-BY 4.0): 탐 넷, 라이드 둘. 하이햇은 닫힘과 열림만 있다.
+MULDJORD = "DrumGizmo/MuldjordKit/Stereo/DrumGizmo MuldjordKit.sfz"
+sfz_sound("kick", "muldjord", "Muldjord 킥", "muldjord-kit", "", MULDJORD, 36)
+sfz_sound("snare", "muldjord", "Muldjord 스네어", "muldjord-kit", "muldjord/snare", MULDJORD, 38)
+
+for pad, key in (("hihat_closed", 42), ("hihat_open", 46)):
+    sfz_sound(pad, "muldjord", "Muldjord 하이햇", "muldjord-kit", "muldjord/hihat", MULDJORD, key)
+
+for pad, key in (("tom_high", 48), ("tom_mid", 47), ("tom_floor", 45), ("tom_low", 41)):
+    sfz_sound(pad, "muldjord-toms", "Muldjord 탐", "muldjord-kit", "muldjord/toms", MULDJORD, key)
+
+for pad in ("crash1", "crash2"):
+    sfz_sound(pad, "muldjord-crash-left", "Muldjord 왼쪽 크래시", "muldjord-kit", "", MULDJORD, 49)
+    sfz_sound(pad, "muldjord-crash-right", "Muldjord 오른쪽 크래시", "muldjord-kit", "", MULDJORD, 57)
+
+sfz_sound("china", "muldjord", "Muldjord 차이나", "muldjord-kit", "", MULDJORD, 52)
+
+for pad, key in (("ride", 51), ("ride_bell", 53)):
+    sfz_sound(pad, "muldjord", "Muldjord 오른쪽 라이드", "muldjord-kit", "muldjord/ride", MULDJORD, key)
+
+for pad, key in (("ride", 59), ("ride_bell", 55)):
+    sfz_sound(pad, "muldjord-left", "Muldjord 왼쪽 라이드", "muldjord-kit", "muldjord/ride-left", MULDJORD, key)
+
+# ---------------------------------------------------------------------------------------------------
+# Sam's Sonor (Sam Greene, CC-BY-SA 4.0): Sonor Force 3001. 스테레오 한 파일, 탐 둘.
+SONOR = "SamsSonor.sfz"
+sfz_sound("kick", "sonor", "Sonor 킥", "sams-sonor", "", SONOR, 36)
+sfz_sound("snare", "sonor", "Sonor 스네어", "sams-sonor", "sonor/snare", SONOR, 38)
+sfz_sound("snare", "sonor-off", "Sonor 스네어 (와이어를 푼 것)", "sams-sonor", "", SONOR, 48)
+
+for pad, key in (("hihat_closed", 42), ("hihat_half", 56), ("hihat_open", 58), ("hihat_pedal", 44)):
+    sfz_sound(pad, "sonor", "Sonor 하이햇", "sams-sonor", "sonor/hihat", SONOR, key)
+
+for pad, key, pitch, label in (("tom_high", 45, 0, "높은 탐"), ("tom_mid", 45, -3, "높은 탐을 3반음 내린 것"),
+                               ("tom_floor", 43, 0, "낮은 탐"), ("tom_low", 43, -3, "낮은 탐을 3반음 내린 것")):
+    sfz_sound(pad, "sonor-toms", f"Sonor {label}", "sams-sonor", "sonor/toms", SONOR, key, pitch=pitch)
+
+for pad in ("crash1", "crash2"):
+    sfz_sound(pad, "sonor-crash", "Sonor 크래시", "sams-sonor", "", SONOR, 49)
+
+for pad, key in (("ride", 51), ("ride_bell", 53)):
+    sfz_sound(pad, "sonor", "Sonor 라이드", "sams-sonor", "sonor/ride", SONOR, key)
+
+# ---------------------------------------------------------------------------------------------------
+# AVL Drumkits (CC-BY-SA 3.0): Black Pearl과 Red Zeppelin. 스테레오 한 파일, 세기 다섯 단계.
+for kit_id, label, program, toms, crashes in (
+        ("avl-pearl", "AVL Black Pearl", "Black_Pearl_5pc.sfz",
+         ((45, 0, "12인치 탐"), (47, 0, "13인치 탐"), (41, 0, "16인치 플로어 탐"), (41, -3, "16인치 플로어 탐을 3반음 내린 것")),
+         ((49, "Sabian AA 16인치"), (57, "Sabian AAX 17인치"))),
+        ("avl-zeppelin", "AVL Red Zeppelin", "Red_Zeppelin_5pc.sfz",
+         ((45, 0, "14인치 탐"), (41, 0, "16인치 플로어 탐"), (43, 0, "18인치 플로어 탐"), (43, -3, "18인치 플로어 탐을 3반음 내린 것")),
+         ((49, "Zildjian A 20인치"), (57, "Zildjian K 17인치")))):
+    sfz_sound("kick", kit_id, f"{label} 킥", "avl-drumkits", "", program, 36)
+
+    for pad, key in (("snare", 38), ("sidestick", 37)):
+        sfz_sound(pad, kit_id, f"{label} 스네어", "avl-drumkits", f"{kit_id}/snare", program, key)
+
+    for pad, key in (("hihat_closed", 42), ("hihat_half", 46), ("hihat_open", 48), ("hihat_pedal", 44)):
+        sfz_sound(pad, kit_id, f"{label} 하이햇", "avl-drumkits", f"{kit_id}/hihat", program, key)
+
+    for pad, (key, pitch, name) in zip(("tom_high", "tom_mid", "tom_floor", "tom_low"), toms):
+        sfz_sound(pad, f"{kit_id}-toms", f"{label} {name}", "avl-drumkits", f"{kit_id}/toms", program, key, pitch=pitch)
+
+    for pad in ("crash1", "crash2"):
+        for number, (key, name) in enumerate(crashes, start=1):
+            sfz_sound(pad, f"{kit_id}-crash{number}", f"{label} {name} 크래시", "avl-drumkits", "", program, key)
+
+    for pad, key in (("ride", 51), ("ride_bell", 53), ("ride_edge", 59)):
+        sfz_sound(pad, kit_id, f"{label} 라이드", "avl-drumkits", f"{kit_id}/ride", program, key)
+
+# ---------------------------------------------------------------------------------------------------
+# Salamander Drumkit (Alexander Holm, CC-BY-SA 3.0): 오버헤드 스테레오 한 파일, 번갈아 많이. 탐 둘.
+SALAMANDER = "ALL.sfz"
+sfz_sound("kick", "salamander", "Salamander 킥", "salamander-drumkit", "", SALAMANDER, 36)
+sfz_sound("kick", "salamander-2", "Salamander 킥 2", "salamander-drumkit", "", SALAMANDER, 35)
+
+for pad, key in (("snare", 40), ("sidestick", 41)):
+    sfz_sound(pad, "salamander", "Salamander 스네어", "salamander-drumkit", "salamander/snare", SALAMANDER, key)
+
+sfz_sound("snare", "salamander-2", "Salamander 스네어 2", "salamander-drumkit", "", SALAMANDER, 38)
+sfz_sound("snare", "salamander-off", "Salamander 스네어 (와이어를 푼 것)", "salamander-drumkit", "", SALAMANDER, 39)
+
+for pad, key in (("hihat_closed", 42), ("hihat_open", 46), ("hihat_pedal", 44)):
+    sfz_sound(pad, "salamander", "Salamander 하이햇", "salamander-drumkit", "salamander/hihat", SALAMANDER, key)
+
+for pad, key, pitch, label in (("tom_high", 45, 0, "높은 탐"), ("tom_mid", 45, -3, "높은 탐을 3반음 내린 것"),
+                               ("tom_floor", 43, 0, "낮은 탐"), ("tom_low", 43, -3, "낮은 탐을 3반음 내린 것")):
+    sfz_sound(pad, "salamander-toms", f"Salamander {label}", "salamander-drumkit", "salamander/toms", SALAMANDER, key, pitch=pitch)
+
+for pad in ("crash1", "crash2"):
+    for number, key in ((1, 55), (2, 57), (3, 62)):
+        sfz_sound(pad, f"salamander-crash{number}", f"Salamander 크래시 {number}", "salamander-drumkit", "", SALAMANDER, key)
+
+    sfz_sound(pad, "salamander-splash", "Salamander 스플래시", "salamander-drumkit", "", SALAMANDER, 63)
+
+sfz_sound("china", "salamander-china1", "Salamander 차이나 1", "salamander-drumkit", "", SALAMANDER, 59)
+sfz_sound("china", "salamander-china2", "Salamander 차이나 2", "salamander-drumkit", "", SALAMANDER, 60)
+
+for pad, key in (("ride", 48), ("ride_bell", 49), ("ride_edge", 50)):
+    sfz_sound(pad, "salamander", "Salamander 라이드", "salamander-drumkit", "salamander/ride", SALAMANDER, key)
+
+for pad, key in (("ride", 52), ("ride_bell", 53)):
+    sfz_sound(pad, "salamander-ride1", "Salamander 라이드 1", "salamander-drumkit", "salamander/ride1", SALAMANDER, key)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--kit", type=Path, default=ROOT / "kits" / "default", help="소리를 넣을 킷 폴더")
@@ -496,8 +1000,14 @@ def main() -> int:
 
     if options.list:
         for spec in specs:
-            levels = discover(spec)
-            print(f"{spec['pad']:13s} {spec['id']:22s} 세기 {len(levels):2d}단계  {spec['name']}")
+            if "program" in spec:
+                hits = plan_sfz(spec)
+                layers = max((hit["layer"] for hit in hits), default=0)
+                mics = max((len(hit["sources"]) for hit in hits), default=0)
+                print(f"{spec['pad']:13s} {spec['id']:22s} 세기 {layers:2d}단계, 번갈아 {len(hits) // max(1, layers)}, 섞는 파일 {mics}  {spec['name']}")
+            else:
+                levels = discover(spec)
+                print(f"{spec['pad']:13s} {spec['id']:22s} 세기 {len(levels):2d}단계  {spec['name']}")
 
         print(f"소리 {len(specs)}개")
         return 0
