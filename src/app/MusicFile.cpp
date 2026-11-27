@@ -1,6 +1,6 @@
 #include "MusicFile.h"
 
-#include <vector>
+#include "Text.h"
 
 namespace
 {
@@ -133,4 +133,152 @@ std::unique_ptr<juce::AudioFormatReader> createMusicReader (juce::AudioFormatMan
     }
 
     return std::unique_ptr<juce::AudioFormatReader> (formats.createReaderFor (file));
+}
+
+//==============================================================================
+juce::String readMusic (const juce::File& file, double maxSeconds,
+                        const std::function<juce::String (const MusicInfo&)>& onOpen,
+                        const std::function<juce::String (const MusicChunk&)>& onChunk)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+
+    auto reader = createMusicReader (formats, file);
+
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples < 4)
+        return ko ("읽을 수 없는 음악 파일입니다: ") + file.getFileName();
+
+    const MusicInfo info { reader->sampleRate,
+                           std::min (reader->lengthInSamples, static_cast<juce::int64> (maxSeconds * reader->sampleRate)) };
+
+    if (auto error = onOpen (info); error.isNotEmpty())
+        return error;
+
+    constexpr int chunk = 65536;
+    juce::AudioBuffer<float> buffer (2, chunk);
+
+    for (juce::int64 position = 0; position < info.numFrames; position += chunk)
+    {
+        const auto count = static_cast<int> (std::min<juce::int64> (chunk, info.numFrames - position));
+
+        // 실패해도 그때까지 읽은 부분은 멀쩡하고, 나머지는 무음으로 채워져 있다.
+        const auto readOk = reader->read (&buffer, 0, count, position, true, true);
+
+        if (! readOk && position < static_cast<juce::int64> (reader->sampleRate))
+            return ko ("음악 파일을 읽다가 실패했습니다: ") + file.getFileName();
+
+        if (auto error = onChunk ({ buffer, position, count, ! readOk }); error.isNotEmpty())
+            return error;
+
+        if (! readOk)
+            break;
+    }
+
+    return {};
+}
+
+juce::String decodeStereo (const juce::File& file, std::vector<float>& left, std::vector<float>& right, double& sampleRate, double maxSeconds)
+{
+    auto halve = false;
+
+    const auto onOpen = [&] (const MusicInfo& info)
+    {
+        halve = info.sampleRate > 64000.0;
+        sampleRate = halve ? info.sampleRate * 0.5 : info.sampleRate;
+        left.clear();
+        right.clear();
+        left.reserve (static_cast<std::size_t> (halve ? info.numFrames / 2 : info.numFrames));
+        right.reserve (left.capacity());
+        return juce::String();
+    };
+
+    const auto onChunk = [&] (const MusicChunk& chunk)
+    {
+        if (chunk.cutShort)
+            return juce::String();    // 읽은 데까지만 쓴다
+
+        const auto* sourceLeft = chunk.buffer.getReadPointer (0);
+        const auto* sourceRight = chunk.buffer.getReadPointer (1);
+
+        if (halve)
+        {
+            for (int i = 0; i + 1 < chunk.numFrames; i += 2)
+            {
+                left.push_back (0.5f * (sourceLeft[i] + sourceLeft[i + 1]));
+                right.push_back (0.5f * (sourceRight[i] + sourceRight[i + 1]));
+            }
+        }
+        else
+        {
+            left.insert (left.end(), sourceLeft, sourceLeft + chunk.numFrames);
+            right.insert (right.end(), sourceRight, sourceRight + chunk.numFrames);
+        }
+
+        return juce::String();
+    };
+
+    return readMusic (file, maxSeconds, onOpen, onChunk);
+}
+
+juce::String writeAsWav (const juce::File& source, const juce::File& target)
+{
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::AudioFormatWriter> writer;
+
+    const auto onOpen = [&] (const MusicInfo& info)
+    {
+        target.deleteFile();
+        std::unique_ptr<juce::OutputStream> stream = target.createOutputStream();
+
+        if (stream != nullptr)
+            writer = wav.createWriterFor (stream, juce::AudioFormatWriterOptions().withSampleRate (info.sampleRate)
+                                                                                  .withNumChannels (2)
+                                                                                  .withBitsPerSample (16));
+
+        return writer == nullptr ? ko ("임시 파일을 만들 수 없습니다") : juce::String();
+    };
+
+    // 곡이 일찍 끝난 덩어리도 쓴다 (끝에 무음이 조금 붙는다). 채널이 하나뿐인 곡은 양쪽에 같은 소리가 들어 있다.
+    const auto onChunk = [&] (const MusicChunk& chunk)
+    {
+        return writer->writeFromAudioSampleBuffer (chunk.buffer, 0, chunk.numFrames) ? juce::String() : ko ("임시 파일을 쓰다가 실패했습니다");
+    };
+
+    return readMusic (source, 1200.0, onOpen, onChunk);
+}
+
+bool writeAsOgg (const juce::File& source, const juce::File& target)
+{
+    auto input = source.createInputStream();
+
+    if (input == nullptr)
+        return false;
+
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::AudioFormatReader> reader (wav.createReaderFor (input.release(), true));
+
+    if (reader == nullptr)
+        return false;
+
+    const auto temp = target.getSiblingFile (target.getFileName() + ".part");
+    temp.deleteFile();
+
+    {
+        std::unique_ptr<juce::OutputStream> stream = temp.createOutputStream();
+
+        if (stream == nullptr)
+            return false;
+
+        juce::OggVorbisAudioFormat ogg;
+        const auto quality = juce::jmin (6, ogg.getQualityOptions().size() - 1);
+        const auto writer = ogg.createWriterFor (stream, juce::AudioFormatWriterOptions().withSampleRate (reader->sampleRate)
+                                                                                         .withNumChannels (static_cast<int> (reader->numChannels))
+                                                                                         .withBitsPerSample (16)
+                                                                                         .withQualityOptionIndex (quality));
+
+        if (writer == nullptr || ! writer->writeFromAudioReader (*reader, 0, reader->lengthInSamples))
+            return false;
+    }
+
+    return temp.moveFileTo (target);
 }

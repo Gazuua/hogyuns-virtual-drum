@@ -8,62 +8,6 @@
 #include "core/DrumTranscriber.h"
 #include "core/Engine.h"
 
-juce::String decodeStereo (const juce::File& file, std::vector<float>& left, std::vector<float>& right, double& sampleRate, double maxSeconds)
-{
-    juce::AudioFormatManager formats;
-    formats.registerBasicFormats();
-
-    auto reader = createMusicReader (formats, file);
-
-    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples < 4)
-        return ko ("읽을 수 없는 음악 파일입니다: ") + file.getFileName();
-
-    const auto halve = reader->sampleRate > 64000.0;
-    const auto frames = std::min (reader->lengthInSamples, static_cast<juce::int64> (maxSeconds * reader->sampleRate));
-
-    sampleRate = halve ? reader->sampleRate * 0.5 : reader->sampleRate;
-    left.clear();
-    right.clear();
-    left.reserve (static_cast<std::size_t> (halve ? frames / 2 : frames));
-    right.reserve (left.capacity());
-
-    constexpr int chunk = 65536;
-    juce::AudioBuffer<float> buffer (2, chunk);
-
-    for (juce::int64 position = 0; position < frames; position += chunk)
-    {
-        const auto count = static_cast<int> (std::min<juce::int64> (chunk, frames - position));
-
-        // MP3의 어림한 길이가 실제보다 길면 끝을 지나 읽을 때 실패가 돌아온다. 그때는 읽은 데까지만 쓴다.
-        const auto readOk = reader->read (&buffer, 0, count, position, true, true);
-
-        if (! readOk && position < static_cast<juce::int64> (reader->sampleRate))
-            return ko ("음악 파일을 읽다가 실패했습니다: ") + file.getFileName();
-
-        if (! readOk && position > 0)
-            break;
-
-        const auto* sourceLeft = buffer.getReadPointer (0);
-        const auto* sourceRight = buffer.getReadPointer (1);
-
-        if (halve)
-        {
-            for (int i = 0; i + 1 < count; i += 2)
-            {
-                left.push_back (0.5f * (sourceLeft[i] + sourceLeft[i + 1]));
-                right.push_back (0.5f * (sourceRight[i] + sourceRight[i + 1]));
-            }
-        }
-        else
-        {
-            left.insert (left.end(), sourceLeft, sourceLeft + count);
-            right.insert (right.end(), sourceRight, sourceRight + count);
-        }
-    }
-
-    return {};
-}
-
 //==============================================================================
 juce::String chartToJson (const hvd::Chart& chart, const juce::var& header)
 {

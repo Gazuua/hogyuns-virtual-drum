@@ -4,13 +4,8 @@
 
 #include <vector>
 
+#include "MusicFile.h"    // decodeStereo는 이리로 옮겼다. 부르던 곳이 그대로 쓰게 둔다
 #include "core/Chart.h"
-
-/** 소리 파일을 통째로 읽어 왼쪽과 오른쪽 채널로 나눠 담는다. 모노 파일이면 양쪽에 같은 소리가 들어간다.
-    샘플레이트가 64 kHz를 넘으면 절반으로 줄인다. 실패하면 이유를 돌려주고, 성공하면 빈 문자열을 돌려준다.
-    maxSeconds보다 긴 곡은 앞부분만 읽는다. */
-juce::String decodeStereo (const juce::File& file, std::vector<float>& left, std::vector<float>& right, double& sampleRate,
-                           double maxSeconds = 1200.0);
 
 /** 채보를 JSON 글로 적는다 / JSON 글에서 읽는다. */
 juce::String chartToJson (const hvd::Chart& chart, const juce::var& header);
