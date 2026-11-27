@@ -35,7 +35,17 @@ LRESULT CALLBACK windowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
                                                  &input, &size, sizeof (RAWINPUTHEADER));
 
             if (copied != static_cast<UINT> (-1) && input.header.dwType == RIM_TYPEKEYBOARD)
+            {
                 self->processRawInput (input.header.hDevice, input.data.keyboard.MakeCode, input.data.keyboard.Flags);
+            }
+            else if (copied != static_cast<UINT> (-1) && input.header.dwType == RIM_TYPEMOUSE
+                     && (input.data.mouse.usButtonFlags & (RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN)) != 0)
+            {
+                // 이 메시지가 생긴 때의 커서 자리. 움직임만 알리는 메시지는 지나간다.
+                const auto position = GetMessagePos();
+                self->processRawMouse (input.data.mouse.usButtonFlags,
+                                       static_cast<short> (LOWORD (position)), static_cast<short> (HIWORD (position)));
+            }
         }
     }
     else if (message == WM_INPUT_DEVICE_CHANGE)
@@ -116,11 +126,13 @@ RawKeyboard::~RawKeyboard()
     stop();
 }
 
-bool RawKeyboard::start (Handler newHandler)
+bool RawKeyboard::start (Handler newHandler, MouseHandler newMouseHandler)
 {
     stop();
 
     handler = std::move (newHandler);
+    mouseHandler = std::move (newMouseHandler);
+    mouseRegistered.store (false);
     isDown.fill (false);
     swallowed.fill (false);
     numKnownHandles = 0;
@@ -160,6 +172,9 @@ void RawKeyboard::threadMain()
 {
     const auto instance = GetModuleHandleW (nullptr);
 
+    // 커서 자리를 모니터의 실제 화소로 받는다. (화면 쪽이 그 좌표로 자리를 넘겨준다)
+    SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     // 스레드의 메시지 큐를 먼저 만들어 둔다.
     MSG message {};
     PeekMessageW (&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
@@ -188,6 +203,17 @@ void RawKeyboard::threadMain()
         device.dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
         device.hwndTarget = window;
         registered = RegisterRawInputDevices (&device, 1, sizeof (device)) != FALSE;
+
+        // 마우스는 따로 등록한다. 실패해도 키보드는 쓴다 (마우스 클릭은 화면 스레드가 받는다).
+        if (registered && mouseHandler)
+        {
+            RAWINPUTDEVICE mouse {};
+            mouse.usUsagePage = 0x01;
+            mouse.usUsage = 0x02;                // 마우스
+            mouse.dwFlags = RIDEV_INPUTSINK;
+            mouse.hwndTarget = window;
+            mouseRegistered.store (RegisterRawInputDevices (&mouse, 1, sizeof (mouse)) != FALSE);
+        }
     }
 
     // 키 입력이 다른 작업에 밀리지 않도록 우선순위를 올린다.
@@ -205,6 +231,13 @@ void RawKeyboard::threadMain()
         device.dwFlags = RIDEV_REMOVE;
         device.hwndTarget = nullptr;
         RegisterRawInputDevices (&device, 1, sizeof (device));
+
+        if (mouseRegistered.exchange (false))
+        {
+            device.usUsage = 0x02;
+            RegisterRawInputDevices (&device, 1, sizeof (device));
+        }
+
         DestroyWindow (window);
     }
 
@@ -212,6 +245,26 @@ void RawKeyboard::threadMain()
 }
 
 //==============================================================================
+bool RawKeyboard::clientOriginOf (void* nativeWindowHandle, int& x, int& y, double& scale)
+{
+    auto* window = static_cast<HWND> (nativeWindowHandle);
+
+    if (window == nullptr)
+        return false;
+
+    // 입력 스레드와 같은 좌표계(모니터의 실제 화소)로 묻는다.
+    const auto previous = SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    POINT origin { 0, 0 };
+    const auto ok = ClientToScreen (window, &origin) != FALSE;
+    const auto dpi = GetDpiForWindow (window);
+    SetThreadDpiAwarenessContext (previous);
+
+    x = origin.x;
+    y = origin.y;
+    scale = dpi > 0 ? static_cast<double> (dpi) / 96.0 : 1.0;
+    return ok && dpi > 0;
+}
+
 std::vector<RawKeyboard::Device> RawKeyboard::listDevices()
 {
     std::vector<Device> devices;
@@ -396,6 +449,28 @@ void RawKeyboard::processRawInput (void* deviceHandle, unsigned makeCode, unsign
     }
 
     processRawKey (makeCode, flags, device);
+}
+
+void RawKeyboard::processRawMouse (unsigned buttonFlags, int x, int y)
+{
+    if (! mouseHandler || ! isInFront())
+        return;
+
+    // 누른 자리가 등록한 창 위일 때만 넘긴다. 다른 창(메뉴, 대화 상자)이 그 위에 떠 있으면 그 창의 클릭이다.
+    auto* window = static_cast<HWND> (activeWindow.load());
+    const auto under = WindowFromPoint (POINT { x, y });
+
+    if (window == nullptr || under == nullptr || GetAncestor (under, GA_ROOT) != window)
+        return;
+
+    // 왼손잡이 설정에서는 오른쪽 단추가 주 단추다. Raw Input은 실제 단추를 알려 준다.
+    const auto swapped = GetSystemMetrics (SM_SWAPBUTTON) != 0;
+
+    if ((buttonFlags & RI_MOUSE_LEFT_BUTTON_DOWN) != 0)
+        mouseHandler (swapped ? MouseButton::right : MouseButton::left, x, y);
+
+    if ((buttonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN) != 0)
+        mouseHandler (swapped ? MouseButton::left : MouseButton::right, x, y);
 }
 
 void RawKeyboard::processRawKey (unsigned makeCode, unsigned flags, DeviceId device, std::int64_t timeUs)

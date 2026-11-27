@@ -940,6 +940,14 @@ public:
             return;
         }
 
+        // --mousecheck <보고서 파일>: 작은 창을 잠깐 띄워, 화면 쪽이 계산한 실제 화소 좌표(입력 스레드가 마우스 클릭을 받을 때 쓴다)가
+        // Windows가 알려 주는 좌표와 맞는지 본다.
+        if (const auto index = args.indexOf ("--mousecheck"); index >= 0)
+        {
+            runMouseCheck (args[index + 1]);
+            return;
+        }
+
         // --selftest <보고서 파일>: 창 없이 킷, 키 처리, 편집, 오디오 장치, 녹음, 반주, 리플레이를 검사하고 끝낸다.
         // 장치는 실제로 돌리지만 무음을 내보내므로 소리는 나지 않는다.
         if (const auto index = args.indexOf ("--selftest"); index >= 0)
@@ -1400,6 +1408,57 @@ private:
         });
     }
 
+    void runMouseCheck (const juce::String& path)
+    {
+        checkWindow = std::make_unique<juce::DocumentWindow> ("HVD mouse check", juce::Colours::black, 0, true);
+        checkWindow->setUsingNativeTitleBar (true);
+        checkProbe = std::make_unique<juce::Component>();
+
+        auto* content = new juce::Component();
+        content->setSize (480, 300);
+        content->addAndMakeVisible (*checkProbe);
+        checkProbe->setBounds (37, 53, 201, 103);
+        checkWindow->setContentOwned (content, true);
+        checkWindow->setTopLeftPosition (120, 120);
+        checkWindow->setVisible (true);
+
+        juce::Timer::callAfterDelay (600, [this, path]
+        {
+            juce::String report;
+            auto ok = false;
+
+            if (auto* peer = checkWindow->getPeer())
+            {
+                const auto& displays = juce::Desktop::getInstance().getDisplays();
+                const auto fromJuce = displays.logicalToPhysical (checkProbe->localAreaToGlobal (checkProbe->getLocalBounds().toFloat()));
+                int x = 0, y = 0;
+                double scale = 1.0;
+
+                if (hvd::RawKeyboard::clientOriginOf (peer->getNativeHandle(), x, y, scale))
+                {
+                    // Windows 쪽: 창 클라이언트 영역의 왼쪽 위 + 창 안의 자리(논리 좌표) × 창의 배율
+                    const auto inWindow = peer->getComponent().getLocalArea (checkProbe.get(), checkProbe->getLocalBounds()).toFloat();
+                    const auto s = static_cast<float> (scale);
+                    const juce::Rectangle<float> fromWindows (static_cast<float> (x) + inWindow.getX() * s, static_cast<float> (y) + inWindow.getY() * s,
+                                                              inWindow.getWidth() * s, inWindow.getHeight() * s);
+
+                    report << "scale " << scale << "\n"
+                           << "juce    " << fromJuce.toString() << "\n"
+                           << "windows " << fromWindows.toString() << "\n";
+
+                    ok = std::abs (fromJuce.getX() - fromWindows.getX()) <= 1.5f && std::abs (fromJuce.getY() - fromWindows.getY()) <= 1.5f
+                      && std::abs (fromJuce.getRight() - fromWindows.getRight()) <= 1.5f && std::abs (fromJuce.getBottom() - fromWindows.getBottom()) <= 1.5f;
+                }
+            }
+
+            writeReport (path, report + "result: " + (ok ? "ALL OK" : "FAILED") + "\n");
+            setApplicationReturnValue (ok ? 0 : 1);
+            checkWindow = nullptr;
+            checkProbe = nullptr;
+            quit();
+        });
+    }
+
     void saveScreenshot (const juce::String& path, int page, bool gameDemo, int afterMs, std::vector<hvd::KeyCode> pressKeys, bool footswitch)
     {
         // 연습 기록 화면은 사용자의 연주 로그를 읽어서 그린다. 읽기만 하고, 이 실행에서는 로그를 남기지 않는다.
@@ -1656,6 +1715,8 @@ private:
     juce::File keymapFile;
     std::unique_ptr<MainWindow> mainWindow;
     std::unique_ptr<MainComponent> headless;
+    std::unique_ptr<juce::DocumentWindow> checkWindow;    // --mousecheck
+    std::unique_ptr<juce::Component> checkProbe;
 };
 
 START_JUCE_APPLICATION (DrumApplication)

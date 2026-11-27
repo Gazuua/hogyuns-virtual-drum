@@ -3372,6 +3372,88 @@
       }
     },
     {
+      "id": "snare_buzz",
+      "name": "스네어 울림",
+      "volume": 0.22,
+      "pan": 0.0,
+      "pitch": 0.0,
+      "showAs": "snare",
+      "sympathy": {
+        "kick": 1.0,
+        "tom_low": 0.6,
+        "tom_floor": 0.5,
+        "tom_mid": 0.35,
+        "tom_high": 0.25
+      },
+      "layers": [
+        {
+          "upTo": 0.3333,
+          "samples": [
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r1.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r2.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r3.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r4.flac"
+          ]
+        },
+        {
+          "upTo": 0.6667,
+          "samples": [
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r1.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r2.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r3.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r4.flac"
+          ]
+        },
+        {
+          "upTo": 1.0,
+          "samples": [
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r1.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r2.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r3.flac",
+            "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r4.flac"
+          ]
+        }
+      ],
+      "sounds": [
+        {
+          "id": "swirly-kick-buzz",
+          "name": "Swirly 스네어 울림",
+          "family": "",
+          "source": "swirly-drums",
+          "layers": [
+            {
+              "upTo": 0.3333,
+              "samples": [
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r1.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r2.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r3.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v01_r4.flac"
+              ]
+            },
+            {
+              "upTo": 0.6667,
+              "samples": [
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r1.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r2.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r3.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v02_r4.flac"
+              ]
+            },
+            {
+              "upTo": 1.0,
+              "samples": [
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r1.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r2.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r3.flac",
+                "../default/samples/snare_buzz/swirly-kick-buzz/swirly-kick-buzz_v03_r4.flac"
+              ]
+            }
+          ]
+        }
+      ],
+      "sound": "swirly-kick-buzz"
+    },
+    {
       "id": "hihat_closed",
       "name": "하이햇 닫힘",
       "volume": 1.07,
@@ -5009,6 +5091,118 @@
         "y": 0.728,
         "size": 0.13
       }
+    },
+    {
+      "id": "hihat_splash",
+      "name": "하이햇 스플래시",
+      "volume": 0.548,
+      "pan": 0.0,
+      "pitch": 0.0,
+      "group": "hihat",
+      "chokeFadeMs": 15,
+      "showAs": "hihat_pedal",
+      "layers": [
+        {
+          "upTo": 0.3333,
+          "samples": [
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r1.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r2.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r3.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r4.flac"
+          ]
+        },
+        {
+          "upTo": 0.6667,
+          "samples": [
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r1.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r2.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r3.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r4.flac"
+          ]
+        },
+        {
+          "upTo": 1.0,
+          "samples": [
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r1.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r2.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r3.flac",
+            "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r4.flac"
+          ]
+        }
+      ],
+      "sounds": [
+        {
+          "id": "big-rusty",
+          "name": "Big Rusty 14인치",
+          "family": "big-rusty/hihat",
+          "source": "big-rusty-drums",
+          "layers": [
+            {
+              "upTo": 0.3333,
+              "samples": [
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r1.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r2.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r3.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v01_r4.flac"
+              ]
+            },
+            {
+              "upTo": 0.6667,
+              "samples": [
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r1.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r2.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r3.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v02_r4.flac"
+              ]
+            },
+            {
+              "upTo": 1.0,
+              "samples": [
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r1.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r2.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r3.flac",
+                "../default/samples/hihat_splash/big-rusty/big-rusty_v03_r4.flac"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "swirly",
+          "name": "Swirly 하이햇",
+          "family": "swirly/hihat",
+          "source": "swirly-drums",
+          "layers": [
+            {
+              "upTo": 0.3333,
+              "samples": [
+                "../default/samples/hihat_splash/swirly/swirly_v01_r1.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v01_r2.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v01_r3.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v01_r4.flac"
+              ]
+            },
+            {
+              "upTo": 0.6667,
+              "samples": [
+                "../default/samples/hihat_splash/swirly/swirly_v02_r1.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v02_r2.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v02_r3.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v02_r4.flac"
+              ]
+            },
+            {
+              "upTo": 1.0,
+              "samples": [
+                "../default/samples/hihat_splash/swirly/swirly_v03_r1.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v03_r2.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v03_r3.flac",
+                "../default/samples/hihat_splash/swirly/swirly_v03_r4.flac"
+              ]
+            }
+          ]
+        }
+      ],
+      "sound": "big-rusty"
     },
     {
       "id": "tom_high",

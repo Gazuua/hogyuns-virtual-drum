@@ -138,12 +138,12 @@ private:
     juce::TextButton duplicateButton, renameButton, folderButton, restoreButton, quickButton, pedalButton, resetHeldButton, addButton, removeButton;
     juce::ToggleButton followButton;
 
-    juce::ComboBox actionCombo, padCombo, strokeCombo, rateCombo, divisionCombo, pressPadCombo, releasePadCombo;
+    juce::ComboBox actionCombo, padCombo, strokeCombo, rateCombo, divisionCombo, pressPadCombo, releasePadCombo, splashPadCombo;
     PadSwapPicker heldSwap, releasedSwap;
     juce::TextButton padsButton;
     juce::Slider velocitySlider, accentSlider, softSlider, gapSlider;
     juce::TextEditor stepsEditor;
-    std::array<Row, 15> rows;
+    std::array<Row, 16> rows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeysPage)
 };

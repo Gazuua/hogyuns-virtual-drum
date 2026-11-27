@@ -73,6 +73,7 @@ struct EngineCommand
     std::uint16_t pad = 0;
     float velocity = 1.0f;
     std::uint32_t delaySamples = 0;
+    std::uint32_t skipSamples = 0;   // hit: 소리의 앞부분을 이만큼(엔진의 샘플 수) 건너뛰고 짧게 키우며 낸다. delaySamples가 0일 때만
     std::uint64_t time = 0;
     std::uint32_t runnerId = 0;
     const Kit* kit = nullptr;
@@ -159,6 +160,9 @@ public:
     int getActiveRunnerCount() const noexcept             { return activeRunners.load (std::memory_order_relaxed); }
     std::uint32_t getHitCount (int pad) const noexcept;
     float getLastVelocity (int pad) const noexcept;
+
+    /** pad를 멈추라는 지시(chokePad)를 처리한 횟수. 화면이 심벌의 흔들림을 멈출 때 쓴다. */
+    std::uint32_t getChokeCount (int pad) const noexcept;
     std::uint32_t getDroppedCommandCount() const noexcept { return droppedCommands.load (std::memory_order_relaxed); }
 
 private:
@@ -171,7 +175,7 @@ private:
         float gainRight = 0.0f;
         float send = 0.0f;                 // 리버브로 보내는 양
         float fade = 1.0f;                 // 초크되면 1에서 0으로 줄어든다
-        float fadeStep = 0.0f;             // 0이면 초크되지 않은 상태
+        float fadeStep = 0.0f;             // 0이면 초크되지 않은 상태. 음수이면 0에서 1로 키우는 중 (앞부분을 건너뛰고 낼 때)
         float chokeFadeStep = 0.0f;        // 초크될 때 쓸 fadeStep
         int startOffset = 0;               // 이번 블록에서 몇 프레임 뒤에 시작하는지
         int fadeDelay = 0;                 // 초크가 시작되기까지 남은 프레임
@@ -214,7 +218,8 @@ private:
     void emitRunnerHit (Runner& runner, int offset) noexcept;
     void scheduleHit (std::uint64_t time, std::uint16_t pad, float velocity, HitOrigin origin) noexcept;
     void fireScheduled (int numFrames) noexcept;
-    void startVoice (std::uint16_t padIndex, float velocity, int offset, HitOrigin origin) noexcept;
+    void startVoice (std::uint16_t padIndex, float velocity, int offset, HitOrigin origin, std::uint32_t skipSamples = 0) noexcept;
+    bool playPad (std::uint16_t padIndex, float velocity, int offset, float gainScale, std::uint32_t skipSamples) noexcept;
     void chokePad (std::uint16_t padIndex, int offset) noexcept;
     void stopAllVoices() noexcept;
     void stopAllRunners() noexcept;
@@ -267,6 +272,7 @@ private:
     std::unique_ptr<HitEventQueue> hitEvents = std::make_unique<HitEventQueue>();
 
     std::array<std::atomic<std::uint32_t>, maxPads> hitCounts {};
+    std::array<std::atomic<std::uint32_t>, maxPads> chokeCounts {};
     std::array<std::atomic<float>, maxPads> lastVelocities {};
     std::array<std::atomic<float>, maxPads> padPeaks {};
     std::atomic<int> activeVoices { 0 };

@@ -46,6 +46,13 @@ SHAPES = {
     "tom_high": (4, 3, None), "tom_mid": (4, 3, None), "tom_floor": (4, 3, None), "tom_low": (4, 3, None),
     "crash1": (4, 2, 7.0), "crash2": (4, 2, 7.0), "china": (3, 2, 5.0),
     "ride": (5, 2, 6.0), "ride_bell": (4, 2, 6.0), "ride_edge": (3, 2, 7.0),
+    "hihat_splash": (3, 4, 4.0), "snare_buzz": (3, 4, None),
+}
+
+# 기본 킷에 처음부터 없던 패드는 원래 소리가 없다. 음량은 다른 패드의 원래 소리에 맞춘다: (기준 패드, 더할 dB)
+REFERENCES = {
+    "hihat_splash": ("hihat_open", 0.0),
+    "snare_buzz": ("snare", -6.0),
 }
 
 # 패드에 원래 들어 있던 소리에 붙일 이름과 계열. (패드 하나짜리 악기는 계열이 없다)
@@ -119,6 +126,10 @@ for pad in ("china", "crash1", "crash2"):
 for pad in ("crash1", "crash2"):
     sound(pad, "big-rusty-china", "Big Rusty 18인치 차이나", "big-rusty-drums", "big-rusty/china",
           "Samples/china_18/cn/{mic}/cn_vl{v}_rr{r}.flac", BR_CYMBAL)
+
+# 하이햇 풋 스플래시: 페달을 밟았다 바로 떼서 두 심벌이 부딪친 뒤 열리며 울리는 소리. 마이크 비율은 기본 킷의 하이햇과 같다.
+sound("hihat_splash", "big-rusty", "Big Rusty 14인치", "big-rusty-drums", "big-rusty/hihat",
+      "Samples/hihat_14/footspl/{mic}/ht_footspl_vl{v}_rr{r}.flac", {"cl": 0.79, "oh": 0.79})
 
 # ---------------------------------------------------------------------------------------------------
 # Frankensnare: 스네어 여러 대. (폴더 이름, 화면 이름, 림샷의 파일 틀)
@@ -208,6 +219,13 @@ for pad in ("crash1", "crash2"):
     sound(pad, "swirly-splash", "Swirly 스플래시", "swirly-drums", "", "Samples/splash/splash_vl{v}_rr{r}.wav", ONE_FILE)
 
 sound("china", "swirly-china", "Swirly 차이나", "swirly-drums", "", "Samples/china/china_vl{v}_rr{r}.wav", ONE_FILE)
+sound("hihat_splash", "swirly", "Swirly 하이햇", "swirly-drums", "swirly/hihat",
+      "Samples/hat_footsplash/hh_footsplash_vl{v}_rr{r}.wav", ONE_FILE)
+
+# 스네어 울림: 킥을 칠 때 스네어 줄이 떠는 소리를 스네어 마이크로 녹음한 것 (Swirly의 kick_buzz).
+# 엔진이 킥과 탐을 칠 때 함께 작게 낸다 (kit.json 이 패드의 "sympathy").
+sound("snare_buzz", "swirly-kick-buzz", "Swirly 스네어 울림", "swirly-drums", "",
+      "Samples/kick_buzz/buzz_kick_with_snare_buzz_vl{v}_rr{r}.wav", ONE_FILE)
 sound("ride", "swirly", "Swirly 라이드", "swirly-drums", "swirly/ride", "Samples/ride/ride_vl{v}_rr{r}.wav", ONE_FILE)
 
 # ---------------------------------------------------------------------------------------------------
@@ -1035,6 +1053,17 @@ def main() -> int:
 
         targets[pad_id] = loudness_of(kit_folder, original["layers"])
 
+    # 원래 소리가 없는 패드(나중에 더한 패드)는 다른 패드의 원래 소리에 맞춘다.
+    for pad_id, (reference, offset_db) in REFERENCES.items():
+        pad, base = pads.get(pad_id), pads.get(reference)
+
+        if pad is None or base is None or pad_id in targets or (only and pad_id not in only):
+            continue
+
+        original = next((entry for entry in base.get("sounds", []) if entry.get("id") == "original"), None)
+        targets[pad_id] = loudness_of(kit_folder, original["layers"] if original else base["layers"]) + offset_db
+        pad.setdefault("sounds", [])
+
     made = 0
 
     for spec in specs:
@@ -1072,16 +1101,21 @@ def main() -> int:
         else:
             sounds.append(entry)
 
+        # 소리가 하나도 없던 패드는 처음 만든 소리를 고른다.
+        if not pad.get("layers"):
+            pad["layers"] = json.loads(json.dumps(entry["layers"]))
+            pad["sound"] = entry["id"]
+
         made += 1
         print(f"{spec['pad']:13s} {spec['id']:22s} 타격 {len(hits):2d}개  {20 * math.log10(scale):+6.1f} dB  {spec['name']}", flush=True)
 
         # 중간에 멈춰도 만든 것은 남도록 소리 하나마다 저장한다.
         temporary = kit_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         temporary.replace(kit_path)
 
     temporary = kit_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     temporary.replace(kit_path)
 
     total = sum(len(pad.get("sounds", [])) for pad in kit["pads"])

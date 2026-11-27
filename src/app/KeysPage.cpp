@@ -475,11 +475,17 @@ KeysPage::KeysPage (Session& sessionToUse)
         else
             binding->removeProperty ("releasePad");
 
+        if (const auto splash = comboPadId (splashPadCombo); splash.isNotEmpty())
+            binding->setProperty ("splash", splash);
+        else
+            binding->removeProperty ("splash");
+
         commit();
     };
 
     ui::setupCombo (*this, pressPadCombo, pedalChanged);
     ui::setupCombo (*this, releasePadCombo, pedalChanged);
+    ui::setupCombo (*this, splashPadCombo, pedalChanged);
 
     for (auto* picker : { &heldSwap, &releasedSwap })
     {
@@ -557,6 +563,7 @@ KeysPage::KeysPage (Session& sessionToUse)
         { "뗄 때 칠 패드", &releasePadCombo },
         { "누르는 동안 바꿔 칠 패드", &heldSwap },
         { "뗀 동안 바꿔 칠 패드", &releasedSwap },
+        { "빨리 떼면 칠 패드", &splashPadCombo },
     };
 
     for (std::size_t i = 0; i < rows.size(); ++i)
@@ -811,7 +818,7 @@ void KeysPage::rebuild()
         quickPadCombo.setSelectedId (juce::jmax (0, padIds.indexOf (quickPad)) + 2, juce::dontSendNotification);
 
         fillPadCombo (padCombo, false);
-        for (auto* combo : { &pressPadCombo, &releasePadCombo, &heldSwap.from, &heldSwap.to, &releasedSwap.from, &releasedSwap.to })
+        for (auto* combo : { &pressPadCombo, &releasePadCombo, &splashPadCombo, &heldSwap.from, &heldSwap.to, &releasedSwap.from, &releasedSwap.to })
             fillPadCombo (*combo, true);
 
         // 키마다 지정된 줄을 모은다.
@@ -970,10 +977,11 @@ void KeysPage::showBinding()
 
             selectPad (pressPadCombo, pads[0]);
             selectPad (releasePadCombo, binding["releasePad"].toString());
+            selectPad (splashPadCombo, binding["splash"].toString());
             showPair (heldSwap, binding["swap"]);
             showPair (releasedSwap, binding["releasedSwap"]);
 
-            for (const auto index : { 11, 12, 13, 14 })
+            for (const auto index : { 11, 12, 13, 14, 15 })
                 rows[static_cast<std::size_t> (index)].shown = true;
         }
     }
@@ -1213,7 +1221,7 @@ void KeysPage::actionChanged()
             binding->removeProperty (name);
 
     if (action != "pedal")
-        for (const auto* name : { "swap", "releasedSwap", "releasePad", "releaseVelocity" })
+        for (const auto* name : { "swap", "releasedSwap", "releasePad", "releaseVelocity", "splash", "splashMs" })
             binding->removeProperty (name);
 
     if (action != "hit" && action != "choke")

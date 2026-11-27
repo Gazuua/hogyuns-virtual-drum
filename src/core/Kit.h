@@ -47,6 +47,11 @@ struct Pad
     int group = -1;                // 속한 초크 그룹 번호. 없으면 -1
     std::uint32_t cutsMask = 0;    // 이 패드를 치면 끊기는 그룹들의 비트 마스크
     std::vector<Layer> layers;     // upTo가 작은 것부터
+
+    // 이 패드를 치면 함께 작게 울리는 패드 (예: 킥을 치면 스네어 줄이 떤다). 없으면 -1.
+    // 같은 세기로 그 패드의 소리를 고르고, 음량에 sympatheticAmount를 곱한다. 타격으로 세지 않는다.
+    int sympatheticPad = -1;
+    float sympatheticAmount = 0.0f;
 };
 
 /** 킷 전체. 엔진에 넘긴 뒤에는 바꾸지 않는다. */

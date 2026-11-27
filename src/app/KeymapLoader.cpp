@@ -102,6 +102,8 @@ KeymapLoadResult loadKeymap (const juce::File& keymapFile)
         binding.steps = textOf (bindingVar, "steps");
         binding.division = numberOr (bindingVar, "division", binding.division);
         binding.releasePad = textOf (bindingVar, "releasePad");
+        binding.splash = textOf (bindingVar, "splash");
+        binding.splashMs = numberOr (bindingVar, "splashMs", binding.splashMs);
 
         // "swap": { "원래 패드": "바꿔 칠 패드", ... }. "releasedSwap"은 페달을 떼고 있는 동안의 것이다.
         const auto readSwaps = [&bindingVar] (const char* name, auto& pairs)

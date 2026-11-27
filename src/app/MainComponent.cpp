@@ -306,6 +306,9 @@ void MainComponent::refreshStatus()
     if (! session.isKeyboardRegistered())
         lines.add (ko ("키보드 직접 입력을 시작하지 못했습니다."));
 
+    if (session.hasGivenUpMouseTakeover())
+        lines.add (ko ("마우스 클릭 자리가 맞지 않아 예전 방식으로 받습니다 (조금 늦을 수 있음)."));
+
     lines.addArray (session.getMessages());
 
     if (lines.size() > maxMessageLines)

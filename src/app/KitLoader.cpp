@@ -297,6 +297,31 @@ KitLoadResult loadKit (const juce::File& kitFile)
         kit->pads.push_back (std::move (pad));
     }
 
+    // "sympathy": { "kick": 1.0, "tom_floor": 0.5 } — 그 패드들을 치면 이 패드가 함께 작게 울린다 (스네어 울림).
+    for (const auto& padVar : *padsArray)
+    {
+        const auto* sympathy = padVar["sympathy"].getDynamicObject();
+        const auto resonator = kit->findPad (padVar["id"].toString().toStdString());
+
+        if (sympathy == nullptr || resonator < 0)
+            continue;
+
+        for (const auto& entry : sympathy->getProperties())
+        {
+            const auto trigger = kit->findPad (entry.name.toString().toStdString());
+
+            if (trigger < 0 || trigger == resonator)
+            {
+                result.warnings.add ("unknown pad in \"sympathy\": " + entry.name.toString());
+                continue;
+            }
+
+            auto& pad = kit->pads[static_cast<std::size_t> (trigger)];
+            pad.sympatheticPad = resonator;
+            pad.sympatheticAmount = juce::jlimit (0.0f, 4.0f, static_cast<float> (static_cast<double> (entry.value)));
+        }
+    }
+
     if (! kit->samples.empty())
         result.averageTrimMs = trimmedMsTotal / static_cast<double> (kit->samples.size());
 

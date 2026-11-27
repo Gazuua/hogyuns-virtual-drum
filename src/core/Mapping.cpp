@@ -326,6 +326,22 @@ std::shared_ptr<const Mapping> resolveMapping (const MappingSpec& spec,
             if (! binding.releasePad.empty())
                 pedal.releasePad = findPad (binding.releasePad, binding.key);
 
+            if (! binding.splash.empty())
+            {
+                pedal.splashPad = findPad (binding.splash, binding.key);
+
+                if (pedal.splashPad >= 0)
+                {
+                    auto& keys = mapping->keysForPad[static_cast<std::size_t> (pedal.splashPad)];
+
+                    if (std::find (keys.begin(), keys.end(), *key) == keys.end())
+                        keys.push_back (*key);
+                }
+            }
+
+            if (binding.splashMs >= 0.0f)
+                pedal.splashMs = std::clamp (binding.splashMs, 20.0f, 1000.0f);
+
             const auto resolveSwaps = [&] (const auto& pairs, auto& resolved)
             {
                 for (const auto& [from, to] : pairs)

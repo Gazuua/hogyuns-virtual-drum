@@ -5,6 +5,7 @@
 #include "CoreTests.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <memory>
@@ -17,6 +18,7 @@
 #include "core/InputTiming.h"
 #include "core/KeyCode.h"
 #include "core/Mapping.h"
+#include "core/MouseTargets.h"
 #include "core/PeakLimiter.h"
 #include "core/Performer.h"
 #include "core/PracticeStats.h"
@@ -440,6 +442,124 @@ void testChokePad()
     engine.postFromControl (allOff);
     render (engine, 4096);
     CHECK (engine.getActiveVoiceCount() == 0);
+}
+
+void testSympathetic()
+{
+    // 킥을 치면 스네어 울림 패드가 함께 작게 울린다. 그 패드의 타격으로는 세지 않는다.
+    hvd::Kit kit;
+    kit.samples.push_back (makeConstantSample (1.0f, 1000));
+    kit.samples.push_back (makeConstantSample (0.25f, 1000));
+    auto kick = makePad ("kick", 0);
+    kick.sympatheticPad = 2;
+    kick.sympatheticAmount = 0.5f;
+    kit.pads.push_back (kick);
+    kit.pads.push_back (makePad ("snare", 0));
+    kit.pads.push_back (makePad ("snare_buzz", 1));
+
+    hvd::Engine engine;
+    engine.prepare (48000.0);
+    setKit (engine, kit);
+    render (engine, 16);
+
+    hvd::HitEvent event;
+
+    while (engine.popHitEvent (event)) {}
+
+    hit (engine, 0);
+    auto block = render (engine, 64);
+    CHECK (isNear (block.left[0], 1.0f + 0.25f * 0.5f));
+    CHECK (engine.getActiveVoiceCount() == 2);
+    CHECK (engine.getHitCount (0) == 1 && engine.getHitCount (2) == 0);
+
+    auto events = 0;
+
+    while (engine.popHitEvent (event))
+        ++events;
+
+    CHECK (events == 1);
+
+    // 스네어를 쳐도 울림 패드는 따라 울지 않는다.
+    hvd::EngineCommand off;
+    off.type = hvd::EngineCommand::Type::allSoundOff;
+    engine.postFromControl (off);
+    render (engine, 4096);
+    hit (engine, 1);
+    block = render (engine, 64);
+    CHECK (isNear (block.left[0], 1.0f));
+    CHECK (engine.getActiveVoiceCount() == 1);
+
+    // 울림 패드를 뮤트하면 킥만, 킥을 뮤트하면 둘 다 나지 않는다.
+    const auto setMute = [&engine] (int pad, bool mute)
+    {
+        hvd::EngineCommand command;
+        command.type = hvd::EngineCommand::Type::setPadParams;
+        command.pad = static_cast<std::uint16_t> (pad);
+        command.padParams.mute = mute;
+        engine.postFromControl (command);
+    };
+
+    engine.postFromControl (off);
+    render (engine, 4096);
+    setMute (2, true);
+    hit (engine, 0);
+    block = render (engine, 64);
+    CHECK (isNear (block.left[0], 1.0f));
+
+    engine.postFromControl (off);
+    render (engine, 4096);
+    setMute (2, false);
+    setMute (0, true);
+    hit (engine, 0);
+    block = render (engine, 64);
+    CHECK (isNear (block.left[0], 0.0f));
+    CHECK (engine.getActiveVoiceCount() == 0);
+}
+
+void testSkipAndChokeCount()
+{
+    // 앞부분을 건너뛰고 낼 때는 그 자리부터 3ms 동안 키운다 (풋 스플래시).
+    hvd::Kit kit;
+    hvd::Sample ramp;
+
+    for (int i = 0; i < 4000; ++i)
+        ramp.left.push_back (static_cast<float> (i) / 4000.0f);
+
+    kit.samples.push_back (ramp);
+    kit.pads.push_back (makePad ("splash", 0));
+
+    hvd::Engine engine;
+    engine.prepare (48000.0);
+    setKit (engine, kit);
+    render (engine, 16);
+
+    hvd::EngineCommand command;
+    command.type = hvd::EngineCommand::Type::hit;
+    command.pad = 0;
+    command.skipSamples = 1000;
+    engine.postFromInput (command);
+
+    const auto block = render (engine, 300);
+    CHECK (block.left[0] > 0.0f && block.left[0] < 0.25f * 0.02f);    // 작게 시작한다
+    CHECK (block.left[50] < 1050.0f / 4000.0f);
+    CHECK (isNear (block.left[200], 1200.0f / 4000.0f, 1.0e-4f));     // 3ms(144프레임) 뒤에는 그대로
+
+    // 너무 많이 건너뛰면 낼 소리가 없다.
+    command.skipSamples = 5000;
+    engine.postFromInput (command);
+    render (engine, 64);
+    CHECK (engine.getActiveVoiceCount() == 1);
+    CHECK (engine.getHitCount (0) == 2);
+
+    // 멈춤 지시는 패드마다 센다.
+    CHECK (engine.getChokeCount (0) == 0);
+    hvd::EngineCommand choke;
+    choke.type = hvd::EngineCommand::Type::chokePad;
+    choke.pad = 0;
+    engine.postFromInput (choke);
+    render (engine, 64);
+    CHECK (engine.getChokeCount (0) == 1);
+    CHECK (engine.getChokeCount (-1) == 0 && engine.getChokeCount (hvd::Engine::maxPads) == 0);
 }
 
 void testRoundRobin()
@@ -1186,6 +1306,150 @@ void testPedalReleasedSwap()
     CHECK (press (keyTab, 1500) < 0.0f);
     CHECK (isNear (press (keyA, 1600), 0.25f));
     CHECK (rig.performer.swappedForScreen (0) == 2);
+}
+
+void testFootSplash()
+{
+    // 밟을 때 c(칙). 150ms 안에 떼면 b(스플래시), 늦게 떼면 a(뗄 때 칠 패드).
+    hvd::MappingSpec spec;
+    spec.chordAccentMs = 0.0f;
+
+    auto foot = bindAction ("Pedal1", "pedal");
+    foot.pads = { "c" };
+    foot.splash = "b";
+    foot.releasePad = "a";
+    spec.bindings.push_back (foot);
+
+    auto quickOnly = bindAction ("Tab", "pedal");
+    quickOnly.splash = "b";
+    quickOnly.splashMs = 5000.0f;    // 1초로 줄인다
+    spec.bindings.push_back (quickOnly);
+
+    Rig rig (spec);
+    CHECK (rig.warnings.empty());
+
+    const auto pedal = hvd::pedalKey (0);
+    const auto mapping = rig.performer.getMapping();
+    CHECK (mapping != nullptr && mapping->pedals.size() == 2);
+    CHECK (mapping != nullptr && mapping->pedals[0].splashPad == 1 && isNear (mapping->pedals[0].splashMs, 150.0f));
+    CHECK (mapping != nullptr && isNear (mapping->pedals[1].splashMs, 1000.0f));
+    CHECK (mapping != nullptr && std::find (mapping->keysForPad[1].begin(), mapping->keysForPad[1].end(), pedal) != mapping->keysForPad[1].end());
+
+    const auto counts = [&rig]
+    {
+        return std::array<std::uint32_t, 3> { rig.engine.getHitCount (0), rig.engine.getHitCount (1), rig.engine.getHitCount (2) };
+    };
+
+    rig.performer.keyDown (pedal, 1000 * msNs);
+    rig.play (64);
+    CHECK ((counts() == std::array<std::uint32_t, 3> { 0, 0, 1 }));
+
+    rig.performer.keyUp (pedal, 1080 * msNs);    // 80ms 만에 뗐다
+    rig.play (64);
+    CHECK ((counts() == std::array<std::uint32_t, 3> { 0, 1, 1 }));
+
+    rig.performer.keyDown (pedal, 2000 * msNs);
+    rig.performer.keyUp (pedal, 2400 * msNs);    // 400ms 밟고 있었다
+    rig.play (64);
+    CHECK ((counts() == std::array<std::uint32_t, 3> { 1, 1, 2 }));
+
+    rig.performer.keyDown (keyTab, 3000 * msNs);
+    rig.performer.keyUp (keyTab, 3900 * msNs);
+    rig.performer.keyDown (keyTab, 4000 * msNs);
+    rig.performer.keyUp (keyTab, 5200 * msNs);   // 뗄 때 칠 패드가 없으면 늦게 뗐을 때는 아무것도 치지 않는다
+    rig.play (64);
+    CHECK ((counts() == std::array<std::uint32_t, 3> { 1, 2, 2 }));
+}
+
+void testMouseHit()
+{
+    // 입력 스레드가 받은 마우스 클릭: 키처럼 페달을 따르거나(보통 자리), 따르지 않는다(하이햇 닫힘 고정).
+    hvd::MappingSpec spec;
+    spec.chordAccentMs = 0.0f;
+
+    auto foot = bindAction ("Pedal1", "pedal");
+    foot.releasedSwap = { { "a", "b" } };
+    spec.bindings.push_back (foot);
+
+    Rig rig (spec);
+    rig.performer.setFootswitchConnected (true);
+
+    const auto click = [&rig] (std::uint16_t pad, bool followPedals)
+    {
+        rig.performer.mouseHit (pad, 0.9f, followPedals);
+        const auto onsets = rig.play (64);
+        return onsets.size() == 1 ? onsets[0].value : -1.0f;
+    };
+
+    hvd::HitEvent event;
+
+    while (rig.engine.popHitEvent (event)) {}
+
+    CHECK (isNear (click (0, true), 0.45f));     // 페달을 떼고 있으면 b
+    CHECK (rig.engine.popHitEvent (event) && event.origin.source == hvd::HitSource::mouse && event.pad == 1);
+    CHECK (isNear (click (0, false), 0.9f));     // 고정 자리는 a 그대로
+
+    rig.performer.keyDown (hvd::pedalKey (0), 1000 * msNs);
+    rig.play (64);
+    CHECK (isNear (click (0, true), 0.9f));      // 밟고 있으면 a
+    CHECK (isNear (click (2, true), 0.225f));    // 바꿈에 없는 패드는 그대로
+
+    const std::uint16_t chokes[] = { 0, 2 };
+    rig.performer.choke (chokes);
+    rig.play (64);
+    CHECK (rig.engine.getChokeCount (0) == 1 && rig.engine.getChokeCount (1) == 0 && rig.engine.getChokeCount (2) == 1);
+}
+
+void testMouseTargets()
+{
+    hvd::MouseTargets targets;
+    targets.left = 0.0f;
+    targets.top = 0.0f;
+    targets.right = 200.0f;
+    targets.bottom = 100.0f;
+
+    hvd::MouseTarget bell;    // 라이드 위에 얹힌 작은 자리가 먼저다
+    bell.shape = hvd::MouseTarget::Shape::ellipse;
+    bell.left = 90.0f;
+    bell.top = 40.0f;
+    bell.right = 110.0f;
+    bell.bottom = 60.0f;
+    bell.pad = 2;
+
+    auto ride = bell;
+    ride.left = 40.0f;
+    ride.top = 10.0f;
+    ride.right = 160.0f;
+    ride.bottom = 90.0f;
+    ride.pad = 1;
+
+    hvd::MouseTarget tile;    // 그림 밖으로 삐져나간 자리
+    tile.left = 150.0f;
+    tile.top = 50.0f;
+    tile.right = 260.0f;
+    tile.bottom = 120.0f;
+    tile.pad = 3;
+
+    targets.targets = { bell, ride, tile };
+
+    const auto padAt = [&targets] (float x, float y)
+    {
+        const auto* target = targets.find (x, y);
+        return target != nullptr ? static_cast<int> (target->pad) : -1;
+    };
+
+    CHECK (padAt (100.0f, 50.0f) == 2);
+    CHECK (padAt (60.0f, 50.0f) == 1);
+    CHECK (padAt (45.0f, 15.0f) == -1);      // 타원의 테두리 사각형 구석은 밖이다
+    CHECK (padAt (155.0f, 55.0f) == 1);      // 타원 안이 먼저 나온다
+    CHECK (padAt (190.0f, 95.0f) == 3);      // 사각형
+    CHECK (padAt (230.0f, 95.0f) == -1);     // 그림 밖은 다른 부품의 자리다
+    CHECK (padAt (190.0f, 100.0f) == -1);
+
+    auto copy = targets;
+    CHECK (copy == targets);
+    copy.targets[1].chokes.push_back (2);
+    CHECK (! (copy == targets));
 }
 
 void testChordAccent()
@@ -2769,6 +3033,8 @@ int hvd::runCoreTests (std::string& log)
         testDelay,
         testChokeGroup,
         testChokePad,
+        testSympathetic,
+        testSkipAndChokeCount,
         testRoundRobin,
         testLayers,
         testResampledPlayback,
@@ -2789,6 +3055,9 @@ int hvd::runCoreTests (std::string& log)
         testModifiers,
         testPedal,
         testPedalReleasedSwap,
+        testFootSplash,
+        testMouseHit,
+        testMouseTargets,
         testChordAccent,
         testTapTempo,
         testMetronome,

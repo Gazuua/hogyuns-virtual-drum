@@ -146,8 +146,15 @@ void PadGrid::mouseDown (const juce::MouseEvent& event)
     {
         if (getTileBounds (i).contains (event.getPosition()))
         {
-            if (onPadClicked)
+            if (event.mods.isRightButtonDown())
+            {
+                if (onPadChoked)
+                    onPadChoked (i);
+            }
+            else if (event.mods.isLeftButtonDown() && onPadClicked)
+            {
                 onPadClicked (i);
+            }
 
             return;
         }

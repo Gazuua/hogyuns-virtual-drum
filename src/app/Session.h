@@ -17,6 +17,7 @@
 #include "core/Engine.h"
 #include "core/InputTiming.h"
 #include "core/Mapping.h"
+#include "core/MouseTargets.h"
 #include "core/Performer.h"
 #include "core/Replay.h"
 #include "core/SpscQueue.h"
@@ -25,7 +26,7 @@
 /** 화면 뒤에서 돌아가는 프로그램 전체. 엔진, 오디오 출력, 키보드 입력, 킷과 키 배열 파일을 가지고 서로 잇는다.
 
     화면 쪽은 이 객체의 함수를 화면 스레드에서 부르고, 바뀐 것이 있으면 ChangeListener로 알림을 받는다.
-    handleKey()만 입력 스레드에서 불린다.
+    handleKey()와 handleMouse()만 입력 스레드에서 불린다.
 */
 class Session final : public juce::ChangeBroadcaster,
                       private juce::MidiInputCallback
@@ -119,6 +120,37 @@ public:
     void previewPad (int pad, float velocity, hvd::HitSource source = hvd::HitSource::screen, bool followPedals = true);
     void allSoundOff();
 
+    /** 패드들의 소리를 멈춘다 (연주 화면에서 오른쪽 단추로 심벌을 잡는 것). */
+    void chokePads (const std::vector<std::uint16_t>& pads);
+
+    //==============================================================================
+    // 연주 화면의 마우스. 클릭은 입력 스레드가 Raw Input으로 받아 키처럼 바로 친다 (화면 스레드가 바빠도 밀리지 않는다).
+    // 화면은 지금 보이는 자리들을 setMouseTargets()로 넘기고, 화면 스레드로 오는 클릭은 그 자리에서는 무시한다.
+
+    /** 지금 보이는 자리들. 연주 화면이 가려지거나 배치를 고치는 동안에는 nullptr을 준다. */
+    void setMouseTargets (std::shared_ptr<const hvd::MouseTargets> targets);
+
+    /** 입력 스레드가 넘겨받은 자리의 클릭을 맡고 있는지. true이면 화면 쪽은 그 클릭으로 치지 않는다. */
+    bool isMouseTakenByInput() const;
+
+    /** 입력 스레드가 친 클릭 하나. 화면 쪽은 자기가 받은 클릭과 맞춰 보고, 입력 스레드가 놓친 클릭은 대신 친다. */
+    struct RawClick
+    {
+        int spot = -1;          // MouseTarget::spot
+        bool right = false;     // 오른쪽 단추 (멈춤)
+        double timeMs = 0.0;    // juce::Time::getMillisecondCounterHiRes()
+    };
+
+    bool popRawClick (RawClick& click) noexcept              { return rawClicks.pop (click); }
+
+    /** 화면 쪽이 받은 클릭과 입력 스레드가 친 자리가 거듭 어긋날 때 부른다. 이 뒤로는 화면 쪽이 클릭을 받는다. */
+    void giveUpMouseTakeover();
+    bool hasGivenUpMouseTakeover() const noexcept            { return ! mouseTakeover.load (std::memory_order_relaxed); }
+
+    /** 페달을 따르지 않는 자리(하이햇 닫힘 고정)로 이 패드를 쳤으면 그 자리 번호를 돌려주고 지운다. 아니면 -1. */
+    int takeMouseSpot (int pad);
+    void noteMouseSpot (int pad, int spot);
+
     //==============================================================================
     // 백업: 킷 파일과 키 배열 파일이 바뀔 때마다(프로그램이 저장했든 밖에서 고쳤든) 바뀌기 전의 내용을 남긴다.
     const FileBackups& getBackups() const noexcept           { return backups; }
@@ -145,6 +177,9 @@ public:
     // 키 입력
     /** 키 하나가 눌리거나 떼어졌을 때. 입력 스레드가 부른다. */
     void handleKey (hvd::KeyCode key, bool down);
+
+    /** 연주 화면 창 위에서 마우스 단추를 눌렀을 때. 입력 스레드가 부른다. x, y는 모니터의 실제 화소다. */
+    void handleMouse (hvd::RawKeyboard::MouseButton button, int x, int y);
 
     bool isKeyHeld (hvd::KeyCode key) const noexcept;
     int getHeldKeyCount() const noexcept                     { return heldCount.load (std::memory_order_relaxed); }
@@ -366,6 +401,12 @@ private:
     std::atomic<int> capturedKey { -1 };
     std::function<void (hvd::KeyCode)> captureCallback;
     std::array<bool, hvd::numKeyCodes> forwarded {};    // 누름을 연주 로직에 넘긴 키. handleKey()를 부르는 스레드에서만 쓴다
+
+    // 마우스 (화면 스레드가 자리를 넘기고 입력 스레드가 읽는다)
+    std::atomic<std::shared_ptr<const hvd::MouseTargets>> mouseTargets;
+    std::array<std::atomic<int>, hvd::Engine::maxPads> mouseSpots {};    // 패드마다 마지막으로 친 고정 자리의 번호 + 1. 0이면 없음
+    hvd::SpscQueue<RawClick, 64> rawClicks;          // 입력 스레드 → 화면 스레드
+    std::atomic<bool> mouseTakeover { true };        // false면 입력 스레드는 클릭을 치지 않는다
     PedalSetup pedal;
     std::uint32_t seenDeviceChanges = 0;    // 페달 연결을 마지막으로 확인했을 때의 장치 변경 횟수
 

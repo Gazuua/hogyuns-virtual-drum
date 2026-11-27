@@ -22,12 +22,21 @@ namespace hvd
 
     풋스위치(페달)처럼 키보드로 인식되는 장치 하나를 "페달"로 등록할 수 있다. 그 장치에서 온 키는
     키보드의 같은 키와 섞이지 않게 Pedal1, Pedal2… 로 바꿔서 넘긴다.
+
+    마우스 단추를 누른 것도 같은 스레드에서 받는다. 화면 스레드가 바쁠 때(그림을 그리는 중 등) 클릭이 밀리지 않게 하려는 것이다.
+    Windows가 화면에 보내는 보통의 마우스 메시지는 그대로 간다.
 */
 class RawKeyboard
 {
 public:
     /** 입력 스레드에서 불린다. down이 false면 키를 뗀 것이다. */
     using Handler = std::function<void (KeyCode key, bool down)>;
+
+    enum class MouseButton { left, right };
+
+    /** 입력 스레드에서 불린다. 등록한 창이 맨 앞에 있고 그 창 위를 눌렀을 때만 불린다.
+        x, y는 누른 자리의 화면 좌표(모니터의 실제 화소)다. 왼손잡이 설정으로 단추를 바꿨으면 바뀐 대로 넘긴다. */
+    using MouseHandler = std::function<void (MouseButton button, int x, int y)>;
 
     /** 입력 장치를 가리키는 값. 장치의 제조사·제품 번호로 만들고, 0은 "알 수 없음"이다.
         같은 제품이면 어느 USB 단자에 꽂아도 같은 값이 나온다. */
@@ -53,9 +62,12 @@ public:
     RawKeyboard (const RawKeyboard&) = delete;
     RawKeyboard& operator= (const RawKeyboard&) = delete;
 
-    /** 입력 스레드를 시작한다. Raw Input 등록에 성공하면 true. */
-    bool start (Handler newHandler);
+    /** 입력 스레드를 시작한다. 키보드의 Raw Input 등록에 성공하면 true. mouseHandler를 주면 마우스 단추도 받는다. */
+    bool start (Handler newHandler, MouseHandler newMouseHandler = {});
     void stop();
+
+    /** 마우스 단추를 입력 스레드에서 받고 있는지. */
+    bool isReadingMouse() const noexcept                        { return mouseRegistered.load (std::memory_order_relaxed); }
 
     /** 이 창이 맨 앞에 있을 때만 키 누름을 넘긴다. 값은 Windows 창 핸들(HWND)이다. */
     void setActiveWindow (void* nativeWindowHandle) noexcept    { activeWindow.store (nativeWindowHandle); }
@@ -66,6 +78,9 @@ public:
 
     //==============================================================================
     // 페달. 아래 함수들은 화면 스레드에서 부른다.
+
+    /** 검사용: 창의 클라이언트 영역 왼쪽 위의 화면 좌표(모니터의 실제 화소)와 그 창의 화면 배율(DPI / 96). 실패하면 false. */
+    static bool clientOriginOf (void* nativeWindowHandle, int& x, int& y, double& scale);
 
     /** 지금 꽂혀 있는 키보드 장치들 (풋스위치도 키보드로 잡힌다). */
     static std::vector<Device> listDevices();
@@ -98,6 +113,9 @@ public:
     /** 입력 스레드가 부른다. 장치 핸들(HANDLE)로 장치를 알아내 processRawKey()에 넘긴다. */
     void processRawInput (void* deviceHandle, unsigned makeCode, unsigned flags);
 
+    /** 입력 스레드가 부른다. buttonFlags는 RAWMOUSE의 usButtonFlags, x와 y는 그 메시지가 생긴 때의 커서 자리다. */
+    void processRawMouse (unsigned buttonFlags, int x, int y);
+
     /** 입력 스레드가 부른다. 장치가 꽂히거나 빠졌으니 핸들과 장치의 짝을 다시 알아내게 한다. */
     void forgetDeviceHandles() noexcept
     {
@@ -118,9 +136,11 @@ private:
     void noteReport (bool fromPedal, std::int64_t timeUs) noexcept;
 
     Handler handler;
+    MouseHandler mouseHandler;
     std::thread thread;
     std::atomic<unsigned long> threadId { 0 };
     std::atomic<int> startState { 0 };    // 0: 준비 중, 1: 등록 성공, -1: 등록 실패
+    std::atomic<bool> mouseRegistered { false };
     std::atomic<void*> activeWindow { nullptr };
     std::atomic<bool> requireActiveWindow { false };
     std::array<bool, numKeyCodes> isDown {};

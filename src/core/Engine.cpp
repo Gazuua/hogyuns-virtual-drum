@@ -120,6 +120,14 @@ std::uint32_t Engine::getHitCount (int pad) const noexcept
     return hitCounts[static_cast<std::size_t> (pad)].load (std::memory_order_relaxed);
 }
 
+std::uint32_t Engine::getChokeCount (int pad) const noexcept
+{
+    if (pad < 0 || pad >= maxPads)
+        return 0;
+
+    return chokeCounts[static_cast<std::size_t> (pad)].load (std::memory_order_relaxed);
+}
+
 bool Engine::popHitEvent (HitEvent& event) noexcept
 {
     return hitEvents->pop (event);
@@ -247,7 +255,7 @@ void Engine::handle (const EngineCommand& command) noexcept
         case EngineCommand::Type::hit:
         {
             if (command.delaySamples == 0)
-                startVoice (command.pad, command.velocity, 0, command.origin);
+                startVoice (command.pad, command.velocity, 0, command.origin, command.skipSamples);
             else
                 scheduleHit (clock + command.delaySamples, command.pad, command.velocity, command.origin);
 
@@ -266,6 +274,10 @@ void Engine::handle (const EngineCommand& command) noexcept
 
         case EngineCommand::Type::chokePad:
             chokePad (command.pad, 0);
+
+            if (command.pad < maxPads)
+                chokeCounts[command.pad].fetch_add (1, std::memory_order_relaxed);
+
             break;
 
         case EngineCommand::Type::allSoundOff:
@@ -570,15 +582,13 @@ Engine::Voice& Engine::allocateVoice() noexcept
     return *oldest;
 }
 
-void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, HitOrigin origin) noexcept
+void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, HitOrigin origin, std::uint32_t skipSamples) noexcept
 {
     if (kit == nullptr || padIndex >= kit->pads.size() || padIndex >= maxPads)
         return;
 
     const auto& pad = kit->pads[padIndex];
     velocity = std::clamp (velocity, 0.0f, 1.0f);
-
-    const auto& params = padParams[padIndex];
 
     hitCounts[padIndex].fetch_add (1, std::memory_order_relaxed);
     lastVelocities[padIndex].store (velocity, std::memory_order_relaxed);
@@ -599,8 +609,24 @@ void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, Hit
             if (voice.sample != nullptr && voice.group >= 0 && ((pad.cutsMask >> voice.group) & 1u) != 0)
                 beginFade (voice, offset);
 
-    if (pad.layers.empty() || velocity <= 0.0f || params.mute)
+    if (! playPad (padIndex, velocity, offset, 1.0f, skipSamples))
         return;
+
+    // 함께 울리는 패드 (킥을 치면 스네어 줄이 떤다). 그 패드의 타격으로 세지 않고, 그 패드가 끊는 그룹도 건드리지 않는다.
+    if (pad.sympatheticPad >= 0 && pad.sympatheticPad != padIndex && pad.sympatheticAmount > 0.0f)
+        playPad (static_cast<std::uint16_t> (pad.sympatheticPad), velocity, offset, pad.sympatheticAmount, 0);
+}
+
+bool Engine::playPad (std::uint16_t padIndex, float velocity, int offset, float gainScale, std::uint32_t skipSamples) noexcept
+{
+    if (kit == nullptr || padIndex >= kit->pads.size() || padIndex >= maxPads)
+        return false;
+
+    const auto& pad = kit->pads[padIndex];
+    const auto& params = padParams[padIndex];
+
+    if (pad.layers.empty() || velocity <= 0.0f || params.mute)
+        return false;
 
     // 세기에 맞는 레이어를 고른다.
     const Layer* layer = &pad.layers.back();
@@ -615,22 +641,22 @@ void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, Hit
     }
 
     if (layer->samples.empty())
-        return;
+        return false;
 
     // 같은 레이어 안에서는 칠 때마다 다음 샘플로 넘어간다.
     const auto turn = roundRobin[padIndex]++;
     const auto sampleIndex = layer->samples[turn % layer->samples.size()];
 
     if (sampleIndex >= kit->samples.size())
-        return;
+        return false;
 
     const auto& sample = kit->samples[sampleIndex];
 
     if (sample.frames() < 4)
-        return;
+        return false;
 
     const auto nominal = std::max (layer->nominal, 0.01f);
-    auto gain = params.volume * std::pow (velocity / nominal, params.velocityCurve);
+    auto gain = params.volume * gainScale * std::pow (velocity / nominal, params.velocityCurve);
     auto step = sample.sampleRate / sampleRate * static_cast<double> (params.pitchRatio);
 
     // 휴머나이즈: 칠 때마다 음량과 음높이를 조금씩 다르게 한다.
@@ -643,11 +669,15 @@ void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, Hit
     const auto pan = std::clamp (params.pan, -1.0f, 1.0f);
     const auto chokeFrames = std::max (1.0, static_cast<double> (pad.chokeFadeMs) * 0.001 * sampleRate);
 
-    // 앞부분을 건너뛰는 설정이 샘플보다 길면 낼 소리가 없다.
-    const auto startFrame = std::max (0.0, static_cast<double> (params.startSeconds) * sample.sampleRate);
+    // 앞부분을 건너뛰는 설정이 샘플보다 길면 낼 소리가 없다. 지시가 건너뛰라고 한 만큼은 재생 속도대로 더 건너뛴다.
+    const auto startFrame = std::max (0.0, static_cast<double> (params.startSeconds) * sample.sampleRate)
+                          + static_cast<double> (skipSamples) * step;
 
     if (startFrame + 4.0 >= static_cast<double> (sample.frames()))
-        return;
+        return false;
+
+    // 소리 중간부터 내면 첫 샘플에서 딸깍 소리가 나므로 3ms 동안 키운다.
+    constexpr double rampSeconds = 0.003;
 
     auto& voice = allocateVoice();
     voice.sample = &sample;
@@ -656,14 +686,15 @@ void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, Hit
     voice.gainLeft = gain * (pan > 0.0f ? 1.0f - pan : 1.0f);
     voice.gainRight = gain * (pan < 0.0f ? 1.0f + pan : 1.0f);
     voice.send = std::clamp (params.reverbSend, 0.0f, 1.0f);
-    voice.fade = 1.0f;
-    voice.fadeStep = 0.0f;
+    voice.fade = skipSamples > 0 ? 0.0f : 1.0f;
+    voice.fadeStep = skipSamples > 0 ? static_cast<float> (-1.0 / std::max (1.0, rampSeconds * sampleRate)) : 0.0f;
     voice.chokeFadeStep = static_cast<float> (1.0 / chokeFrames);
     voice.startOffset = std::max (0, offset);
     voice.fadeDelay = 0;
     voice.group = pad.group;
     voice.pad = padIndex;
     voice.serial = ++serialCounter;
+    return true;
 }
 
 void Engine::mixVoice (Voice& voice, int numFrames) noexcept
@@ -716,6 +747,16 @@ void Engine::mixVoice (Voice& voice, int numFrames) noexcept
                     reportPeak();
                     return;
                 }
+            }
+        }
+        else if (voice.fadeStep < 0.0f)
+        {
+            voice.fade -= voice.fadeStep;
+
+            if (voice.fade >= 1.0f)
+            {
+                voice.fade = 1.0f;
+                voice.fadeStep = 0.0f;
             }
         }
 

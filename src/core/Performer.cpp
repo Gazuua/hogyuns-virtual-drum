@@ -40,6 +40,7 @@ bool Performer::sync()
         accentHeld = 0;
         ghostHeld = 0;
         pedalHeld.assign (active != nullptr ? active->pedals.size() : 0, 0);
+        pedalPressTime.assign (pedalHeld.size(), 0);
         latched.fill (false);
         lastHitTime.fill (0);
         lastHitKey.fill (invalidKey);
@@ -106,6 +107,30 @@ std::uint16_t Performer::swappedForScreen (std::uint16_t pad) const
         const auto key = current->pedals[i].key;
         return key < numKeyCodes && keyHeld[key].load (std::memory_order_relaxed);
     }, footswitchConnected.load (std::memory_order_relaxed), pad);
+}
+
+void Performer::mouseHit (std::uint16_t pad, float velocity, bool followPedals)
+{
+    if (! sync())
+        return;
+
+    EngineCommand command;
+    command.type = EngineCommand::Type::hit;
+    command.pad = followPedals ? swapped (pad) : pad;
+    command.velocity = std::clamp (velocity, 0.0f, 1.0f);
+    command.origin = { HitSource::mouse, 0 };
+    engine.postFromInput (command);
+}
+
+void Performer::choke (std::span<const std::uint16_t> pads)
+{
+    for (const auto pad : pads)
+    {
+        EngineCommand command;
+        command.type = EngineCommand::Type::chokePad;
+        command.pad = pad;
+        engine.postFromInput (command);
+    }
 }
 
 std::uint32_t Performer::toSamples (const Interval& interval) const noexcept
@@ -203,13 +228,15 @@ bool Performer::makeRunner (const Stroke& stroke, std::uint16_t pad, std::uint64
     return true;
 }
 
-void Performer::postHit (std::uint16_t pad, float velocity, std::uint32_t delaySamples, KeyCode key, std::uint64_t timeNs)
+void Performer::postHit (std::uint16_t pad, float velocity, std::uint32_t delaySamples, KeyCode key, std::uint64_t timeNs,
+                         std::uint32_t skipSamples)
 {
     EngineCommand command;
     command.type = EngineCommand::Type::hit;
     command.pad = pad;
     command.velocity = velocity;
     command.delaySamples = delaySamples;
+    command.skipSamples = skipSamples;
     command.origin = { HitSource::key, key };
     engine.postFromInput (command);
 
@@ -296,6 +323,7 @@ void Performer::keyDown (KeyCode key, std::uint64_t timeNs)
                     break;
 
                 ++pedalHeld[action.pedal];
+                pedalPressTime[action.pedal] = timeNs;
                 const auto& pedal = active->pedals[action.pedal];
 
                 if (pedal.pressPad >= 0)
@@ -446,9 +474,21 @@ void Performer::keyUp (KeyCode key, std::uint64_t timeNs)
 
                 --pedalHeld[action.pedal];
                 const auto& pedal = active->pedals[action.pedal];
+                const auto pressed = pedalPressTime[action.pedal];
+                const auto heldNs = pressed != 0 && timeNs >= pressed ? timeNs - pressed : std::uint64_t (0);
+                const auto quick = pressed != 0 && heldNs <= static_cast<std::uint64_t> (pedal.splashMs * static_cast<float> (nanosPerMs));
 
-                if (pedal.releasePad >= 0)
+                if (pedal.splashPad >= 0 && quick)
+                {
+                    // 풋 스플래시: 밟을 때 이미 "칙"이 났으므로, 스플래시 녹음의 부딪치는 앞부분은 밟고 있던 시간만큼 건너뛰고
+                    // 그 뒤의 열리며 울리는 소리부터 낸다. 같은 하이햇 그룹이라 칙 소리는 이때 끊긴다.
+                    const auto skip = static_cast<std::uint32_t> (static_cast<double> (heldNs) * 1.0e-9 * engine.getSampleRate());
+                    postHit (static_cast<std::uint16_t> (pedal.splashPad), modified (pedal.pressVelocity), 0, key, timeNs, skip);
+                }
+                else if (pedal.releasePad >= 0)
+                {
                     postHit (static_cast<std::uint16_t> (pedal.releasePad), modified (pedal.releaseVelocity), 0, key, timeNs);
+                }
 
                 break;
             }

@@ -29,12 +29,16 @@ public:
     /** 패드를 마우스로 누르면 불린다. */
     std::function<void (int index)> onPadClicked;
 
+    /** 오른쪽 단추로 누르면 불린다 (심벌 잡기). */
+    std::function<void (int index)> onPadChoked;
+
+    int getNumTiles() const noexcept    { return static_cast<int> (tiles.size()); }
+    juce::Rectangle<int> getTileBounds (int index) const;
+
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
 
 private:
-    juce::Rectangle<int> getTileBounds (int index) const;
-
     std::vector<Tile> tiles;
     std::vector<float> brightness;
 

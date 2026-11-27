@@ -467,6 +467,10 @@ def main() -> int:
 
         pads_json.append(entry)
 
+    # 여기서 만들지 않는 패드(나중에 더한 하이햇 스플래시, 스네어 울림 등)는 그대로 둔다.
+    made_ids = {pad["id"] for pad in PADS}
+    pads_json += [pad for pad in previous.get("pads", []) if pad["id"] not in made_ids]
+
     kit = {
         "name": "Big Rusty (기본 킷)",
         "source": f"{SOURCE_NAME} ({REPO_URL} @ {commit[:12]})",
@@ -482,7 +486,7 @@ def main() -> int:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     keep_backup(kit_path)
-    kit_path.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    kit_path.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     (out_dir / "CREDITS.txt").write_text(
         f"이 킷의 샘플은 {SOURCE_NAME}에서 가져왔습니다.\n"
         f"출처: {REPO_URL} (커밋 {commit})\n"

@@ -27,8 +27,20 @@ public:
     void setItems (std::vector<Item> newItems);
     const std::vector<Item>& getItems() const noexcept    { return items; }
 
-    /** 이 패드의 자리를 번쩍인다. fixedSpot이면 두 번째 자리(닫힘 고정)를, 아니면 지금 이 패드를 치고 있는 자리를. */
-    void flash (int pad, float strength, bool fixedSpot = false);
+    /** 이 패드의 자리를 번쩍인다. spot(자리 번호)을 주면 그 자리를, 아니면 지금 이 패드를 치고 있는 자리를. */
+    void flash (int pad, float strength, int spot = -1);
+
+    /** 이 패드의 자리들이 흔들리고 번쩍이던 것을 멈춘다 (손으로 심벌을 잡았다). */
+    void damp (int pad);
+
+    /** 마우스로 칠 수 있는 자리들의 테두리(이 부품 안의 좌표). 겹치면 앞의 것을 친다. 배치를 고치는 동안에는 비어 있다. */
+    struct HitArea
+    {
+        int index = -1;                 // items의 번호
+        juce::Rectangle<float> bounds;  // 이 안에 꽉 찬 타원
+    };
+
+    std::vector<HitArea> getHitAreas() const;
 
     /** 자리마다 지금 치면 실제로 울리는 패드 (items와 같은 순서). 페달로 바뀐 자리는 그 패드의 이름을 적고,
         하이햇은 바뀐 패드에 따라 위 심벌이 올라간다 (반열림, 열림). */
@@ -48,6 +60,9 @@ public:
     static void defaultPlacement (const juce::String& padId, int index, float& x, float& y, float& size);
 
     std::function<void (int index)> onPadClicked;
+
+    /** 오른쪽 단추로 눌렀을 때 (심벌 잡기). */
+    std::function<void (int index)> onPadChoked;
 
     /** 배치 편집에서 패드를 옮기거나 크기를 바꾼 뒤에 불린다. */
     std::function<void (int index)> onItemChanged;

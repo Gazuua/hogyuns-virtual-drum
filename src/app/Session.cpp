@@ -106,7 +106,8 @@ Session::Session (const Options& options)
     {
         // 창 핸들을 알기 전에는 키를 받지 않는다.
         keyboard.setRequireActiveWindow (true);
-        keyboardRegistered = keyboard.start ([this] (hvd::KeyCode key, bool down) { handleKey (key, down); });
+        keyboardRegistered = keyboard.start ([this] (hvd::KeyCode key, bool down) { handleKey (key, down); },
+                                             [this] (hvd::RawKeyboard::MouseButton button, int x, int y) { handleMouse (button, x, y); });
     }
     else
     {
@@ -617,6 +618,79 @@ void Session::previewPad (int pad, float velocity, hvd::HitSource source, bool f
         command.pad = performer.swappedForScreen (command.pad);
 
     engine.postFromControl (command);
+}
+
+void Session::chokePads (const std::vector<std::uint16_t>& pads)
+{
+    for (const auto pad : pads)
+    {
+        hvd::EngineCommand command;
+        command.type = hvd::EngineCommand::Type::chokePad;
+        command.pad = pad;
+        engine.postFromControl (command);
+    }
+}
+
+void Session::setMouseTargets (std::shared_ptr<const hvd::MouseTargets> targets)
+{
+    mouseTargets.store (std::move (targets));
+}
+
+bool Session::isMouseTakenByInput() const
+{
+    return keyboard.isReadingMouse() && mouseTakeover.load (std::memory_order_relaxed) && mouseTargets.load() != nullptr;
+}
+
+void Session::giveUpMouseTakeover()
+{
+    mouseTakeover.store (false, std::memory_order_relaxed);
+    mouseTargets.store (nullptr);
+}
+
+int Session::takeMouseSpot (int pad)
+{
+    if (! juce::isPositiveAndBelow (pad, hvd::Engine::maxPads))
+        return -1;
+
+    return mouseSpots[static_cast<std::size_t> (pad)].exchange (0, std::memory_order_acquire) - 1;
+}
+
+void Session::noteMouseSpot (int pad, int spot)
+{
+    if (juce::isPositiveAndBelow (pad, hvd::Engine::maxPads))
+        mouseSpots[static_cast<std::size_t> (pad)].store (spot + 1, std::memory_order_release);
+}
+
+void Session::handleMouse (hvd::RawKeyboard::MouseButton button, int x, int y)
+{
+    // 입력 스레드에서 불린다. 화면이 넘겨 둔 자리에서 누른 자리를 찾아 바로 친다.
+    const auto targets = mouseTargets.load();
+
+    if (targets == nullptr || ! mouseTakeover.load (std::memory_order_relaxed))
+        return;
+
+    // 화소의 가운데를 누른 것으로 본다.
+    const auto* target = targets->find (static_cast<float> (x) + 0.5f, static_cast<float> (y) + 0.5f);
+
+    if (target == nullptr)
+        return;
+
+    const auto right = button == hvd::RawKeyboard::MouseButton::right;
+
+    if (right)
+    {
+        performer.choke (target->chokes);
+    }
+    else
+    {
+        // 페달을 따르지 않는 자리는 화면이 그 자리를 번쩍이도록 적어 둔다. 타격보다 먼저 적는다.
+        if (! target->followPedals)
+            noteMouseSpot (target->pad, target->spot);
+
+        performer.mouseHit (target->pad, target->velocity, target->followPedals);
+    }
+
+    rawClicks.push ({ target->spot, right, juce::Time::getMillisecondCounterHiRes() });    // 꽉 차면 버린다 (화면이 가려진 동안)
 }
 
 void Session::allSoundOff()

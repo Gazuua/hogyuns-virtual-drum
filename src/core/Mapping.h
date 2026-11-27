@@ -56,6 +56,10 @@ struct BindingSpec
     std::vector<std::pair<std::string, std::string>> swap;
     std::vector<std::pair<std::string, std::string>> releasedSwap;
     std::string releasePad;
+
+    // pedal: 밟았다가 splashMs 안에 떼면 releasePad 대신 splash를 친다 (하이햇 풋 스플래시). splashMs를 적지 않으면 150.
+    std::string splash;
+    float splashMs = -1.0f;
 };
 
 struct MappingSpec
@@ -89,6 +93,8 @@ struct Pedal
     float pressVelocity = 1.0f;
     int releasePad = -1;              // 뗄 때 칠 패드. 없으면 -1
     float releaseVelocity = 1.0f;
+    int splashPad = -1;               // 빨리 뗄 때 releasePad 대신 칠 패드. 없으면 -1
+    float splashMs = 150.0f;          // 밟은 뒤 이 시간 안에 떼면 빨리 뗀 것이다
     std::vector<std::pair<std::uint16_t, std::uint16_t>> swaps;            // 누르는 동안 (원래 패드, 바꿔 칠 패드)
     std::vector<std::pair<std::uint16_t, std::uint16_t>> releasedSwaps;    // 떼고 있는 동안
 };

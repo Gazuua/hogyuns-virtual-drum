@@ -697,10 +697,10 @@ void KitView::setItems (std::vector<Item> newItems)
     repaint();
 }
 
-void KitView::flash (int pad, float strength, bool fixedSpot)
+void KitView::flash (int pad, float strength, int spot)
 {
     // 번쩍일 자리를 차례로 찾는다:
-    // 1. 두 번째 자리를 클릭한 타격이면 그 자리
+    // 1. 그 자리를 클릭한 타격이면 그 자리 (하이햇 닫힘 고정)
     // 2. 페달로 바뀌어 이 패드를 대신 치고 있는 자리 (페달을 뗀 하이햇은 반열림을 친다)
     // 3. 다른 패드로 바뀌지 않은 이 패드의 원래 자리
     // 4. 두 번째 자리 (원래 자리가 다른 패드를 대신 치고 있을 때. 예: 오토 모드가 친 닫힌 하이햇)
@@ -714,13 +714,13 @@ void KitView::flash (int pad, float strength, bool fixedSpot)
                 targets.push_back (i);
     };
 
-    if (fixedSpot)
-        collect ([pad] (const Item& item, int) { return item.fixed && item.pad == pad; });
+    if (juce::isPositiveAndBelow (spot, static_cast<int> (items.size())) && items[static_cast<std::size_t> (spot)].pad == pad)
+        targets.push_back (static_cast<std::size_t> (spot));
 
-    if (targets.empty() && ! fixedSpot)
+    if (targets.empty())
         collect ([pad] (const Item& item, int actingPad) { return ! item.fixed && actingPad == pad; });
 
-    if (targets.empty() && ! fixedSpot)
+    if (targets.empty())
         collect ([pad] (const Item& item, int actingPad) { return ! item.fixed && item.pad == pad && actingPad < 0; });
 
     if (targets.empty())
@@ -736,6 +736,54 @@ void KitView::flash (int pad, float strength, bool fixedSpot)
         motion.strength = motion.level;
         motion.age = 0.0f;
     }
+}
+
+void KitView::damp (int pad)
+{
+    auto changed = false;
+
+    for (std::size_t i = 0; i < items.size(); ++i)
+    {
+        if (items[i].pad != pad && acting[i] != pad)
+            continue;
+
+        auto& motion = motions[i];
+
+        if (motion.age < 4.0f || motion.level > 0.0f)
+        {
+            motion.level = 0.0f;
+            motion.strength = 0.0f;
+            motion.age = 100.0f;
+            changed = true;
+        }
+    }
+
+    if (changed)
+        repaint();
+}
+
+std::vector<KitView::HitArea> KitView::getHitAreas() const
+{
+    std::vector<HitArea> areas;
+
+    if (editing)
+        return areas;
+
+    // itemAt()과 같은 모양과 순서: 타원은 가로 반지름 radius, 세로 radius * 0.8이고, 작은 것이 먼저다.
+    for (std::size_t i = 0; i < items.size(); ++i)
+    {
+        const auto& item = items[i];
+        const auto centre = centreOf (item);
+        const auto radius = radiusOf (item);
+        areas.push_back ({ static_cast<int> (i), { centre.x - radius, centre.y - radius * 0.8f, radius * 2.0f, radius * 1.6f } });
+    }
+
+    std::stable_sort (areas.begin(), areas.end(), [this] (const HitArea& a, const HitArea& b)
+    {
+        return items[static_cast<std::size_t> (a.index)].size < items[static_cast<std::size_t> (b.index)].size;
+    });
+
+    return areas;
 }
 
 void KitView::setActingPads (const std::vector<int>& pads)
@@ -1214,11 +1262,19 @@ void KitView::mouseDown (const juce::MouseEvent& event)
 
     if (editing)
     {
-        dragged = index;
-        dragOffset = centreOf (items[static_cast<std::size_t> (index)]) - event.position;
-        repaint();
+        if (event.mods.isLeftButtonDown())
+        {
+            dragged = index;
+            dragOffset = centreOf (items[static_cast<std::size_t> (index)]) - event.position;
+            repaint();
+        }
     }
-    else if (onPadClicked)
+    else if (event.mods.isRightButtonDown())
+    {
+        if (onPadChoked)
+            onPadChoked (index);
+    }
+    else if (event.mods.isLeftButtonDown() && onPadClicked)
     {
         onPadClicked (index);
     }
