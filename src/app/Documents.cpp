@@ -1,29 +1,12 @@
 #include "Documents.h"
 
+#include "Json.h"
+
 namespace
 {
 
-bool loadJsonObject (const juce::File& source, juce::var& root)
-{
-    juce::var parsed;
-
-    if (! source.existsAsFile() || juce::JSON::parse (source.loadFileAsString(), parsed).failed() || ! parsed.isObject())
-        return false;
-
-    root = parsed;
-    return true;
-}
-
-/** 저장하다 중간에 끊겨도 원래 파일이 망가지지 않도록 임시 파일에 쓴 뒤 바꿔치기한다. */
-bool writeTextSafely (const juce::File& target, const juce::String& text)
-{
-    juce::TemporaryFile temporary (target);
-
-    if (! temporary.getFile().replaceWithText (text))
-        return false;
-
-    return temporary.overwriteTargetFileWithTemporary();
-}
+using json::loadJsonObject;
+using json::writeTextSafely;
 
 void setOrRemove (juce::DynamicObject& object, const juce::Identifier& name, const juce::var& value)
 {
@@ -71,8 +54,7 @@ juce::var KitDocument::findPad (const juce::String& padId) const
 
 double KitDocument::getPadNumber (const juce::String& padId, const juce::Identifier& field, double fallback) const
 {
-    const auto value = findPad (padId)[field];
-    return (value.isDouble() || value.isInt() || value.isInt64()) ? static_cast<double> (value) : fallback;
+    return json::numberOr (findPad (padId)[field], fallback);
 }
 
 void KitDocument::setPadNumber (const juce::String& padId, const juce::Identifier& field, double value)
@@ -102,6 +84,28 @@ void KitDocument::setProperty (const juce::Identifier& name, const juce::var& va
 {
     if (auto* object = root.getDynamicObject())
         setOrRemove (*object, name, value);
+}
+
+hvd::FxSettings KitDocument::getFx() const
+{
+    const auto stored = root["fx"];
+    hvd::FxSettings fx;
+
+    for (const auto& field : hvd::fxFields)
+        fx.*field.member = static_cast<float> (juce::jlimit (static_cast<double> (field.minimum), static_cast<double> (field.maximum),
+                                                             json::numberOr (stored[field.name], field.fallback)));
+
+    return fx;
+}
+
+void KitDocument::setFx (const hvd::FxSettings& fx)
+{
+    auto* object = new juce::DynamicObject();
+
+    for (const auto& field : hvd::fxFields)
+        object->setProperty (field.name, fx.*field.member);
+
+    setProperty ("fx", juce::var (object));
 }
 
 juce::StringArray KitDocument::getPadIds() const

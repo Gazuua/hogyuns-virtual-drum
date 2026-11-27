@@ -4,34 +4,26 @@
 #include <cmath>
 #include <map>
 
+#include "Json.h"
 #include "core/Engine.h"
+#include "core/StandardPads.h"
 
 namespace
 {
 
 constexpr double maxSampleSeconds = 60.0;
 
-/** 패드 id로 고르는 기본 MIDI 노트 번호 (General MIDI 드럼 맵에 가깝게). */
-int defaultMidiNote (const juce::String& padId)
+/** 패드 id로 고르는 기본 MIDI 노트 번호. 표준 패드가 아니면 -1. */
+int defaultMidiNote (const std::string& padId)
 {
-    static const std::map<juce::String, int> notes {
-        { "kick", 36 }, { "snare", 38 }, { "snare_rim", 40 }, { "sidestick", 37 },
-        { "hihat_closed", 42 }, { "hihat_half", 23 }, { "hihat_open", 46 }, { "hihat_pedal", 44 },
-        { "tom_high", 48 }, { "tom_mid", 45 }, { "tom_floor", 43 }, { "tom_low", 41 },
-        { "crash1", 49 }, { "crash2", 57 }, { "china", 52 },
-        { "ride", 51 }, { "ride_bell", 53 }, { "ride_edge", 59 },
-        { "crash_bright", 55 }, { "crash_trash", 58 }, { "crash_stack", 54 }
-    };
-
-    const auto found = notes.find (padId);
-    return found != notes.end() ? found->second : -1;
+    const auto* standard = hvd::findStandardPad (padId);
+    return standard != nullptr ? standard->midiNote : -1;
 }
 
-float numberOr (const juce::var& object, const char* key, float fallback)
+/** 패드에 적힌 숫자 하나. 적지 않았으면 표의 기본값. */
+double padNumber (const juce::var& pad, const hvd::PadField& field)
 {
-    const auto& value = object[key];
-    return (value.isDouble() || value.isInt() || value.isInt64()) ? static_cast<float> (static_cast<double> (value))
-                                                                  : fallback;
+    return json::numberOr (pad[field.name], field.fallback);
 }
 
 /** 소리가 시작되는 프레임을 찾는다. 타격 앞의 무음은 그대로 지연이 되므로 잘라 낸다. */
@@ -149,11 +141,11 @@ KitLoadResult loadKit (const juce::File& kitFile)
 
     // "humanize": { "volume": 0.04, "pitchCents": 4 }
     const auto& humanize = root["humanize"];
-    kit->humanizeVolume = juce::jlimit (0.0f, 0.5f, numberOr (humanize, "volume", 0.0f));
-    kit->humanizePitchCents = juce::jlimit (0.0f, 100.0f, numberOr (humanize, "pitchCents", 0.0f));
+    kit->humanizeVolume = juce::jlimit (0.0f, 0.5f, json::numberOr (humanize, "volume", 0.0f));
+    kit->humanizePitchCents = juce::jlimit (0.0f, 100.0f, json::numberOr (humanize, "pitchCents", 0.0f));
 
     const auto folder = kitFile.getParentDirectory();
-    const auto kitCurve = numberOr (root, "velocityCurve", 1.0f);
+    const auto kitCurve = json::numberOr (root[hvd::padField::velocityCurve.name], hvd::padField::velocityCurve.fallback);
 
     std::map<juce::String, std::uint32_t> loadedSamples;
     juce::int64 trimmedFramesTotal = 0;
@@ -238,15 +230,21 @@ KitLoadResult loadKit (const juce::File& kitFile)
 
         const auto name = padVar["name"].toString();
         pad.name = name.isNotEmpty() ? name.toStdString() : pad.id;
-        pad.volume = juce::jlimit (0.0f, hvd::maxPadVolume, numberOr (padVar, "volume", 1.0f));
-        pad.pan = juce::jlimit (-1.0f, 1.0f, numberOr (padVar, "pan", 0.0f));
-        pad.pitchRatio = std::pow (2.0f, juce::jlimit (-24.0f, 24.0f, numberOr (padVar, "pitch", 0.0f)) / 12.0f);
-        pad.velocityCurve = juce::jlimit (0.0f, 4.0f, numberOr (padVar, "velocityCurve", kitCurve));
-        pad.chokeFadeMs = juce::jlimit (1.0f, 2000.0f, numberOr (padVar, "chokeFadeMs", 20.0f));
-        pad.reverbSend = juce::jlimit (0.0f, 1.0f, numberOr (padVar, "reverbSend", 1.0f));
-        pad.startSeconds = juce::jlimit (0.0f, 5000.0f, numberOr (padVar, "startMs", 0.0f)) * 0.001f;
+        // 숫자 값의 이름, 한도, 기본값은 hvd::padFields에 있다. 세기 곡선을 적지 않았으면 킷 전체의 값을 쓴다.
+        namespace field = hvd::padField;
+        const auto params = hvd::makePadParams (padNumber (padVar, field::volume), padNumber (padVar, field::pan),
+                                                padNumber (padVar, field::pitch), padNumber (padVar, field::reverbSend),
+                                                padNumber (padVar, field::startMs),
+                                                json::numberOr (padVar[field::velocityCurve.name], kitCurve));
+        pad.volume = params.volume;
+        pad.pan = params.pan;
+        pad.pitchRatio = params.pitchRatio;
+        pad.velocityCurve = params.velocityCurve;
+        pad.reverbSend = params.reverbSend;
+        pad.startSeconds = params.startSeconds;
+        pad.chokeFadeMs = static_cast<float> (field::chokeFadeMs.clamp (padNumber (padVar, field::chokeFadeMs)));
 
-        const auto note = static_cast<int> (numberOr (padVar, "midiNote", static_cast<float> (defaultMidiNote (juce::String (pad.id)))));
+        const auto note = static_cast<int> (json::numberOr (padVar, "midiNote", static_cast<float> (defaultMidiNote (pad.id))));
         pad.midiNote = juce::isPositiveAndBelow (note, 128) ? note : -1;
 
         if (const auto group = padVar["group"].toString(); group.isNotEmpty())
@@ -271,8 +269,8 @@ KitLoadResult loadKit (const juce::File& kitFile)
             for (const auto& layerVar : *layers)
             {
                 hvd::Layer layer;
-                layer.upTo = juce::jlimit (0.0f, 1.0f, numberOr (layerVar, "upTo", 1.0f));
-                layer.nominal = juce::jlimit (0.01f, 1.0f, numberOr (layerVar, "nominal", layer.upTo));
+                layer.upTo = juce::jlimit (0.0f, 1.0f, json::numberOr (layerVar, "upTo", 1.0f));
+                layer.nominal = juce::jlimit (0.01f, 1.0f, json::numberOr (layerVar, "nominal", layer.upTo));
                 readSamples (layerVar["samples"], layer);
 
                 if (! layer.samples.empty())

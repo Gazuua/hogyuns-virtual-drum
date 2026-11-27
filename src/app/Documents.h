@@ -2,6 +2,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "core/Effects.h"
+
 /** kit.json을 고치고 저장하는 편집용 문서.
 
     엔진이 쓰는 킷(hvd::Kit)은 디코딩한 샘플까지 담은 실행용 사본이고, 이 문서는 파일 내용 그대로다.
@@ -35,6 +37,10 @@ public:
     /** 킷 전체에 딸린 항목. (예: "fx", "velocityCurve") */
     juce::var getProperty (const juce::Identifier& name) const    { return root[name]; }
     void setProperty (const juce::Identifier& name, const juce::var& value);
+
+    /** 드럼 전체에 거는 이펙트("fx"). 읽을 때 한도 밖의 값은 줄인다 (hvd::fxFields). 쓰면 "fx"를 통째로 바꾼다. */
+    hvd::FxSettings getFx() const;
+    void setFx (const hvd::FxSettings& fx);
 
     juce::StringArray getPadIds() const;
 

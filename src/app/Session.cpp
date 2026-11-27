@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Json.h"
 #include "KeymapLoader.h"
 #include "KitLoader.h"
 #include "MusicFile.h"
@@ -14,15 +15,7 @@ namespace
 constexpr double maxTrackSeconds = 20.0 * 60.0;
 constexpr double replayLookAheadSeconds = 0.25;
 
-bool isNumber (const juce::var& value)
-{
-    return value.isDouble() || value.isInt() || value.isInt64();
-}
-
-double numberOr (const juce::var& value, double fallback)
-{
-    return isNumber (value) ? static_cast<double> (value) : fallback;
-}
+using json::numberOr;
 
 /** 파일이나 폴더 이름으로 쓸 수 있게 다듬는다. */
 juce::String toFileName (const juce::String& name)
@@ -469,14 +462,15 @@ juce::String Session::getPadId (int pad) const
 
 double Session::getPadValue (int pad, const juce::Identifier& field) const
 {
-    static const juce::Identifier volume ("volume"), reverbSend ("reverbSend"), velocityCurve ("velocityCurve");
+    // 적지 않은 값은 표의 기본값이다. 세기 곡선은 킷 전체의 값을 먼저 본다. 표에 없는 이름이면 0.
+    static const juce::Identifier velocityCurve (hvd::padField::velocityCurve.name);
 
     auto fallback = 0.0;
 
-    if (field == volume || field == reverbSend)
-        fallback = 1.0;
-    else if (field == velocityCurve)
-        fallback = numberOr (kitDocument.getProperty (velocityCurve), 1.0);
+    if (field == velocityCurve)
+        fallback = numberOr (kitDocument.getProperty (velocityCurve), hvd::padField::velocityCurve.fallback);
+    else if (const auto* known = hvd::findPadField (field.toString().toStdString()))
+        fallback = known->fallback;
 
     return kitDocument.getPadNumber (getPadId (pad), field, fallback);
 }
@@ -500,13 +494,10 @@ void Session::pushPadParams (int pad)
     const auto index = static_cast<std::size_t> (pad);
     const auto anySolo = std::find (solo.begin(), solo.end(), true) != solo.end();
 
-    hvd::PadParams params;
-    params.volume = static_cast<float> (juce::jlimit (0.0, static_cast<double> (hvd::maxPadVolume), getPadValue (pad, "volume")));
-    params.pan = static_cast<float> (juce::jlimit (-1.0, 1.0, getPadValue (pad, "pan")));
-    params.pitchRatio = static_cast<float> (std::pow (2.0, juce::jlimit (-24.0, 24.0, getPadValue (pad, "pitch")) / 12.0));
-    params.reverbSend = static_cast<float> (juce::jlimit (0.0, 1.0, getPadValue (pad, "reverbSend")));
-    params.startSeconds = static_cast<float> (juce::jlimit (0.0, 5000.0, getPadValue (pad, "startMs")) * 0.001);
-    params.velocityCurve = static_cast<float> (juce::jlimit (0.0, 4.0, getPadValue (pad, "velocityCurve")));
+    namespace field = hvd::padField;
+    auto params = hvd::makePadParams (getPadValue (pad, field::volume.name), getPadValue (pad, field::pan.name),
+                                      getPadValue (pad, field::pitch.name), getPadValue (pad, field::reverbSend.name),
+                                      getPadValue (pad, field::startMs.name), getPadValue (pad, field::velocityCurve.name));
     params.mute = (index < muted.size() && muted[index]) || (anySolo && index < solo.size() && ! solo[index]);
 
     hvd::EngineCommand command;
@@ -554,31 +545,12 @@ bool Session::isPadSolo (int pad) const
 void Session::setFx (const hvd::FxSettings& fx)
 {
     engine.setFxSettings (fx);
-
-    auto* object = new juce::DynamicObject();
-    object->setProperty ("eqLow", fx.eqLowDb);
-    object->setProperty ("eqMid", fx.eqMidDb);
-    object->setProperty ("eqHigh", fx.eqHighDb);
-    object->setProperty ("comp", fx.compAmount);
-    object->setProperty ("reverb", fx.reverbLevel);
-    object->setProperty ("reverbSize", fx.reverbSize);
-    object->setProperty ("reverbDamp", fx.reverbDamp);
-    kitDocument.setProperty ("fx", juce::var (object));
+    kitDocument.setFx (fx);
 }
 
 void Session::applyFxFromDocument()
 {
-    const auto stored = kitDocument.getProperty ("fx");
-    hvd::FxSettings fx;
-
-    fx.eqLowDb = static_cast<float> (juce::jlimit (-18.0, 18.0, numberOr (stored["eqLow"], 0.0)));
-    fx.eqMidDb = static_cast<float> (juce::jlimit (-18.0, 18.0, numberOr (stored["eqMid"], 0.0)));
-    fx.eqHighDb = static_cast<float> (juce::jlimit (-18.0, 18.0, numberOr (stored["eqHigh"], 0.0)));
-    fx.compAmount = static_cast<float> (juce::jlimit (0.0, 1.0, numberOr (stored["comp"], 0.0)));
-    fx.reverbLevel = static_cast<float> (juce::jlimit (0.0, 1.0, numberOr (stored["reverb"], 0.0)));
-    fx.reverbSize = static_cast<float> (juce::jlimit (0.0, 1.0, numberOr (stored["reverbSize"], 0.5)));
-    fx.reverbDamp = static_cast<float> (juce::jlimit (0.0, 1.0, numberOr (stored["reverbDamp"], 0.5)));
-    engine.setFxSettings (fx);
+    engine.setFxSettings (kitDocument.getFx());
 }
 
 bool Session::saveKit (bool reload)

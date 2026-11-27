@@ -1,6 +1,7 @@
 #include "GameRunner.h"
 
 #include "Text.h"
+#include "core/StandardPads.h"
 
 namespace
 {
@@ -10,8 +11,6 @@ constexpr double inputDelaySeconds = 0.004;   // 키를 누른 뒤 엔진이 타
 constexpr double tailSeconds = 3.0;           // 마지막 노트 뒤에 더 틀어 두는 시간
 constexpr double fadeSeconds = 1.5;
 constexpr double autoplayLookAhead = 0.3;
-
-const char* const preferredPads[hvd::numLanes] = { "crash1", "hihat_closed", "snare", "tom_high", "tom_mid", "tom_floor", "ride", "kick" };
 
 } // namespace
 
@@ -58,7 +57,7 @@ void GameRunner::refreshPads()
 
         auto& chosen = lanePads[static_cast<std::size_t> (lane)];
 
-        if (chosen < 0 || pad.id == preferredPads[static_cast<std::size_t> (lane)])
+        if (chosen < 0 || pad.id == hvd::preferredPadOf (lane))
             chosen = static_cast<int> (i);
 
         if (pad.id == "hihat_open")

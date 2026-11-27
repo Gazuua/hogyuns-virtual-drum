@@ -1,18 +1,11 @@
 #include "KeymapLoader.h"
 
+#include "Json.h"
+
 namespace
 {
 
-bool isNumber (const juce::var& value)
-{
-    return value.isDouble() || value.isInt() || value.isInt64();
-}
-
-float numberOr (const juce::var& object, const char* key, float fallback)
-{
-    const auto& value = object[key];
-    return isNumber (value) ? static_cast<float> (static_cast<double> (value)) : fallback;
-}
+using json::numberOr;
 
 std::string textOf (const juce::var& object, const char* key)
 {
