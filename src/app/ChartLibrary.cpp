@@ -1,6 +1,6 @@
 #include "ChartLibrary.h"
 
-#include "ChartTools.h"
+#include "ChartFile.h"
 #include "MusicFile.h"
 #include "Text.h"
 #include "core/DrumTranscriber.h"
@@ -10,8 +10,6 @@ namespace
 
 constexpr const char* songPatterns = "*.mp3;*.wav;*.flac;*.ogg;*.wma;*.aif;*.aiff";
 constexpr juce::int64 smallestSongBytes = 300 * 1024;    // 이보다 작은 파일은 효과음으로 보고 건너뛴다
-constexpr int separatorStartSeconds = 240;               // 분리 도구가 준비될 때까지 기다리는 시간 (처음에는 모델을 내려받는다)
-constexpr int separatorJobSeconds = 1200;
 
 juce::String makeId (const juce::File& file)
 {
@@ -21,9 +19,9 @@ juce::String makeId (const juce::File& file)
 } // namespace
 
 ChartLibrary::ChartLibrary (const juce::File& dataRootToUse, const juce::File& chartsFolderToUse)
-    : dataRoot (dataRootToUse),
-      chartsFolder (chartsFolderToUse != juce::File() ? chartsFolderToUse : dataRootToUse.getChildFile ("charts")),
-      musicFolder (juce::File::getSpecialLocation (juce::File::userMusicDirectory))
+    : chartsFolder (chartsFolderToUse != juce::File() ? chartsFolderToUse : dataRootToUse.getChildFile ("charts")),
+      musicFolder (juce::File::getSpecialLocation (juce::File::userMusicDirectory)),
+      separator (dataRootToUse)
 {
     loadIndex();
 }
@@ -192,8 +190,7 @@ bool ChartLibrary::loadChart (int songIndex, hvd::Chart& chart) const
     if (songIndex < 0 || songIndex >= getNumSongs())
         return false;
 
-    const auto file = getChartsFolder().getChildFile (getSong (songIndex).id + ".json");
-    return file.existsAsFile() && chartFromJson (file.loadFileAsString(), chart);
+    return readChartFile (getChartsFolder().getChildFile (getSong (songIndex).id + ".json"), chart);
 }
 
 bool ChartLibrary::loadChartForFile (const juce::File& songFile, hvd::Chart& chart) const
@@ -203,8 +200,7 @@ bool ChartLibrary::loadChartForFile (const juce::File& songFile, hvd::Chart& cha
                         ? name.upToFirstOccurrenceOf (".", false, false)
                         : makeId (songFile);
 
-    const auto file = getChartsFolder().getChildFile (id + ".json");
-    return file.existsAsFile() && chartFromJson (file.loadFileAsString(), chart);
+    return readChartFile (getChartsFolder().getChildFile (id + ".json"), chart);
 }
 
 juce::File ChartLibrary::getBackingFile (int songIndex) const
@@ -240,20 +236,18 @@ void ChartLibrary::recordResult (int songIndex, int level, int score, char grade
 //==============================================================================
 bool ChartLibrary::isSeparatorInstalled() const
 {
-    const auto tools = dataRoot.getChildFile ("tools");
-    return tools.getChildFile ("demucs-env").getChildFile ("Scripts").getChildFile ("python.exe").existsAsFile()
-        && tools.getChildFile ("separate_drums.py").existsAsFile();
+    return separator.isInstalled();
 }
 
 juce::String ChartLibrary::getSeparatorDevice() const
 {
-    const juce::ScopedLock scope (separatorLock);
-    return separatorDevice;
+    return separator.getDevice();
 }
 
 //==============================================================================
 /** 곡을 하나씩 꺼내 채보를 만드는 스레드. 여러 개가 함께 돈다. */
-class ChartLibrary::Worker final : public juce::Thread
+class ChartLibrary::Worker final : public juce::Thread,
+                                    public DrumSeparator::Caller
 {
 public:
     Worker (ChartLibrary& ownerToUse, int indexToUse)
@@ -263,10 +257,14 @@ public:
 
     void run() override    { owner.workerLoop (*this); }
 
-    bool shouldStop() const noexcept
+    bool shouldStop() const noexcept override
     {
         return cancelled.load (std::memory_order_relaxed) || threadShouldExit();
     }
+
+    void pause (int milliseconds) override                 { wait (milliseconds); }
+    void setStage (const juce::String& stage) override     { owner.setStage (*this, stage); }
+    void setFraction (float value) override                { fraction.store (value, std::memory_order_relaxed); }
 
     ChartLibrary& owner;
     const int index;
@@ -293,7 +291,7 @@ void ChartLibrary::stopWorkers()
     }
 
     workers.clear();
-    stopSeparator();
+    separator.stop();
 }
 
 void ChartLibrary::analyse (const std::vector<int>& songIndices, bool evenIfDone)
@@ -484,7 +482,7 @@ ChartLibrary::Result ChartLibrary::process (const Job& job, Worker& worker)
 
         if (worker.shouldStop())
         {
-            stopSeparator();    // 하던 분리를 멈춘다
+            separator.stop();    // 하던 분리를 멈춘다
             cleanUp();
             return result;
         }
@@ -540,7 +538,7 @@ ChartLibrary::Result ChartLibrary::process (const Job& job, Worker& worker)
 
     getChartsFolder().createDirectory();
 
-    if (! getChartsFolder().getChildFile (job.id + ".json").replaceWithText (chartToJson (chart, juce::var (header))))
+    if (! writeChartFile (getChartsFolder().getChildFile (job.id + ".json"), chart, juce::var (header)))
     {
         result.error = ko ("채보 파일을 쓸 수 없습니다");
         return result;
@@ -551,140 +549,20 @@ ChartLibrary::Result ChartLibrary::process (const Job& job, Worker& worker)
     return result;
 }
 
-bool ChartLibrary::startSeparator (Worker& worker, juce::String& error)
-{
-    // 도구는 하나만 띄우고 여러 스레드가 함께 쓴다. 띄우는 동안 다른 스레드는 여기서 기다린다.
-    const juce::ScopedLock scope (separatorLock);
-
-    if (separatorQueue != juce::File() && separator.isRunning())
-        return true;
-
-    stopSeparatorUnlocked();
-
-    const auto tools = dataRoot.getChildFile ("tools");
-    separatorQueue = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                         .getChildFile ("hvd-separator-" + juce::String::toHexString (juce::Time::currentTimeMillis()));
-    separatorQueue.createDirectory();
-
-    const juce::StringArray command { tools.getChildFile ("demucs-env").getChildFile ("Scripts").getChildFile ("python.exe").getFullPathName(),
-                                      tools.getChildFile ("separate_drums.py").getFullPathName(),
-                                      "--queue", separatorQueue.getFullPathName() };
-
-    if (! separator.start (command, 0))
-    {
-        error = ko ("드럼 분리 도구를 실행하지 못했습니다");
-        return false;
-    }
-
-    // 모델을 읽을 때까지 기다린다. 처음 쓸 때는 모델을 내려받느라 오래 걸릴 수 있다.
-    const auto ready = separatorQueue.getChildFile ("ready");
-
-    for (int i = 0; i < separatorStartSeconds * 10; ++i)
-    {
-        if (ready.existsAsFile())
-        {
-            separatorDevice = ready.loadFileAsString().trim();    // "cuda" 또는 "cpu"
-            return true;
-        }
-
-        if (! separator.isRunning() || worker.shouldStop())
-            break;
-
-        worker.wait (100);
-    }
-
-    error = ko ("드럼 분리 도구가 준비되지 않았습니다");
-    stopSeparatorUnlocked();
-    return false;
-}
-
-void ChartLibrary::stopSeparator()
-{
-    const juce::ScopedLock scope (separatorLock);
-    stopSeparatorUnlocked();
-}
-
-void ChartLibrary::stopSeparatorUnlocked()
-{
-    if (separatorQueue != juce::File())
-    {
-        separatorQueue.getChildFile ("quit").replaceWithText ("quit");
-
-        if (separator.isRunning() && ! separator.waitForProcessToFinish (1500))
-            separator.kill();
-
-        separatorQueue.deleteRecursively();
-        separatorQueue = juce::File();
-    }
-}
-
 juce::String ChartLibrary::separate (const Job& job, const juce::File& work, Worker& worker, juce::File& drums, juce::File& backing)
 {
     setStage (worker, ko ("드럼 분리 준비 중"));
-    juce::String error;
 
-    if (! startSeparator (worker, error))
+    if (auto error = separator.start (worker); error.isNotEmpty())
         return error;
 
     setStage (worker, ko ("곡 읽는 중"));
     const auto input = work.getChildFile ("input.wav");
 
-    if (error = writeAsWav (job.file, input); error.isNotEmpty())
+    if (auto error = writeAsWav (job.file, input); error.isNotEmpty())
         return error;
 
     drums = work.getChildFile ("drums.wav");
     backing = work.getChildFile ("backing.wav");
-
-    auto* request = new juce::DynamicObject();
-    request->setProperty ("input", input.getFullPathName());
-    request->setProperty ("drums", drums.getFullPathName());
-    request->setProperty ("backing", backing.getFullPathName());
-    const auto requestText = juce::JSON::toString (juce::var (request));
-
-    juce::File queue;
-
-    {
-        const juce::ScopedLock scope (separatorLock);
-        queue = separatorQueue;
-    }
-
-    if (queue == juce::File())
-        return ko ("드럼 분리 도구가 중간에 끝났습니다");
-
-    // 다 쓴 뒤에 이름을 바꿔서, 도구가 쓰다 만 파일을 읽지 않게 한다. 도구는 이름 순서대로 하나씩 처리한다.
-    const auto name = "job" + juce::String (separatorJobCount.fetch_add (1) + 1).paddedLeft ('0', 6);
-    const auto pending = queue.getChildFile (name + ".tmp");
-    pending.replaceWithText (requestText);
-    pending.moveFileTo (queue.getChildFile (name + ".job"));
-
-    setStage (worker, ko ("드럼 분리 중"));
-    const auto done = queue.getChildFile (name + ".done");
-    const auto progressFile = queue.getChildFile (name + ".progress");
-
-    for (int i = 0; i < separatorJobSeconds * 10; ++i)
-    {
-        if (done.existsAsFile())
-        {
-            const auto text = done.loadFileAsString().trim();
-            return text == "ok" ? juce::String() : ko ("드럼 분리 실패: ") + text;
-        }
-
-        if (worker.shouldStop())
-            return "cancelled";
-
-        if (i % 10 == 0)
-        {
-            const juce::ScopedLock scope (separatorLock);
-
-            if (separatorQueue != queue || ! separator.isRunning())
-                return ko ("드럼 분리 도구가 중간에 끝났습니다");
-        }
-
-        if (i % 5 == 0 && progressFile.existsAsFile())
-            worker.fraction.store (progressFile.loadFileAsString().getFloatValue(), std::memory_order_relaxed);
-
-        worker.wait (100);
-    }
-
-    return ko ("드럼 분리가 너무 오래 걸립니다");
+    return separator.separate (input, drums, backing, worker);
 }

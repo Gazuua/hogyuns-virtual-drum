@@ -8,6 +8,7 @@
 #include <deque>
 #include <vector>
 
+#include "DrumSeparator.h"
 #include "core/Chart.h"
 
 /** 음악 폴더의 곡 하나와, 그 곡에서 받아 적은 채보의 요약. */
@@ -127,9 +128,6 @@ private:
     void stopWorkers();
     Result process (const Job& job, Worker& worker);
     juce::String separate (const Job& job, const juce::File& work, Worker& worker, juce::File& drums, juce::File& backing);
-    bool startSeparator (Worker& worker, juce::String& error);
-    void stopSeparator();
-    void stopSeparatorUnlocked();
 
     void setStage (Worker& worker, const juce::String& stage);
     void loadIndex();
@@ -138,7 +136,7 @@ private:
     juce::var makeEntry (const Song& song) const;
     static void summarise (const hvd::Chart& chart, Song& song);
 
-    juce::File dataRoot, chartsFolder, musicFolder;
+    juce::File chartsFolder, musicFolder;
     std::vector<Song> songs;
     juce::var index;          // id → 요약. charts/index.json 에 저장한다
     bool scanned = false;
@@ -153,12 +151,8 @@ private:
     std::atomic<int> numWorkers { 2 };
     std::atomic<bool> useSeparator { true };
 
-    // 드럼 분리 도구. 하나를 띄워 모든 스레드가 함께 쓴다 (separatorLock으로 지킨다).
-    juce::CriticalSection separatorLock;
-    juce::ChildProcess separator;
-    juce::File separatorQueue;
-    juce::String separatorDevice;
-    std::atomic<int> separatorJobCount { 0 };
+    // 드럼 분리 도구. 하나를 띄워 모든 스레드가 함께 쓴다.
+    DrumSeparator separator;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChartLibrary)
 };

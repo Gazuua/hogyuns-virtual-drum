@@ -4,12 +4,11 @@
 
 #include <vector>
 
-#include "MusicFile.h"    // decodeStereo는 이리로 옮겼다. 부르던 곳이 그대로 쓰게 둔다
+// 채보 검사 도구 (--charttest, --chartscore, --testsong, --transcribe).
+// decodeStereo는 MusicFile.h로, chartToJson·chartFromJson은 ChartFile.h로 옮겼다. 부르던 곳이 그대로 쓰게 둔다.
+#include "ChartFile.h"
+#include "MusicFile.h"
 #include "core/Chart.h"
-
-/** 채보를 JSON 글로 적는다 / JSON 글에서 읽는다. */
-juce::String chartToJson (const hvd::Chart& chart, const juce::var& header);
-bool chartFromJson (const juce::String& text, hvd::Chart& chart, juce::var* header = nullptr);
 
 /** 채보를 마디마다 한 줄씩, 16분음표 칸으로 나눠 글로 그린다 (조정할 때 눈으로 보려고). */
 juce::String chartToTab (const hvd::Chart& chart);
