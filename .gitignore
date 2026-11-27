@@ -11,6 +11,9 @@
 *.user
 Thumbs.db
 
+# 파이썬 캐시 (tools/hvd_tools.py를 읽으면 생긴다)
+__pycache__/
+
 # 녹음한 WAV와 내보낸 MIDI
 /recordings/
 

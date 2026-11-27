@@ -19,6 +19,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# 글 악보의 줄과 이름은 src/app/ChartTools.cpp의 chartToTab과 같다.
 ROWS = ["crash", "ride", "hihat", "snare", "tom_high", "tom_mid", "tom_floor", "kick"]
 SHORT = ["CR", "RD", "HH", "SN", "T1", "T2", "T3", "KK"]
 GROUPS = {"kick": "킥", "snare": "스네어", "hihat": "하이햇+라이드", "ride": "하이햇+라이드", "crash": "크래시",
@@ -48,7 +49,10 @@ def lane_of(pad: str):
 
 
 def read_takes(path: Path):
-    """로그를 연주들로 나눈다."""
+    """로그를 연주들로 나눈다. 곡을 새로 열 때만 나눈다.
+
+    연습 기록 화면(src/app/PracticeLog.cpp)은 되감기와 게임 시작에서도 나누고 20타 미만을 버린다. 그래서 연주 수가 다를 수 있다.
+    """
     takes = []
     current = None
     game = None
@@ -103,6 +107,7 @@ def find_chart(take):
 
 
 def beat_position(beats, seconds):
+    """박 번호 + 박 안의 위치. 격자 밖은 가장 가까운 박의 길이로 이어서 센다 (src/core/PracticeStats.cpp의 beatPositionOf와 같다)."""
     index = bisect.bisect_right(beats, seconds) - 1
 
     if index < 0:

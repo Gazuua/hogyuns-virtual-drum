@@ -16,17 +16,17 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))    # python -I는 스크립트 폴더를 찾지 않는다
+from hvd_tools import ffmpeg_inputs, finish_graph, keep_backup, peak_db, pick_evenly, render_flac, run, write_kit  # noqa: E402
+
 REPO_URL = "https://github.com/sfzinstruments/karoryfer.big-rusty-drums.git"
 SOURCE_NAME = "Karoryfer Samples - Big Rusty Drums"
-SAMPLE_RATE = 48000
 TARGET_PEAK_DB = -1.0
 
 # 마이크 배율은 라이브러리 기본 프로그램(Programs/02-basic.sfz)의 기본값을 따른다.
@@ -85,12 +85,6 @@ PADS = [
     dict(id="ride_edge", name="라이드 엣지", sfz="ride_22/rd_ed_cl.sfz", mics=CYMBAL_MICS, layers=3, rr=2,
          max_seconds=7.0, choke_ms=90),
 ]
-
-FADE_OUT_SECONDS = 1.5
-
-
-def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(args, check=True, text=True, encoding="utf-8", errors="replace", **kwargs)
 
 
 def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess:
@@ -197,16 +191,6 @@ def parse_mapping(sfz_path: Path) -> list[dict]:
     return groups
 
 
-def pick_evenly(count: int, wanted: int) -> list[int]:
-    if wanted >= count:
-        return list(range(count))
-
-    if wanted == 1:
-        return [count - 1]
-
-    return sorted({round(i * (count - 1) / (wanted - 1)) for i in range(wanted)})
-
-
 def plan_pad(repo: Path, tree: dict[str, str], pad: dict) -> list[dict]:
     """패드 하나에 쓸 타격 목록을 만든다. 타격마다 마이크별 원본 파일을 적는다."""
     groups = parse_mapping(repo / "Programs" / "mappings" / pad["sfz"])
@@ -277,76 +261,20 @@ def filter_graph(hit: dict, tail: str) -> str:
         chains.append(f"[{index}:a]{upmix}volume={source['gain']}[m{index}]")
         labels.append(f"[m{index}]")
 
-    if len(labels) > 1:
-        chains.append(f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest[mix]")
-        current = "[mix]"
-    else:
-        current = labels[0]
-
-    post = [hit["fx"]] if hit.get("fx") else []
-    post.append(f"aresample={SAMPLE_RATE}:resampler=soxr:precision=28")
-
-    if hit["max_seconds"]:
-        end = hit["max_seconds"]
-        post.append(f"atrim=end={end}")
-        post.append(f"afade=t=out:st={end - FADE_OUT_SECONDS}:d={FADE_OUT_SECONDS}")
-
-    post.append(tail)
-    chains.append(f"{current}{','.join(post)}[out]")
-    return ";".join(chains)
+    return finish_graph(chains, labels, [hit["fx"]] if hit.get("fx") else [], hit["max_seconds"], tail)
 
 
-def ffmpeg_inputs(repo: Path, hit: dict) -> list[str]:
-    args = []
-
-    for source in hit["sources"]:
-        args += ["-i", str(repo / source["path"])]
-
-    return args
+def inputs_of(repo: Path, hit: dict) -> list[str]:
+    return ffmpeg_inputs(repo / source["path"] for source in hit["sources"])
 
 
 def measure_peak(repo: Path, hit: dict) -> float:
-    result = run(["ffmpeg", "-hide_banner", "-nostdin", *ffmpeg_inputs(repo, hit),
-                  "-filter_complex", filter_graph(hit, "volumedetect"), "-map", "[out]", "-f", "null", "-"],
-                 capture_output=True)
-    match = re.search(r"max_volume:\s*(-?[\d.]+) dB", result.stderr)
-
-    if not match:
-        raise RuntimeError(f"could not measure {hit['output']}")
-
-    return float(match.group(1))
+    return peak_db([*inputs_of(repo, hit), "-filter_complex", filter_graph(hit, "volumedetect"), "-map", "[out]"],
+                   hit["output"])
 
 
 def render_hit(repo: Path, out_dir: Path, hit: dict, scale: float) -> None:
-    target = out_dir / hit["output"]
-    target.parent.mkdir(parents=True, exist_ok=True)
-    run(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y", *ffmpeg_inputs(repo, hit),
-         "-filter_complex", filter_graph(hit, f"volume={scale:.6f}"), "-map", "[out]",
-         "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24", str(target)],
-        capture_output=True)
-
-
-def keep_backup(path: Path) -> None:
-    """kit.json을 다시 쓰기 전에 지금 내용을 backups/에 남긴다.
-
-    프로그램이 남기는 백업과 같은 자리, 같은 이름 규칙이다 (src/app/Backups.h). 그래서 킷 화면의 "되돌리기…"에 함께 보인다.
-    """
-    if not path.exists():
-        return
-
-    root = Path(__file__).resolve().parent.parent
-
-    try:
-        name = "__".join(path.resolve().relative_to(root).parts)
-    except ValueError:
-        name = path.name
-
-    folder = root / "backups" / name
-    folder.mkdir(parents=True, exist_ok=True)
-    target = folder / (datetime.now().strftime("%Y%m%d-%H%M%S") + path.suffix)
-
-    if not target.exists():
-        shutil.copy2(path, target)
+    render_flac(inputs_of(repo, hit), filter_graph(hit, f"volume={scale:.6f}"), out_dir / hit["output"])
 
 
 def main() -> int:
@@ -486,7 +414,7 @@ def main() -> int:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     keep_backup(kit_path)
-    kit_path.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    write_kit(kit_path, kit)
     (out_dir / "CREDITS.txt").write_text(
         f"이 킷의 샘플은 {SOURCE_NAME}에서 가져왔습니다.\n"
         f"출처: {REPO_URL} (커밋 {commit})\n"

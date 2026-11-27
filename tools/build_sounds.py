@@ -26,18 +26,16 @@ import json
 import math
 import os
 import re
-import shutil
 import statistics
-import subprocess
 import sys
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))    # python -I는 스크립트 폴더를 찾지 않는다
+from hvd_tools import (ROOT, SAMPLE_RATE, ffmpeg_inputs, finish_graph, keep_backup, peak_db,  # noqa: E402
+                       pick_evenly, render_flac, run, write_kit)
+
 LIBRARIES = ROOT / "external" / "sample-libraries"
-SAMPLE_RATE = 48000
-FADE_OUT_SECONDS = 1.5
 
 # 패드마다: 세기 단계 수, 번갈아 재생 수, 최대 길이(초). 기본 킷과 같은 값이다.
 SHAPES = {
@@ -246,10 +244,6 @@ for pad, part, pitch, label in (("tom_high", "th", 0, "높은 탐"), ("tom_mid",
 
 
 # ---------------------------------------------------------------------------------------------------
-def run(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(args, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
-
-
 def mic_gain(value) -> tuple[float, str]:
     """마이크 설정을 (배율, 놓을 자리)로. 자리는 "C"(가운데), "L", "R"."""
     return (value[0], value[1]) if isinstance(value, tuple) else (float(value), "C")
@@ -277,19 +271,9 @@ def discover(spec: dict) -> dict[int, list]:
     return {level: sorted(numbers, key=lambda n: n or 0) for level, numbers in sorted(found.items())}
 
 
-def pick_evenly(count: int, wanted: int) -> list[int]:
-    if wanted >= count:
-        return list(range(count))
-
-    if wanted == 1:
-        return [count - 1]
-
-    return sorted({round(i * (count - 1) / (wanted - 1)) for i in range(wanted)})
-
-
 def channels_of(path: Path) -> int:
     output = run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels",
-                  "-of", "csv=p=0", str(path)]).stdout.strip()
+                  "-of", "csv=p=0", str(path)], capture_output=True).stdout.strip()
     return int(output.split(",")[0] or 1)
 
 
@@ -738,48 +722,18 @@ def filter_graph(hit: dict, tail: str) -> str:
         chains.append(f"[{index}:a]{shape}volume={source['gain']}[m{index}]")
         labels.append(f"[m{index}]")
 
-    if len(labels) > 1:
-        chains.append(f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest[mix]")
-        current = "[mix]"
-    else:
-        current = labels[0]
-
-    post = []
+    effects = []
 
     if hit["pitch"]:
         # 음높이를 내리면 그만큼 길어진다. 드럼 한 타라서 길이가 조금 달라져도 괜찮다.
-        post.append(f"aresample={SAMPLE_RATE}:resampler=soxr")
-        post.append(f"asetrate={SAMPLE_RATE * 2 ** (hit['pitch'] / 12.0):.3f}")
+        effects.append(f"aresample={SAMPLE_RATE}:resampler=soxr")
+        effects.append(f"asetrate={SAMPLE_RATE * 2 ** (hit['pitch'] / 12.0):.3f}")
 
-    post.append(f"aresample={SAMPLE_RATE}:resampler=soxr:precision=28")
-
-    if hit["max_seconds"]:
-        end = hit["max_seconds"]
-        post.append(f"atrim=end={end}")
-        post.append(f"afade=t=out:st={end - FADE_OUT_SECONDS}:d={FADE_OUT_SECONDS}")
-
-    post.append(tail)
-    chains.append(f"{current}{','.join(post)}[out]")
-    return ";".join(chains)
+    return finish_graph(chains, labels, effects, hit["max_seconds"], tail)
 
 
 def inputs_of(hit: dict) -> list[str]:
-    args = []
-
-    for source in hit["sources"]:
-        args += ["-i", str(source["path"])]
-
-    return args
-
-
-def peak_db(args: list[str]) -> float:
-    result = run(["ffmpeg", "-hide_banner", "-nostdin", *args, "-f", "null", "-"])
-    match = re.search(r"max_volume:\s*(-?[\d.]+) dB", result.stderr)
-
-    if not match:
-        raise RuntimeError("could not measure a peak")
-
-    return float(match.group(1))
+    return ffmpeg_inputs(source["path"] for source in hit["sources"])
 
 
 def measure_hit(hit: dict) -> float:
@@ -787,11 +741,7 @@ def measure_hit(hit: dict) -> float:
 
 
 def render_hit(kit_folder: Path, hit: dict, scale: float) -> None:
-    target = kit_folder / hit["output"]
-    target.parent.mkdir(parents=True, exist_ok=True)
-    run(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y", *inputs_of(hit),
-         "-filter_complex", filter_graph(hit, f"volume={scale:.6f}"), "-map", "[out]",
-         "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24", str(target)])
+    render_flac(inputs_of(hit), filter_graph(hit, f"volume={scale:.6f}"), kit_folder / hit["output"])
 
 
 def layers_json(hits: list[dict]) -> list[dict]:
@@ -807,30 +757,6 @@ def loudness_of(kit_folder: Path, layers: list[dict]) -> float:
     """패드에 지금 들어 있는 소리의 크기: 가장 센 단계의 타격들의 최댓값(dB)의 가운뎃값."""
     top = max(layers, key=lambda layer: layer.get("upTo", 1.0))
     return statistics.median(peak_db(["-i", str(kit_folder / sample), "-af", "volumedetect"]) for sample in top["samples"])
-
-
-def keep_backup(path: Path) -> None:
-    """kit.json을 다시 쓰기 전에 지금 내용을 backups/에 남긴다.
-
-    프로그램이 남기는 백업과 같은 자리, 같은 이름 규칙이다 (src/app/Backups.h). 그래서 킷 화면의 "되돌리기…"에 함께 보인다.
-    """
-    if not path.exists():
-        return
-
-    root = Path(__file__).resolve().parent.parent
-
-    try:
-        name = "__".join(path.resolve().relative_to(root).parts)
-    except ValueError:
-        name = path.name
-
-    folder = root / "backups" / name
-    folder.mkdir(parents=True, exist_ok=True)
-    target = folder / (datetime.now().strftime("%Y%m%d-%H%M%S") + path.suffix)
-
-    if not target.exists():
-        shutil.copy2(path, target)
-
 
 
 # ===================================================================================================
@@ -1110,13 +1036,9 @@ def main() -> int:
         print(f"{spec['pad']:13s} {spec['id']:22s} 타격 {len(hits):2d}개  {20 * math.log10(scale):+6.1f} dB  {spec['name']}", flush=True)
 
         # 중간에 멈춰도 만든 것은 남도록 소리 하나마다 저장한다.
-        temporary = kit_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-        temporary.replace(kit_path)
+        write_kit(kit_path, kit)
 
-    temporary = kit_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(kit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-    temporary.replace(kit_path)
+    write_kit(kit_path, kit)
 
     total = sum(len(pad.get("sounds", [])) for pad in kit["pads"])
     print(f"완료: 이번에 만든 소리 {made}개, 킷에 모아 둔 소리 모두 {total}개 → {kit_path}")
