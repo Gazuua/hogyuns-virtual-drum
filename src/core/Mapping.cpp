@@ -304,24 +304,42 @@ std::shared_ptr<const Mapping> resolveMapping (const MappingSpec& spec,
         else if (binding.action == "pedal")
         {
             Pedal pedal;
+            pedal.key = *key;
             pedal.pressVelocity = velocity;
             pedal.releaseVelocity = binding.releaseVelocity >= 0.0f ? std::clamp (binding.releaseVelocity, 0.0f, 1.0f)
                                                                     : velocity;
 
             if (! binding.pads.empty())
+            {
                 pedal.pressPad = findPad (binding.pads.front(), binding.key);
+
+                // 누를 때 치는 패드는 화면에 이 키를 적는다.
+                if (pedal.pressPad >= 0)
+                {
+                    auto& keys = mapping->keysForPad[static_cast<std::size_t> (pedal.pressPad)];
+
+                    if (std::find (keys.begin(), keys.end(), *key) == keys.end())
+                        keys.push_back (*key);
+                }
+            }
 
             if (! binding.releasePad.empty())
                 pedal.releasePad = findPad (binding.releasePad, binding.key);
 
-            for (const auto& [from, to] : binding.swap)
+            const auto resolveSwaps = [&] (const auto& pairs, auto& resolved)
             {
-                const auto fromIndex = findPad (from, binding.key);
-                const auto toIndex = findPad (to, binding.key);
+                for (const auto& [from, to] : pairs)
+                {
+                    const auto fromIndex = findPad (from, binding.key);
+                    const auto toIndex = findPad (to, binding.key);
 
-                if (fromIndex >= 0 && toIndex >= 0)
-                    pedal.swaps.emplace_back (static_cast<std::uint16_t> (fromIndex), static_cast<std::uint16_t> (toIndex));
-            }
+                    if (fromIndex >= 0 && toIndex >= 0)
+                        resolved.emplace_back (static_cast<std::uint16_t> (fromIndex), static_cast<std::uint16_t> (toIndex));
+                }
+            };
+
+            resolveSwaps (binding.swap, pedal.swaps);
+            resolveSwaps (binding.releasedSwap, pedal.releasedSwaps);
 
             KeyAction action;
             action.type = KeyAction::Type::pedal;

@@ -103,10 +103,16 @@ KeymapLoadResult loadKeymap (const juce::File& keymapFile)
         binding.division = numberOr (bindingVar, "division", binding.division);
         binding.releasePad = textOf (bindingVar, "releasePad");
 
-        // "swap": { "원래 패드": "바꿔 칠 패드", ... }
-        if (const auto* swaps = bindingVar["swap"].getDynamicObject())
-            for (const auto& entry : swaps->getProperties())
-                binding.swap.emplace_back (entry.name.toString().toStdString(), entry.value.toString().toStdString());
+        // "swap": { "원래 패드": "바꿔 칠 패드", ... }. "releasedSwap"은 페달을 떼고 있는 동안의 것이다.
+        const auto readSwaps = [&bindingVar] (const char* name, auto& pairs)
+        {
+            if (const auto* swaps = bindingVar[name].getDynamicObject())
+                for (const auto& entry : swaps->getProperties())
+                    pairs.emplace_back (entry.name.toString().toStdString(), entry.value.toString().toStdString());
+        };
+
+        readSwaps ("swap", binding.swap);
+        readSwaps ("releasedSwap", binding.releasedSwap);
 
         spec.bindings.push_back (std::move (binding));
     }

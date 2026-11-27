@@ -1129,6 +1129,65 @@ void testPedal()
     CHECK (isNear (press (keyBackquote, 1500), 0.25f));    // 누를 때 소리가 나는 페달
 }
 
+void testPedalReleasedSwap()
+{
+    // 하이햇 페달처럼 둔다: 떼고 있으면 a를 b로(반열림), 밟고 있으면 a 그대로(닫힘), 밟을 때 c(칙).
+    hvd::MappingSpec spec;
+    spec.chordAccentMs = 0.0f;
+    spec.bindings.push_back (bind ("KeyA", "a"));
+
+    auto foot = bindAction ("Pedal1", "pedal");
+    foot.pads = { "c" };
+    foot.releasedSwap = { { "a", "b" } };
+    spec.bindings.push_back (foot);
+
+    auto open = bindAction ("Tab", "pedal");
+    open.swap = { { "a", "c" } };
+    spec.bindings.push_back (open);
+
+    // 키보드 키의 페달은 풋스위치와 상관없이 "떼고 있는 동안" 바꿈을 쓴다.
+    auto keyboardPedal = bindAction ("KeyD", "pedal");
+    keyboardPedal.releasedSwap = { { "b", "c" } };
+    spec.bindings.push_back (keyboardPedal);
+
+    Rig rig (spec);
+    CHECK (rig.warnings.empty());
+
+    const auto press = [&rig] (hvd::KeyCode key, std::uint64_t timeMs)
+    {
+        rig.performer.keyDown (key, timeMs * msNs);
+        const auto onsets = rig.play (64);
+        return onsets.size() == 1 ? onsets[0].value : -1.0f;
+    };
+
+    const auto pedal = hvd::pedalKey (0);
+    const auto mapping = rig.performer.getMapping();
+    CHECK (mapping != nullptr && mapping->keysForPad[2].size() == 1 && mapping->keysForPad[2][0] == pedal);    // 화면에 페달 키를 적는다
+
+    // 풋스위치가 없으면 Pedal1의 "떼고 있는 동안" 바꿈은 쓰지 않는다. 페달 없이 칠 때는 전과 같다.
+    CHECK (isNear (press (keyA, 900), 1.0f));
+    CHECK (rig.performer.swappedForScreen (0) == 0);
+    CHECK (rig.performer.swappedForScreen (1) == 2);
+    rig.performer.setFootswitchConnected (true);
+
+    CHECK (rig.performer.swappedForScreen (0) == 1);    // 마우스로 쳐도 떼고 있으면 b
+    CHECK (isNear (press (keyA, 1000), 0.5f));          // 떼고 있으면 b
+    CHECK (isNear (press (pedal, 1100), 0.25f));        // 밟을 때 c
+    CHECK (isNear (press (keyA, 1200), 1.0f));          // 밟고 있는 동안 a
+    CHECK (rig.performer.swappedForScreen (0) == 0);
+    CHECK (rig.performer.swappedForScreen (2) == 2);    // 바꿈에 없는 패드는 그대로
+
+    rig.performer.keyUp (pedal, 1300 * msNs);
+    CHECK (rig.play (64).empty());                      // 뗄 때 칠 패드는 없다
+    CHECK (isNear (press (keyA, 1400), 0.5f));
+    CHECK (rig.performer.swappedForScreen (0) == 1);
+
+    // 누르는 동안의 바꿈이 떼고 있는 동안의 바꿈보다 먼저다.
+    CHECK (press (keyTab, 1500) < 0.0f);
+    CHECK (isNear (press (keyA, 1600), 0.25f));
+    CHECK (rig.performer.swappedForScreen (0) == 2);
+}
+
 void testChordAccent()
 {
     hvd::MappingSpec spec;
@@ -2729,6 +2788,7 @@ int hvd::runCoreTests (std::string& log)
         testPattern,
         testModifiers,
         testPedal,
+        testPedalReleasedSwap,
         testChordAccent,
         testTapTempo,
         testMetronome,

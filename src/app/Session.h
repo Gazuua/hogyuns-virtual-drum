@@ -116,7 +116,7 @@ public:
     bool saveKit (bool reload);
 
     /** 패드를 한 번 친다. source는 연주 로그에 남길 출처다 (연주 화면에서 마우스로 친 것은 mouse). */
-    void previewPad (int pad, float velocity, hvd::HitSource source = hvd::HitSource::screen);
+    void previewPad (int pad, float velocity, hvd::HitSource source = hvd::HitSource::screen, bool followPedals = true);
     void allSoundOff();
 
     //==============================================================================
@@ -173,6 +173,15 @@ public:
     const PedalSetup& getPedal() const noexcept              { return pedal; }
     void setPedal (const PedalSetup& newPedal);
     bool isPedalConnected() const;
+
+    /** 지금 페달 상태에서 이 패드를 치면 실제로 울리는 패드 (페달을 뗀 하이햇 닫힘 → 반열림 등). */
+    int padAfterPedals (int pad) const
+    {
+        return pad >= 0 ? static_cast<int> (performer.swappedForScreen (static_cast<std::uint16_t> (pad))) : pad;
+    }
+
+    /** 검사용: 풋스위치가 꽂혀 있는 것으로 친다 (화면을 찍을 때 페달 모드를 보이려고). */
+    void pretendFootswitchConnected()                       { performer.setFootswitchConnected (true); }
 
     /** 페달 등록을 시작한다. 끝낼 때까지 누르는 키는 연주하지 않는다.
         처음 누른 키의 장치가 페달이 되고, 그 장치의 스위치를 밟은 순서대로 Pedal1, Pedal2…로 삼는다. */
@@ -288,6 +297,7 @@ private:
 
     void applyKeymap();
     void applyPedal();
+    void updatePedalConnection();
     void pushPadParams (int pad);
     void pushAllPadParams();
     void applyFxFromDocument();
@@ -357,6 +367,7 @@ private:
     std::function<void (hvd::KeyCode)> captureCallback;
     std::array<bool, hvd::numKeyCodes> forwarded {};    // 누름을 연주 로직에 넘긴 키. handleKey()를 부르는 스레드에서만 쓴다
     PedalSetup pedal;
+    std::uint32_t seenDeviceChanges = 0;    // 페달 연결을 마지막으로 확인했을 때의 장치 변경 횟수
 
     // MIDI 입력: 노트 번호 → 패드 번호 (-1이면 없음)
     std::array<std::atomic<int>, 128> midiPads {};

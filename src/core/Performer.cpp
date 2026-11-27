@@ -62,15 +62,50 @@ float Performer::modified (float velocity) const noexcept
     return std::clamp (velocity, 0.0f, 1.0f);
 }
 
-std::uint16_t Performer::swapped (std::uint16_t pad) const noexcept
+namespace
 {
-    for (std::size_t i = 0; i < pedalHeld.size(); ++i)
-        if (pedalHeld[i] > 0)
-            for (const auto& [from, to] : active->pedals[i].swaps)
+
+/** 누르고 있는 페달의 바꿈을 먼저 보고, 없으면 떼고 있는 페달의 바꿈을 본다.
+    풋스위치가 없으면 풋스위치 키(Pedal1~4)의 "떼고 있는 동안" 바꿈은 건너뛴다. */
+template <typename IsHeld>
+std::uint16_t swapForPedals (const Mapping& mapping, IsHeld&& isHeld, bool footswitch, std::uint16_t pad) noexcept
+{
+    for (std::size_t i = 0; i < mapping.pedals.size(); ++i)
+        if (isHeld (i))
+            for (const auto& [from, to] : mapping.pedals[i].swaps)
+                if (from == pad)
+                    return to;
+
+    for (std::size_t i = 0; i < mapping.pedals.size(); ++i)
+        if (! isHeld (i) && (footswitch || ! isPedalKey (mapping.pedals[i].key)))
+            for (const auto& [from, to] : mapping.pedals[i].releasedSwaps)
                 if (from == pad)
                     return to;
 
     return pad;
+}
+
+} // namespace
+
+std::uint16_t Performer::swapped (std::uint16_t pad) const noexcept
+{
+    return swapForPedals (*active, [this] (std::size_t i) { return i < pedalHeld.size() && pedalHeld[i] > 0; },
+                          footswitchConnected.load (std::memory_order_relaxed), pad);
+}
+
+std::uint16_t Performer::swappedForScreen (std::uint16_t pad) const
+{
+    const auto current = mapping.load();
+
+    if (current == nullptr)
+        return pad;
+
+    // 키 배열이 막 바뀌었으면 입력 스레드는 다음 키에서 눌림 상태를 버리지만, 여기서는 실제로 눌린 키를 본다.
+    return swapForPedals (*current, [this, &current] (std::size_t i)
+    {
+        const auto key = current->pedals[i].key;
+        return key < numKeyCodes && keyHeld[key].load (std::memory_order_relaxed);
+    }, footswitchConnected.load (std::memory_order_relaxed), pad);
 }
 
 std::uint32_t Performer::toSamples (const Interval& interval) const noexcept
@@ -227,6 +262,9 @@ void Performer::tapTempo (std::uint64_t timeNs)
 
 void Performer::keyDown (KeyCode key, std::uint64_t timeNs)
 {
+    if (key < numKeyCodes)
+        keyHeld[key].store (true, std::memory_order_relaxed);
+
     if (! sync() || key >= numKeyCodes)
         return;
 
@@ -377,6 +415,9 @@ void Performer::keyDown (KeyCode key, std::uint64_t timeNs)
 
 void Performer::keyUp (KeyCode key, std::uint64_t timeNs)
 {
+    if (key < numKeyCodes)
+        keyHeld[key].store (false, std::memory_order_relaxed);
+
     if (! sync() || key >= numKeyCodes)
         return;
 

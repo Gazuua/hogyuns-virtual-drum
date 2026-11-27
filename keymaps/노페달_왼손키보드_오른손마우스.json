@@ -7,13 +7,13 @@
     "윗줄 = 뒤쪽 악기: 왼쪽 크래시(Q, W), 탐을 높은 것부터(E R, T Y, U I, O P), 오른쪽 크래시와 차이나([, ])",
     "숫자 줄 = 자동 연타와 꾸밈: 스네어 롤, 연타, 더블, 플램",
     "악기마다 키를 두 개씩 둬서 양손으로 번갈아 칠 수 있습니다.",
-    "풋스위치(키 배열 화면에서 '페달 등록'을 한 뒤): 왼쪽 = 하이햇 페달, 가운데와 오른쪽 = 킥 (두 발로 번갈아 치는 트윈 페달)"
+    "풋스위치(키 배열 화면에서 '페달 등록'을 한 뒤): 왼쪽 = 하이햇 페달 (밟고 있으면 닫힘, 떼면 반열림), 가운데와 오른쪽 = 킥 (두 발로 번갈아 치는 트윈 페달)"
   ],
   "tempo": 120,
   "beatsPerBar": 4,
   "bindings": [
     {"key": "KeyM", "action": "choke", "pads": ["crash1", "crash2", "china", "ride", "ride_bell", "ride_edge", "crash_bright", "crash_trash", "crash_stack"]},
-    {"key": "Pedal1", "pad": "hihat_pedal", "velocity": 0.9},
+    {"key": "Pedal1", "action": "pedal", "pad": "hihat_pedal", "velocity": 0.9, "releasedSwap": {"hihat_closed": "hihat_half"}},
     {"key": "Pedal2", "pad": "kick", "velocity": 1.0},
     {"key": "Pedal3", "pad": "kick", "velocity": 1.0},
     {"key": "KeyF", "velocity": 1.0, "pad": "tom_high"},

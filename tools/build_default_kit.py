@@ -435,7 +435,7 @@ def main() -> int:
 
         entry = {"id": pad["id"], "name": pad["name"], "volume": 1.0, "pan": 0.0, "pitch": 0.0}
 
-        for key in ("name", "volume", "pan", "pitch", "velocityCurve", "reverbSend", "startMs", "midiNote", "view"):
+        for key in ("name", "volume", "pan", "pitch", "velocityCurve", "reverbSend", "startMs", "midiNote", "view", "fixedView"):
             if key in previous_pads.get(pad["id"], {}):
                 entry[key] = previous_pads[pad["id"]][key]
 

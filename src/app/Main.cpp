@@ -948,17 +948,28 @@ public:
             return;
         }
 
-        // --screenshot <PNG 파일> [--page play|kit|keys|mixer|track|game|gameplay] [--after <ms>]: 화면을 그려 PNG로 저장하고 끝낸다.
+        // --screenshot <PNG 파일> [--page play|kit|keys|mixer|track|game|gameplay] [--after <ms>] [--press <키,키>]: 화면을 그려 PNG로 저장하고 끝낸다.
         // gameplay는 리듬 게임의 연습 패턴을 시범 연주로 돌리는 모습이다. --after로 찍을 때까지 기다릴 시간을 정한다.
+        // --press는 찍기 전에 누를 키 이름이다(예: Pedal1). 주지 않으면 Space, J, D를 누른다.
+        // --footswitch는 풋스위치가 꽂혀 있는 것으로 친다.
         if (const auto index = args.indexOf ("--screenshot"); index >= 0)
         {
             const auto pageIndex = args.indexOf ("--page");
             const auto afterIndex = args.indexOf ("--after");
+            const auto pressIndex = args.indexOf ("--press");
             const auto pageName = pageIndex >= 0 ? args[pageIndex + 1] : juce::String ("play");
             const auto demo = pageName == "gameplay";
 
+            std::vector<hvd::KeyCode> pressKeys;
+
+            if (pressIndex >= 0)
+                for (const auto& name : juce::StringArray::fromTokens (args[pressIndex + 1], ",", {}))
+                    if (const auto key = hvd::keyFromName (name.trim().toStdString()))
+                        pressKeys.push_back (*key);
+
             saveScreenshot (args[index + 1], demo ? MainComponent::pageIndexFromName ("game") : MainComponent::pageIndexFromName (pageName),
-                            demo, afterIndex >= 0 ? args[afterIndex + 1].getIntValue() : (demo ? 6500 : 360));
+                            demo, afterIndex >= 0 ? args[afterIndex + 1].getIntValue() : (demo ? 6500 : 360), pressKeys,
+                            args.contains ("--footswitch"));
             return;
         }
 
@@ -1389,7 +1400,7 @@ private:
         });
     }
 
-    void saveScreenshot (const juce::String& path, int page, bool gameDemo, int afterMs)
+    void saveScreenshot (const juce::String& path, int page, bool gameDemo, int afterMs, std::vector<hvd::KeyCode> pressKeys, bool footswitch)
     {
         // 연습 기록 화면은 사용자의 연주 로그를 읽어서 그린다. 읽기만 하고, 이 실행에서는 로그를 남기지 않는다.
         auto options = headlessOptions();
@@ -1400,7 +1411,10 @@ private:
         headless->getSession().getAudio().setOutputMuted (true);
         headless->showPage (page);
 
-        juce::Timer::callAfterDelay (250, [this, gameDemo]
+        if (footswitch)
+            headless->getSession().pretendFootswitchConnected();
+
+        juce::Timer::callAfterDelay (250, [this, gameDemo, pressKeys = std::move (pressKeys)]
         {
             if (headless == nullptr)
                 return;
@@ -1411,11 +1425,11 @@ private:
                 return;
             }
 
-            // 패드가 켜진 모습도 보이도록 키 몇 개를 누른 뒤에 찍는다.
+            // 패드가 켜진 모습도 보이도록 키 몇 개를 누른 뒤에 찍는다. 기본은 Space, J, D.
             auto& session = headless->getSession();
-            session.handleKey (0x39, true);    // Space
-            session.handleKey (0x24, true);    // J
-            session.handleKey (0x20, true);    // D
+
+            for (const auto key : pressKeys.empty() ? std::vector<hvd::KeyCode> { 0x39, 0x24, 0x20 } : pressKeys)
+                session.handleKey (key, true);
         });
 
         juce::Timer::callAfterDelay (juce::jmax (300, afterMs), [this, path]

@@ -51,8 +51,10 @@ struct BindingSpec
     std::string steps;                // 패턴: "X.x.o..." (X 세게, x 보통, o 약하게, . 쉼)
     float division = 4.0f;            // 패턴: 한 박을 몇 스텝으로 나누는지
 
-    // pedal: 누르고 있는 동안 왼쪽 패드를 오른쪽 패드로 바꿔 친다. 뗄 때 releasePad를 친다.
+    // pedal: 누르고 있는 동안 swap의 왼쪽 패드를 오른쪽 패드로, 떼고 있는 동안에는 releasedSwap대로 바꿔 친다.
+    // 누를 때 pads의 첫 패드를, 뗄 때 releasePad를 친다.
     std::vector<std::pair<std::string, std::string>> swap;
+    std::vector<std::pair<std::string, std::string>> releasedSwap;
     std::string releasePad;
 };
 
@@ -82,11 +84,13 @@ struct KeyAction
 /** 페달 키 하나. */
 struct Pedal
 {
+    KeyCode key = invalidKey;         // 이 페달을 누르는 키
     int pressPad = -1;                // 누를 때 칠 패드. 없으면 -1
     float pressVelocity = 1.0f;
     int releasePad = -1;              // 뗄 때 칠 패드. 없으면 -1
     float releaseVelocity = 1.0f;
-    std::vector<std::pair<std::uint16_t, std::uint16_t>> swaps;    // (원래 패드, 바꿔 칠 패드)
+    std::vector<std::pair<std::uint16_t, std::uint16_t>> swaps;            // 누르는 동안 (원래 패드, 바꿔 칠 패드)
+    std::vector<std::pair<std::uint16_t, std::uint16_t>> releasedSwaps;    // 떼고 있는 동안
 };
 
 /** 킷의 패드 번호로 풀어 놓은 키 배열. 입력 스레드가 읽기만 한다. */

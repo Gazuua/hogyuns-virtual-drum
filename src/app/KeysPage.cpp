@@ -20,7 +20,7 @@ constexpr Choice actions[] = {
     { "choke", "울리는 소리 멈추기" },
     { "accent", "악센트 (누르는 동안 세게)" },
     { "ghost", "고스트 (누르는 동안 약하게)" },
-    { "pedal", "페달 (누르는 동안 패드 바꾸기)" },
+    { "pedal", "페달 (패드 바꾸기)" },
     { "tapTempo", "탭 템포" },
     { "metronome", "메트로놈 켜고 끄기" },
 };
@@ -449,13 +449,26 @@ KeysPage::KeysPage (Session& sessionToUse)
         if (updating || binding == nullptr)
             return;
 
-        // 화면에서는 한 쌍만 다룬다.
-        auto* swap = new juce::DynamicObject();
+        // 화면에서는 누르는 동안, 떼고 있는 동안 각각 한 쌍만 다룬다.
+        const auto pairOf = [this] (const PadSwapPicker& picker)
+        {
+            juce::DynamicObject::Ptr swap (new juce::DynamicObject());
 
-        if (const auto from = comboPadId (pedalFromCombo), to = comboPadId (pedalToCombo); from.isNotEmpty() && to.isNotEmpty())
-            swap->setProperty (from, to);
+            if (const auto from = comboPadId (picker.from), to = comboPadId (picker.to); from.isNotEmpty() && to.isNotEmpty())
+                swap->setProperty (from, to);
 
-        binding->setProperty ("swap", juce::var (swap));
+            return swap;
+        };
+
+        binding->setProperty ("swap", juce::var (pairOf (heldSwap).get()));
+
+        if (const auto released = pairOf (releasedSwap); released->getProperties().size() > 0)
+            binding->setProperty ("releasedSwap", juce::var (released.get()));
+        else
+            binding->removeProperty ("releasedSwap");
+
+        const auto press = comboPadId (pressPadCombo);
+        setPads (*binding, press.isNotEmpty() ? juce::StringArray (press) : juce::StringArray());
 
         if (const auto release = comboPadId (releasePadCombo); release.isNotEmpty())
             binding->setProperty ("releasePad", release);
@@ -465,9 +478,17 @@ KeysPage::KeysPage (Session& sessionToUse)
         commit();
     };
 
-    ui::setupCombo (*this, pedalFromCombo, pedalChanged);
-    ui::setupCombo (*this, pedalToCombo, pedalChanged);
+    ui::setupCombo (*this, pressPadCombo, pedalChanged);
     ui::setupCombo (*this, releasePadCombo, pedalChanged);
+
+    for (auto* picker : { &heldSwap, &releasedSwap })
+    {
+        ui::setupCombo (*picker, picker->from, pedalChanged);
+        ui::setupCombo (*picker, picker->to, pedalChanged);
+        ui::setupLabel (*picker, picker->arrow, ko ("→"), 15.0f, ui::quietText);
+        picker->arrow.setJustificationType (juce::Justification::centred);
+        addAndMakeVisible (*picker);
+    }
 
     ui::setupButton (*this, padsButton, {}, [this] { showPadsMenu(); });
 
@@ -532,9 +553,10 @@ KeysPage::KeysPage (Session& sessionToUse)
         { "두 타 사이 간격", &gapSlider },
         { "패턴 (X 세게, x 보통, o 약하게, . 쉼)", &stepsEditor },
         { "한 박을 나누는 수", &divisionCombo },
-        { "페달: 누르는 동안 이 패드를", &pedalFromCombo },
-        { "이 패드로 바꿔 친다", &pedalToCombo },
-        { "페달을 뗄 때 칠 패드", &releasePadCombo },
+        { "누를 때 칠 패드", &pressPadCombo },
+        { "뗄 때 칠 패드", &releasePadCombo },
+        { "누르는 동안 바꿔 칠 패드", &heldSwap },
+        { "뗀 동안 바꿔 칠 패드", &releasedSwap },
     };
 
     for (std::size_t i = 0; i < rows.size(); ++i)
@@ -728,7 +750,13 @@ juce::String KeysPage::describe (const juce::var& binding) const
     if (action == "choke")      return ko ("멈춤");
     if (action == "accent")     return ko ("악센트");
     if (action == "ghost")      return ko ("고스트");
-    if (action == "pedal")      return ko ("페달");
+    if (action == "pedal")
+    {
+        // 누를 때 소리를 내는 페달은 그 패드 이름으로 보인다 (하이햇 페달 등).
+        const auto pads = padsOf (binding);
+        return pads.isEmpty() ? ko ("페달") : padName (pads[0]);
+    }
+
     if (action == "tapTempo")   return ko ("탭 템포");
     if (action == "metronome")  return ko ("메트로놈");
 
@@ -783,9 +811,8 @@ void KeysPage::rebuild()
         quickPadCombo.setSelectedId (juce::jmax (0, padIds.indexOf (quickPad)) + 2, juce::dontSendNotification);
 
         fillPadCombo (padCombo, false);
-        fillPadCombo (pedalFromCombo, false);
-        fillPadCombo (pedalToCombo, false);
-        fillPadCombo (releasePadCombo, true);
+        for (auto* combo : { &pressPadCombo, &releasePadCombo, &heldSwap.from, &heldSwap.to, &releasedSwap.from, &releasedSwap.to })
+            fillPadCombo (*combo, true);
 
         // 키마다 지정된 줄을 모은다.
         const auto& document = session.getKeymapDocument();
@@ -921,20 +948,33 @@ void KeysPage::showBinding()
         }
         else if (action == "pedal")
         {
-            juce::String from, to;
-
-            if (const auto* swap = binding["swap"].getDynamicObject(); swap != nullptr && swap->getProperties().size() > 0)
+            // 콤보의 번호: 1은 (없음), 패드는 순서 + 2
+            const auto selectPad = [this] (juce::ComboBox& combo, const juce::String& padId)
             {
-                from = swap->getProperties().getName (0).toString();
-                to = swap->getProperties().getValueAt (0).toString();
-            }
+                combo.setSelectedId (padIds.indexOf (padId) + 2, juce::dontSendNotification);
+            };
 
-            pedalFromCombo.setSelectedId (padIds.indexOf (from) + 2, juce::dontSendNotification);
-            pedalToCombo.setSelectedId (padIds.indexOf (to) + 2, juce::dontSendNotification);
+            const auto showPair = [&selectPad] (PadSwapPicker& picker, const juce::var& swaps)
+            {
+                juce::String from, to;
 
-            const auto release = padIds.indexOf (binding["releasePad"].toString());
-            releasePadCombo.setSelectedId (release >= 0 ? release + 2 : 1, juce::dontSendNotification);
-            rows[11].shown = rows[12].shown = rows[13].shown = true;
+                if (const auto* swap = swaps.getDynamicObject(); swap != nullptr && swap->getProperties().size() > 0)
+                {
+                    from = swap->getProperties().getName (0).toString();
+                    to = swap->getProperties().getValueAt (0).toString();
+                }
+
+                selectPad (picker.from, from);
+                selectPad (picker.to, to);
+            };
+
+            selectPad (pressPadCombo, pads[0]);
+            selectPad (releasePadCombo, binding["releasePad"].toString());
+            showPair (heldSwap, binding["swap"]);
+            showPair (releasedSwap, binding["releasedSwap"]);
+
+            for (const auto index : { 11, 12, 13, 14 })
+                rows[static_cast<std::size_t> (index)].shown = true;
         }
     }
 
@@ -1173,7 +1213,7 @@ void KeysPage::actionChanged()
             binding->removeProperty (name);
 
     if (action != "pedal")
-        for (const auto* name : { "swap", "releasePad", "releaseVelocity" })
+        for (const auto* name : { "swap", "releasedSwap", "releasePad", "releaseVelocity" })
             binding->removeProperty (name);
 
     if (action != "hit" && action != "choke")

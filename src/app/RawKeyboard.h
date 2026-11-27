@@ -99,7 +99,14 @@ public:
     void processRawInput (void* deviceHandle, unsigned makeCode, unsigned flags);
 
     /** 입력 스레드가 부른다. 장치가 꽂히거나 빠졌으니 핸들과 장치의 짝을 다시 알아내게 한다. */
-    void forgetDeviceHandles() noexcept                         { numKnownHandles = 0; }
+    void forgetDeviceHandles() noexcept
+    {
+        numKnownHandles = 0;
+        deviceChanges.fetch_add (1, std::memory_order_relaxed);
+    }
+
+    /** 장치가 꽂히거나 빠질 때마다 하나씩 는다. 화면 스레드가 페달 연결을 다시 확인할 때 쓴다. */
+    std::uint32_t getDeviceChangeCount() const noexcept         { return deviceChanges.load (std::memory_order_relaxed); }
 
     /** 검사용: 스레드를 시작하지 않고 처리기만 지정한다. */
     void setHandlerForTesting (Handler newHandler)    { handler = std::move (newHandler); }
@@ -136,6 +143,7 @@ private:
     std::atomic<DeviceId> pedalDevice { 0 };
     std::array<std::atomic<KeyCode>, maxPedalKeys> pedalSourceKeys {};
     std::atomic<bool> pedalChanged { false };
+    std::atomic<std::uint32_t> deviceChanges { 0 };
 
     // 페달 등록 (입력 스레드가 적고 화면 스레드가 읽는다)
     std::atomic<bool> learning { false };

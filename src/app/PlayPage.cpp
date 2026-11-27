@@ -40,9 +40,19 @@ juce::String actionName (hvd::KeyAction::Type type)
 PlayPage::PlayPage (Session& sessionToUse)
     : session (sessionToUse)
 {
-    const auto play = [this] (int index) { session.previewPad (index, 0.9f, hvd::HitSource::mouse); };
-    padGrid.onPadClicked = play;
-    kitView.onPadClicked = play;
+    padGrid.onPadClicked = [this] (int pad) { session.previewPad (pad, 0.9f, hvd::HitSource::mouse); };
+
+    // 그림의 두 번째 자리(닫힘 고정)는 페달을 따르지 않는다.
+    kitView.onPadClicked = [this] (int index)
+    {
+        const auto& item = kitView.getItems()[static_cast<std::size_t> (index)];
+
+        // 이 타격은 원래 자리 대신 두 번째 자리를 번쩍인다.
+        if (item.fixed)
+            fixedSpotPad = item.pad;
+
+        session.previewPad (item.pad, 0.9f, hvd::HitSource::mouse, ! item.fixed);
+    };
     addChildComponent (padGrid);
     addChildComponent (kitView);
 
@@ -55,7 +65,7 @@ PlayPage::PlayPage (Session& sessionToUse)
         view->setProperty ("x", juce::roundToInt (item.x * 1000.0f) / 1000.0);
         view->setProperty ("y", juce::roundToInt (item.y * 1000.0f) / 1000.0);
         view->setProperty ("size", juce::roundToInt (item.size * 1000.0f) / 1000.0);
-        session.getKitDocument().setPadProperty (item.id, "view", juce::var (view));
+        session.getKitDocument().setPadProperty (item.id, item.fixed ? "fixedView" : "view", juce::var (view));
         layoutDirty = true;
     };
 
@@ -168,6 +178,7 @@ void PlayPage::rebuild()
             item.id = juce::String (pad.id);
             item.name = tile.name;
             item.hasSound = tile.hasSound;
+            item.pad = static_cast<int> (i);
 
             if (mapping != nullptr && i < mapping->keysForPad.size())
             {
@@ -216,6 +227,32 @@ void PlayPage::rebuild()
             tiles.push_back (std::move (tile));
             items.push_back (std::move (item));
         }
+
+        // 하이햇 닫힘은 그림에 한 자리 더 둔다. 이 자리는 페달을 따르지 않아 언제나 닫힌 소리가 난다.
+        // 자리는 킷 파일의 그 패드에 "fixedView"로 적는다. 없으면 하이햇의 왼쪽 위에 둔다.
+        for (const auto& source : items)
+        {
+            if (source.id != "hihat_closed")
+                continue;
+
+            auto twin = source;
+            twin.name = source.name + ko (" 고정");
+            twin.keys.clear();
+            twin.fixed = true;
+            twin.x = juce::jlimit (0.04f, 0.96f, source.x - 0.11f);
+            twin.y = juce::jlimit (0.06f, 0.94f, source.y - 0.09f);
+            twin.size = 0.12f;
+
+            if (const auto view = session.getKitDocument().getPadProperty (twin.id, "fixedView"); view.isObject())
+            {
+                twin.x = juce::jlimit (0.0f, 1.0f, static_cast<float> (static_cast<double> (view["x"])));
+                twin.y = juce::jlimit (0.0f, 1.0f, static_cast<float> (static_cast<double> (view["y"])));
+                twin.size = juce::jlimit (0.06f, 0.60f, static_cast<float> (static_cast<double> (view["size"])));
+            }
+
+            items.push_back (std::move (twin));
+            break;
+        }
     }
 
     // 패드를 치지 않는 키들(세기 보조, 페달, 멈춤, 템포)을 한 줄로 보여 준다.
@@ -251,7 +288,10 @@ void PlayPage::rebuild()
 void PlayPage::resetLayout()
 {
     for (const auto& id : session.getKitDocument().getPadIds())
+    {
         session.getKitDocument().setPadProperty (id, "view", {});
+        session.getKitDocument().setPadProperty (id, "fixedView", {});
+    }
 
     session.saveKit (false);
     rebuild();
@@ -316,6 +356,17 @@ void PlayPage::pageShown()
 
 void PlayPage::tick()
 {
+    // 페달 상태에 따라 하이햇의 모양과 이름이 바뀐다 (페달을 떼면 반열림). 타격을 밝히기 전에 정해 둔다.
+    if (kitView.isVisible())
+    {
+        actingPads.clear();
+
+        for (const auto& item : kitView.getItems())
+            actingPads.push_back (item.fixed ? item.pad : session.padAfterPedals (item.pad));
+
+        kitView.setActingPads (actingPads);
+    }
+
     // 방금 친 패드를 밝힌다.
     for (std::size_t i = 0; i < seenHitCounts.size(); ++i)
     {
@@ -326,8 +377,13 @@ void PlayPage::tick()
         {
             seenHitCounts[i] = count;
             const auto strength = 0.35f + 0.65f * session.getEngine().getLastVelocity (pad);
+            const auto fixedSpot = pad == fixedSpotPad;
+
+            if (fixedSpot)
+                fixedSpotPad = -1;
+
             padGrid.flash (pad, strength);
-            kitView.flash (pad, strength);
+            kitView.flash (pad, strength, fixedSpot);
         }
     }
 

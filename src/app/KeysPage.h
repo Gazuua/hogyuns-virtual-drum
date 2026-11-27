@@ -53,6 +53,24 @@ private:
 };
 
 //==============================================================================
+/** 페달이 바꿀 패드 한 쌍: [원래 패드] → [바꿔 칠 패드] */
+class PadSwapPicker final : public juce::Component
+{
+public:
+    juce::ComboBox from, to;
+    juce::Label arrow;
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        const auto half = (area.getWidth() - 24) / 2;
+        from.setBounds (area.removeFromLeft (half));
+        to.setBounds (area.removeFromRight (half));
+        arrow.setBounds (area);
+    }
+};
+
+//==============================================================================
 /** 키 배열 편집 화면. 키를 고르고 그 키가 할 일을 정한다. 고치면 바로 파일에 저장되고 연주에 반영된다. */
 class KeysPage final : public ui::Page,
                        private juce::ChangeListener
@@ -120,11 +138,12 @@ private:
     juce::TextButton duplicateButton, renameButton, folderButton, restoreButton, quickButton, pedalButton, resetHeldButton, addButton, removeButton;
     juce::ToggleButton followButton;
 
-    juce::ComboBox actionCombo, padCombo, strokeCombo, rateCombo, divisionCombo, pedalFromCombo, pedalToCombo, releasePadCombo;
+    juce::ComboBox actionCombo, padCombo, strokeCombo, rateCombo, divisionCombo, pressPadCombo, releasePadCombo;
+    PadSwapPicker heldSwap, releasedSwap;
     juce::TextButton padsButton;
     juce::Slider velocitySlider, accentSlider, softSlider, gapSlider;
     juce::TextEditor stepsEditor;
-    std::array<Row, 14> rows;
+    std::array<Row, 15> rows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeysPage)
 };

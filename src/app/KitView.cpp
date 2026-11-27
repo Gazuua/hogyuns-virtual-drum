@@ -681,10 +681,11 @@ void KitView::setItems (std::vector<Item> newItems)
 {
     items = std::move (newItems);
     motions.assign (items.size(), {});
+    acting.assign (items.size(), -1);
     kinds.clear();
 
     for (const auto& item : items)
-        kinds.push_back (kindOf (item.id));
+        kinds.push_back (item.fixed ? Kind::zone : kindOf (item.id));
 
     // 멀리 있는(위쪽) 것부터 그려 가까운 것이 위에 오게 한다.
     drawOrder.resize (items.size());
@@ -696,15 +697,103 @@ void KitView::setItems (std::vector<Item> newItems)
     repaint();
 }
 
-void KitView::flash (int index, float strength)
+void KitView::flash (int pad, float strength, bool fixedSpot)
 {
-    if (index >= 0 && index < static_cast<int> (motions.size()))
+    // 번쩍일 자리를 차례로 찾는다:
+    // 1. 두 번째 자리를 클릭한 타격이면 그 자리
+    // 2. 페달로 바뀌어 이 패드를 대신 치고 있는 자리 (페달을 뗀 하이햇은 반열림을 친다)
+    // 3. 다른 패드로 바뀌지 않은 이 패드의 원래 자리
+    // 4. 두 번째 자리 (원래 자리가 다른 패드를 대신 치고 있을 때. 예: 오토 모드가 친 닫힌 하이햇)
+    // 5. 이 패드의 모든 자리
+    std::vector<std::size_t> targets;
+
+    const auto collect = [this, &targets] (auto&& wanted)
     {
-        auto& motion = motions[static_cast<std::size_t> (index)];
+        for (std::size_t i = 0; i < items.size(); ++i)
+            if (wanted (items[i], acting[i]))
+                targets.push_back (i);
+    };
+
+    if (fixedSpot)
+        collect ([pad] (const Item& item, int) { return item.fixed && item.pad == pad; });
+
+    if (targets.empty() && ! fixedSpot)
+        collect ([pad] (const Item& item, int actingPad) { return ! item.fixed && actingPad == pad; });
+
+    if (targets.empty() && ! fixedSpot)
+        collect ([pad] (const Item& item, int actingPad) { return ! item.fixed && item.pad == pad && actingPad < 0; });
+
+    if (targets.empty())
+        collect ([pad] (const Item& item, int) { return item.fixed && item.pad == pad; });
+
+    if (targets.empty())
+        collect ([pad] (const Item& item, int) { return item.pad == pad; });
+
+    for (const auto i : targets)
+    {
+        auto& motion = motions[i];
         motion.level = juce::jlimit (0.0f, 1.0f, strength);
         motion.strength = motion.level;
         motion.age = 0.0f;
     }
+}
+
+void KitView::setActingPads (const std::vector<int>& pads)
+{
+    // 하이햇이 열린 정도: 패드 id로 짐작한다.
+    const auto opennessOf = [] (const juce::String& padId)
+    {
+        const auto id = padId.toLowerCase();
+
+        if (! id.startsWith ("hihat") && ! id.startsWith ("hat"))
+            return 0.0f;
+
+        if (id.contains ("half"))
+            return 0.45f;
+
+        return id.contains ("open") ? 1.0f : 0.0f;
+    };
+
+    auto changed = false;
+
+    for (std::size_t i = 0; i < items.size() && i < pads.size(); ++i)
+    {
+        const auto wanted = items[i].fixed || pads[i] == items[i].pad ? -1 : pads[i];
+
+        if (acting[i] == wanted)
+            continue;
+
+        acting[i] = wanted;
+        changed = true;
+
+        const auto shown = itemOfPad (wanted);
+        motions[i].targetOpenness = kinds[i] == Kind::hihat && shown >= 0 ? opennessOf (items[static_cast<std::size_t> (shown)].id) : 0.0f;
+    }
+
+    if (changed)
+        repaint();
+}
+
+int KitView::itemOfPad (int pad) const
+{
+    if (pad < 0)
+        return -1;
+
+    for (std::size_t i = 0; i < items.size(); ++i)
+        if (items[i].pad == pad && ! items[i].fixed)
+            return static_cast<int> (i);
+
+    return -1;
+}
+
+const juce::String& KitView::shownName (int index) const
+{
+    const auto& item = items[static_cast<std::size_t> (index)];
+
+    if (const auto shown = itemOfPad (acting[static_cast<std::size_t> (index)]); shown >= 0)
+        return items[static_cast<std::size_t> (shown)].name;
+
+    return item.name;
 }
 
 bool KitView::fade()
@@ -714,6 +803,17 @@ bool KitView::fade()
     for (std::size_t i = 0; i < motions.size(); ++i)
     {
         auto& motion = motions[i];
+
+        // 하이햇은 페달에 따라 빠르게 열리고 닫힌다.
+        if (const auto gap = motion.targetOpenness - motion.openness; std::abs (gap) > 0.003f)
+        {
+            motion.openness += gap * 0.45f;
+            changed = true;
+        }
+        else
+        {
+            motion.openness = motion.targetOpenness;
+        }
 
         if (motion.age > 4.0f)
             continue;
@@ -904,12 +1004,15 @@ void KitView::drawItem (juce::Graphics& g, int index, int layer) const
             const auto look = lookOf (kind);
             const auto wobble = swing (motion.strength, motion.age, look.swingHertz, look.swingDecay);
 
-            // 아래 심벌, 그 위에 살짝 떠 있는 위 심벌, 가운데를 지나는 막대
+            // 아래 심벌, 그 위에 살짝 떠 있는 위 심벌, 가운데를 지나는 막대.
+            // 페달을 떼 열려 있으면 위 심벌이 클러치와 함께 올라간다.
+            const auto lift = radius * 0.26f * motion.openness;
+            const auto top = centre.translated (0.0f, -radius * 0.02f - lift);
             drawCymbalDisc (g, centre.translated (0.0f, radius * 0.07f), radius * 0.99f, look, 0.0f, 0.0f, 0.0f, colour, 0.0f);
-            drawCymbalDisc (g, centre.translated (0.0f, -radius * 0.02f), radius, look, lean, wobble, wobble, colour, motion.level);
-            drawRod (g, centre.translated (0.0f, -radius * 0.04f), centre.translated (0.0f, -radius * 0.50f), juce::jmax (2.0f, radius * 0.045f));
-            g.setGradientFill (chrome (centre.y - radius * 0.16f, centre.y - radius * 0.02f));
-            g.fillRoundedRectangle (juce::Rectangle<float> (radius * 0.16f, radius * 0.13f).withCentre (centre.translated (0.0f, -radius * 0.09f)), radius * 0.03f);
+            drawCymbalDisc (g, top, radius, look, lean, wobble, wobble, colour, motion.level);
+            drawRod (g, top.translated (0.0f, -radius * 0.02f), centre.translated (0.0f, -radius * 0.50f - lift), juce::jmax (2.0f, radius * 0.045f));
+            g.setGradientFill (chrome (top.y - radius * 0.14f, top.y));
+            g.fillRoundedRectangle (juce::Rectangle<float> (radius * 0.16f, radius * 0.13f).withCentre (top.translated (0.0f, -radius * 0.07f)), radius * 0.03f);
             break;
         }
 
@@ -953,6 +1056,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
 {
     const auto& item = items[static_cast<std::size_t> (index)];
     const auto kind = kinds[static_cast<std::size_t> (index)];
+    const auto& name = shownName (index);    // 페달로 바뀐 자리는 바뀐 패드의 이름
     const auto centre = centreOf (item);
     const auto radius = radiusOf (item);
     const auto alpha = item.hasSound ? 1.0f : 0.5f;
@@ -968,7 +1072,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
         {
             // 드러머를 향한 헤드의 위쪽에 이름, 페달 옆에 키
             const auto area = juce::Rectangle<float> (radius * 1.5f, nameSize + 4.0f).withCentre (centre.translated (0.0f, -radius * kickTilt * 0.42f));
-            drawName (g, item.name, area, nameSize + 1.0f, labelDark.withAlpha (alpha), lightHalo);
+            drawName (g, name, area, nameSize + 1.0f, labelDark.withAlpha (alpha), lightHalo);
             drawKeyCaps (g, item.keys, centre.translated (0.0f, radius * kickTilt + radius * 0.68f), capHeight);
             break;
         }
@@ -978,7 +1082,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
         case Kind::floorTom:
         {
             const auto area = juce::Rectangle<float> (radius * 1.6f, nameSize + 4.0f).withCentre (centre.translated (0.0f, -radius * 0.22f));
-            drawName (g, item.name, area, nameSize, labelDark.withAlpha (alpha), lightHalo);
+            drawName (g, name, area, nameSize, labelDark.withAlpha (alpha), lightHalo);
             drawKeyCaps (g, item.keys, centre.translated (0.0f, radius * 0.16f), capHeight);
             break;
         }
@@ -993,12 +1097,12 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
             {
                 drawKeyCaps (g, item.keys, centre.translated (0.0f, radius * 0.86f + capHeight * 0.5f), capHeight * 0.9f);
                 const auto area = juce::Rectangle<float> (radius * 3.0f, nameSize + 2.0f).withCentre (centre.translated (0.0f, -radius * 0.78f - nameSize * 0.5f));
-                drawName (g, item.name, area, nameSize - 1.0f, juce::Colours::white.withAlpha (alpha), darkHalo);
+                drawName (g, name, area, nameSize - 1.0f, juce::Colours::white.withAlpha (alpha), darkHalo);
             }
             else
             {
                 const auto area = juce::Rectangle<float> (radius * 1.5f, nameSize + 4.0f).withCentre (centre.translated (0.0f, radius * 0.33f));
-                drawName (g, item.name, area, nameSize, juce::Colour (0xff2e2208).withAlpha (alpha), juce::Colour (0xfffff0c0).withAlpha (0.5f * alpha));
+                drawName (g, name, area, nameSize, juce::Colour (0xff2e2208).withAlpha (alpha), juce::Colour (0xfffff0c0).withAlpha (0.5f * alpha));
                 drawKeyCaps (g, item.keys, centre.translated (0.0f, radius * 0.33f + nameSize * 0.5f + capHeight * 0.72f), capHeight * 0.92f);
             }
 
@@ -1010,7 +1114,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
             // 벨 위쪽에 작게
             drawKeyCaps (g, item.keys, centre.translated (0.0f, -radius * 1.5f), capHeight * 0.9f);
             const auto area = juce::Rectangle<float> (radius * 3.0f, nameSize + 2.0f).withCentre (centre.translated (0.0f, -radius * 1.5f - capHeight * 0.9f));
-            drawName (g, item.name, area, nameSize - 1.5f, juce::Colour (0xff2e2208).withAlpha (alpha), juce::Colour (0xfffff0c0).withAlpha (0.5f * alpha));
+            drawName (g, name, area, nameSize - 1.5f, juce::Colour (0xff2e2208).withAlpha (alpha), juce::Colour (0xfffff0c0).withAlpha (0.5f * alpha));
             break;
         }
 
@@ -1019,7 +1123,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
         {
             const auto small = radius < 30.0f;
             const auto area = juce::Rectangle<float> (radius * 2.6f, nameSize + 2.0f).withCentre (centre.translated (0.0f, small ? -radius - nameSize * 0.5f : -radius * 0.25f));
-            drawName (g, item.name, area, nameSize - 1.0f, juce::Colours::white.withAlpha (alpha), darkHalo);
+            drawName (g, name, area, nameSize - 1.0f, juce::Colours::white.withAlpha (alpha), darkHalo);
             drawKeyCaps (g, item.keys, centre.translated (0.0f, small ? 0.0f : radius * 0.25f), capHeight * 0.92f);
             break;
         }

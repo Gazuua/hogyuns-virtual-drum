@@ -174,6 +174,10 @@ void Session::poll()
 {
     releaseRetired();
 
+    // 장치가 꽂히거나 빠졌으면 페달이 연결돼 있는지 다시 본다.
+    if (keyboard.getDeviceChangeCount() != seenDeviceChanges)
+        updatePedalConnection();
+
     // 로그에는 상황, 키, 타격의 순서로 적는다. 그래야 누른 키가 그 키가 낸 타격보다 앞에 온다.
     logSituation();
     logKeys();
@@ -600,13 +604,18 @@ bool Session::saveKit (bool reload)
     return true;
 }
 
-void Session::previewPad (int pad, float velocity, hvd::HitSource source)
+void Session::previewPad (int pad, float velocity, hvd::HitSource source, bool followPedals)
 {
     hvd::EngineCommand command;
     command.type = hvd::EngineCommand::Type::hit;
     command.pad = static_cast<std::uint16_t> (pad);
     command.velocity = velocity;
     command.origin.source = source;
+
+    // 연주 화면에서 마우스로 친 것은 키로 친 것처럼 페달을 따른다 (하이햇 페달을 떼면 반열림 등).
+    if (source == hvd::HitSource::mouse && followPedals)
+        command.pad = performer.swappedForScreen (command.pad);
+
     engine.postFromControl (command);
 }
 
@@ -907,6 +916,13 @@ void Session::applyPedal()
         pedal = {};
 
     keyboard.setPedal (hvd::RawKeyboard::deviceIdOf (pedal.device.toStdString()), pedal.keys);
+    updatePedalConnection();
+}
+
+void Session::updatePedalConnection()
+{
+    seenDeviceChanges = keyboard.getDeviceChangeCount();
+    performer.setFootswitchConnected (isPedalConnected());
 }
 
 void Session::setPedal (const PedalSetup& newPedal)

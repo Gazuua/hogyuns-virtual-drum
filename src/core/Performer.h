@@ -17,7 +17,7 @@ namespace hvd
     세기 보조 키, 페달, 동시 누름 악센트, 패턴 켜고 끄기, 탭 템포처럼
     "지금 무엇이 눌려 있는가"에 따라 달라지는 일을 여기서 처리한다.
 
-    스레드 규칙: setMapping()은 화면 스레드에서, keyDown()과 keyUp()은 입력 스레드 하나에서 부른다.
+    스레드 규칙: setMapping()과 swappedForScreen()은 화면 스레드에서, keyDown()과 keyUp()은 입력 스레드 하나에서 부른다.
 */
 class Performer
 {
@@ -34,6 +34,14 @@ public:
     void keyUp (KeyCode key, std::uint64_t timeNs);
 
     static std::uint64_t now() noexcept;
+
+    /** 마우스로 친 패드를 지금의 페달 상태에 맞게 바꾼다. 키로 친 것과 같은 규칙이다. */
+    std::uint16_t swappedForScreen (std::uint16_t pad) const;
+
+    /** 풋스위치가 등록돼 있고 꽂혀 있는지. 화면 스레드에서 알려 준다.
+        풋스위치가 없으면 Pedal1~4 키의 "떼고 있는 동안" 바꿈은 쓰지 않는다. 밟을 수 없는 페달을
+        늘 뗀 것으로 보면, 페달 없이 칠 때 소리가 바뀌어 버리기 때문이다. */
+    void setFootswitchConnected (bool connected) noexcept    { footswitchConnected.store (connected, std::memory_order_relaxed); }
 
 private:
     bool sync();
@@ -54,6 +62,10 @@ private:
     Engine& engine;
     std::atomic<std::shared_ptr<const Mapping>> mapping;
     std::atomic<std::uint32_t> generation { 0 };
+
+    // 입력 스레드가 적고 화면 스레드가 읽는, 지금 눌려 있는 키. 마우스로 친 패드에 페달을 적용할 때 쓴다.
+    std::array<std::atomic<bool>, numKeyCodes> keyHeld {};
+    std::atomic<bool> footswitchConnected { false };
 
     // 아래는 입력 스레드에서만 쓴다.
     std::shared_ptr<const Mapping> active;
