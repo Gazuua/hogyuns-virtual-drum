@@ -28,7 +28,7 @@ juce::String describeChart (const hvd::Chart& chart)
     return text;
 }
 
-struct PlannedHit
+struct PatternHit
 {
     double seconds;
     const char* pad;
@@ -37,11 +37,11 @@ struct PlannedHit
 };
 
 /** 16마디짜리 록 패턴. 앞 여덟 마디는 하이햇, 뒤 여덟 마디는 라이드이고 필인이 두 번 들어 있다. */
-std::vector<PlannedHit> makeRockPattern (double tempo)
+std::vector<PatternHit> makeRockPattern (double tempo)
 {
     using hvd::Lane;
 
-    std::vector<PlannedHit> hits;
+    std::vector<PatternHit> hits;
     const auto beat = 60.0 / tempo;
     const auto at = [beat] (int bar, double beatInBar) { return 1.0 + (bar * 4.0 + beatInBar) * beat; };
 
@@ -94,7 +94,7 @@ std::vector<PlannedHit> makeRockPattern (double tempo)
         }
     }
 
-    std::stable_sort (hits.begin(), hits.end(), [] (const PlannedHit& a, const PlannedHit& b) { return a.seconds < b.seconds; });
+    std::stable_sort (hits.begin(), hits.end(), [] (const PatternHit& a, const PatternHit& b) { return a.seconds < b.seconds; });
     return hits;
 }
 
@@ -104,7 +104,7 @@ struct StereoAudio
 };
 
 /** 킷으로 hits를 연주한 소리를 만든다. */
-StereoAudio renderHits (const hvd::Kit& kit, const std::vector<PlannedHit>& hits, double sampleRate)
+StereoAudio renderHits (const hvd::Kit& kit, const std::vector<PatternHit>& hits, double sampleRate)
 {
     hvd::Engine engine;
     engine.prepare (sampleRate);
@@ -162,27 +162,36 @@ struct LaneScore
     double errorSum = 0.0, signedSum = 0.0;
 };
 
-/** 받아 적은 채보를 정답(hits)과 견줘 레인별로 채점하고 report에 적는다. 기준을 넘으면 true. */
-bool scoreChart (const hvd::Chart& chart, const std::vector<PlannedHit>& hits, double tempo, juce::String& report)
+/** 하이햇과 라이드, 탐 셋을 각각 한 무리로 본다. */
+hvd::Lane familyOf (hvd::Lane lane) noexcept
 {
-    std::array<LaneScore, hvd::numLanes> scores {};
-    std::vector<bool> used (chart.notes.size(), false);
+    switch (lane)
+    {
+        case hvd::Lane::ride:        return hvd::Lane::hihat;
+        case hvd::Lane::tomMid:
+        case hvd::Lane::tomFloor:    return hvd::Lane::tomHigh;
+        default:                     return lane;
+    }
+}
 
-    for (const auto& note : chart.notes)
-        ++scores[static_cast<std::size_t> (note.lane)].found;
+hvd::Lane laneOf (hvd::Lane lane) noexcept    { return lane; }
+
+/** 정답 타격마다, 35ms 안에 있고 같은 무리(group으로 견준다)이며 아직 짝이 없는 노트 가운데 가장 가까운 것과 짝짓는다.
+    짝마다 onMatch (타격, 노트)를 부른다. */
+template <typename OnMatch>
+void matchHits (const hvd::Chart& chart, const std::vector<PatternHit>& hits, hvd::Lane (*group) (hvd::Lane), OnMatch&& onMatch)
+{
+    std::vector<bool> used (chart.notes.size(), false);
 
     for (const auto& hit : hits)
     {
-        auto& score = scores[static_cast<std::size_t> (hit.lane)];
-        ++score.wanted;
-
         auto best = chart.notes.size();
 
         for (std::size_t i = 0; i < chart.notes.size(); ++i)
         {
             const auto distance = std::abs (chart.notes[i].seconds - hit.seconds);
 
-            if (! used[i] && chart.notes[i].lane == hit.lane && distance <= 0.035
+            if (! used[i] && group (chart.notes[i].lane) == group (hit.lane) && distance <= 0.035
                 && (best == chart.notes.size() || distance < std::abs (chart.notes[best].seconds - hit.seconds)))
                 best = i;
         }
@@ -190,11 +199,29 @@ bool scoreChart (const hvd::Chart& chart, const std::vector<PlannedHit>& hits, d
         if (best != chart.notes.size())
         {
             used[best] = true;
-            ++score.matched;
-            score.errorSum += std::abs (chart.notes[best].seconds - hit.seconds);
-            score.signedSum += chart.notes[best].seconds - hit.seconds;
+            onMatch (hit, chart.notes[best]);
         }
     }
+}
+
+/** 받아 적은 채보를 정답(hits)과 견줘 레인별로 채점하고 report에 적는다. 기준을 넘으면 true. */
+bool scoreChart (const hvd::Chart& chart, const std::vector<PatternHit>& hits, double tempo, juce::String& report)
+{
+    std::array<LaneScore, hvd::numLanes> scores {};
+
+    for (const auto& note : chart.notes)
+        ++scores[static_cast<std::size_t> (note.lane)].found;
+
+    for (const auto& hit : hits)
+        ++scores[static_cast<std::size_t> (hit.lane)].wanted;
+
+    matchHits (chart, hits, laneOf, [&scores] (const PatternHit& hit, const hvd::ChartNote& note)
+    {
+        auto& score = scores[static_cast<std::size_t> (hit.lane)];
+        ++score.matched;
+        score.errorSum += std::abs (note.seconds - hit.seconds);
+        score.signedSum += note.seconds - hit.seconds;
+    });
 
     auto wantedTotal = 0, matchedTotal = 0, foundTotal = 0;
 
@@ -221,46 +248,9 @@ bool scoreChart (const hvd::Chart& chart, const std::vector<PlannedHit>& hits, d
     report << "recall " << juce::String (recall * 100.0, 1) << "%, precision " << juce::String (precision * 100.0, 1) << "%"
            << ", tempo " << (tempoOk ? "ok" : "WRONG") << (passed ? "" : "   FAILED") << "\n";
 
-    // 하이햇과 라이드, 탐 셋을 각각 한 무리로 보고 다시 센다 (제때 그 종류의 악기를 찾았는지).
-    const auto family = [] (hvd::Lane lane)
-    {
-        switch (lane)
-        {
-            case hvd::Lane::hihat:
-            case hvd::Lane::ride:        return 1;
-            case hvd::Lane::tomHigh:
-            case hvd::Lane::tomMid:
-            case hvd::Lane::tomFloor:    return 2;
-            case hvd::Lane::crash:       return 3;
-            case hvd::Lane::snare:       return 4;
-            case hvd::Lane::kick:        return 5;
-        }
-
-        return 0;
-    };
-
-    std::fill (used.begin(), used.end(), false);
+    // 무리로 다시 센다 (제때 그 종류의 악기를 찾았는지).
     auto familyMatched = 0;
-
-    for (const auto& hit : hits)
-    {
-        auto best = chart.notes.size();
-
-        for (std::size_t i = 0; i < chart.notes.size(); ++i)
-        {
-            const auto distance = std::abs (chart.notes[i].seconds - hit.seconds);
-
-            if (! used[i] && family (chart.notes[i].lane) == family (hit.lane) && distance <= 0.035
-                && (best == chart.notes.size() || distance < std::abs (chart.notes[best].seconds - hit.seconds)))
-                best = i;
-        }
-
-        if (best != chart.notes.size())
-        {
-            used[best] = true;
-            ++familyMatched;
-        }
-    }
+    matchHits (chart, hits, familyOf, [&familyMatched] (const PatternHit&, const hvd::ChartNote&) { ++familyMatched; });
 
     report << "counting hi-hat with ride and the three toms together: recall "
            << juce::String (100.0 * familyMatched / std::max (1, wantedTotal), 1) << "%, precision "
