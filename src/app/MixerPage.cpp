@@ -22,8 +22,9 @@ void LevelMeter::push (float peak)
 
 void LevelMeter::paint (juce::Graphics& g)
 {
+    const auto& t = ui::theme();
     const auto bounds = getLocalBounds().toFloat();
-    g.setColour (juce::Colour (0xff161b20));
+    g.setColour (t.surfaceSunken);
     g.fillRoundedRectangle (bounds, 2.0f);
 
     if (level <= 0.0f)
@@ -34,7 +35,7 @@ void LevelMeter::paint (juce::Graphics& g)
     const auto fraction = juce::jlimit (0.0f, 1.0f, (decibels + 48.0f) / 48.0f);
     const auto vertical = getHeight() >= getWidth();
 
-    g.setColour (level > 0.95f ? ui::danger : (level > 0.6f ? ui::accent : ui::good));
+    g.setColour (level > 0.95f ? t.danger : (level > 0.6f ? t.warning : t.good));
 
     if (vertical)
         g.fillRoundedRectangle (bounds.withTop (bounds.getBottom() - bounds.getHeight() * fraction), 2.0f);
@@ -51,7 +52,7 @@ public:
         : owner (ownerToUse), pad (padToUse), id (idToUse)
     {
         ui::setupButton (*this, nameButton, name, [this] { owner.session.previewPad (pad, 0.9f); });
-        nameButton.setColour (juce::TextButton::buttonColourId, ui::padColour (id).withMultipliedBrightness (0.45f));
+        nameButton.setColour (juce::TextButton::buttonColourId, ui::theme().padTint (ui::padColour (id)));
         nameButton.setTooltip (name);
 
         fader.setSliderStyle (juce::Slider::LinearVertical);
@@ -67,8 +68,8 @@ public:
 
         ui::setupKnob (*this, pan, -1.0, 1.0, 0.01, 0.0);
         ui::setupKnob (*this, send, 0.0, 1.0, 0.01, 1.0);
-        ui::setupLabel (*this, panCaption, ko ("팬"), 11.0f, ui::quietText);
-        ui::setupLabel (*this, sendCaption, ko ("리버브"), 11.0f, ui::quietText);
+        ui::setupLabel (*this, panCaption, ko ("팬"), ui::Text::small);
+        ui::setupLabel (*this, sendCaption, ko ("리버브"), ui::Text::small);
         panCaption.setJustificationType (juce::Justification::centred);
         sendCaption.setJustificationType (juce::Justification::centred);
 
@@ -76,8 +77,7 @@ public:
         ui::setupButton (*this, soloButton, "S", [this] { owner.session.setPadSolo (pad, soloButton.getToggleState()); });
         muteButton.setClickingTogglesState (true);
         soloButton.setClickingTogglesState (true);
-        muteButton.setColour (juce::TextButton::buttonOnColourId, ui::danger.darker (0.3f));
-        soloButton.setColour (juce::TextButton::buttonOnColourId, ui::accent.darker (0.4f));
+        muteButton.setColour (juce::TextButton::buttonOnColourId, ui::theme().danger);    // 켜지면 빨간 바탕
         muteButton.setTooltip (ko ("뮤트: 이 패드의 소리를 끈다"));
         soloButton.setTooltip (ko ("솔로: 이 패드만 듣는다"));
 
@@ -119,14 +119,14 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (3, 0);
-        nameButton.setBounds (area.removeFromTop (30));
-        area.removeFromTop (4);
+        auto area = getLocalBounds().reduced (ui::space::tight, 0);
+        nameButton.setBounds (area.removeFromTop (ui::space::control));
+        area.removeFromTop (ui::space::small);
 
         auto buttons = area.removeFromBottom (24);
-        muteButton.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (1, 0));
-        soloButton.setBounds (buttons.reduced (1, 0));
-        area.removeFromBottom (4);
+        muteButton.setBounds (buttons.removeFromLeft (buttons.getWidth() / 2).reduced (2, 0));
+        soloButton.setBounds (buttons.reduced (2, 0));
+        area.removeFromBottom (ui::space::small);
 
         auto knobs = area.removeFromBottom (64);
         auto left = knobs.removeFromLeft (knobs.getWidth() / 2);
@@ -159,16 +159,16 @@ MixerPage::MixerPage (Session& sessionToUse)
     viewport.setScrollBarsShown (false, true);
     addAndMakeVisible (viewport);
 
-    ui::setupLabel (*this, masterTitle, ko ("전체"), 17.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, eqTitle, ko ("EQ (드럼 전체의 음색)"), 14.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, compTitle, ko ("컴프레서 (큰 소리를 눌러 단단하게)"), 14.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, reverbTitle, ko ("리버브 (공간의 울림)"), 14.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, reductionLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, masterTitle, ko ("전체"), ui::Text::section);
+    ui::setupLabel (*this, eqTitle, ko ("EQ (드럼 전체의 음색)"), ui::Text::heading);
+    ui::setupLabel (*this, compTitle, ko ("컴프레서 (큰 소리를 눌러 단단하게)"), ui::Text::heading);
+    ui::setupLabel (*this, reverbTitle, ko ("리버브 (공간의 울림)"), ui::Text::heading);
+    ui::setupLabel (*this, reductionLabel, {}, ui::Text::caption);
 
     const char* const captionTexts[] = { "전체 음량", "저음", "중음", "고음", "세기", "크기", "공간 크기", "고음 줄이기" };
 
     for (std::size_t i = 0; i < captions.size(); ++i)
-        ui::setupLabel (*this, captions[i], ko (captionTexts[i]), 13.0f, ui::quietText);
+        ui::setupLabel (*this, captions[i], ko (captionTexts[i]), ui::Text::caption);
 
     ui::setupSlider (*this, masterSlider, 0.0, AudioHost::maxMasterGain, 0.01, AudioHost::defaultMasterGain);
     ui::setupSlider (*this, eqLow, -12.0, 12.0, 0.1, 0.0, " dB", 1);
@@ -211,16 +211,20 @@ MixerPage::~MixerPage()
 
 void MixerPage::paint (juce::Graphics& g)
 {
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (getLocalBounds().removeFromRight (masterWidth).toFloat(), 8.0f);
+    // 채널 줄들과 전체 칸
+    auto area = getLocalBounds();
+    ui::fillPanel (g, area.removeFromRight (masterWidth));
+    area.removeFromRight (ui::space::medium);
+    ui::fillPanel (g, area);
 }
 
 void MixerPage::resized()
 {
     auto area = getLocalBounds();
-    auto master = area.removeFromRight (masterWidth).reduced (16, 12);
-    area.removeFromRight (12);
+    auto master = area.removeFromRight (masterWidth).reduced (ui::space::large, ui::space::medium + 2);
+    area.removeFromRight (ui::space::medium);
 
+    area = area.reduced (ui::space::small, ui::space::medium);
     viewport.setBounds (area);
     holder.setSize (juce::jmax (area.getWidth(), static_cast<int> (strips.size()) * stripWidth), area.getHeight() - 14);
 

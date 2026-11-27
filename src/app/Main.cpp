@@ -3,6 +3,7 @@
 #include "GamePage.h"
 #include "KeymapLoader.h"
 #include "KitLoader.h"
+#include "LookAndFeel.h"
 #include "MainComponent.h"
 #include "MusicFile.h"
 #include "PracticePage.h"
@@ -850,10 +851,15 @@ public:
 
     void initialise (const juce::String&) override
     {
-        // 한글이 깨지지 않도록 기본 글꼴을 맑은 고딕으로 둔다.
-        juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypefaceName ("Malgun Gothic");
-
         const auto args = getCommandLineParameterArray();
+
+        // --theme <id>: 화면 테마(midnight, graphite, light). 주지 않으면 기본 테마이고,
+        // 평소처럼 켤 때는 settings.json의 "theme"을 따른다. 글꼴(맑은 고딕)도 여기서 정해진다.
+        const auto themeIndex = args.indexOf ("--theme");
+        const auto themeArgument = themeIndex >= 0 ? args[themeIndex + 1] : juce::String();
+        ui::setTheme (themeArgument.isNotEmpty() ? themeArgument : juce::String (ui::defaultThemeId));
+        lookAndFeel = std::make_unique<ui::LookAndFeel>();
+        juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
 
         // --keymap <파일>: 저장해 둔 키 배열 대신 이 키 배열을 쓴다.
         if (const auto index = args.indexOf ("--keymap"); index >= 0 && args[index + 1].isNotEmpty())
@@ -981,6 +987,12 @@ public:
             return;
         }
 
+        if (themeArgument.isEmpty())
+        {
+            ui::setTheme (savedThemeId());
+            lookAndFeel->applyTheme();
+        }
+
         MainComponent::Options options;
         options.dataRoot = findDataRoot();
         options.keymapFile = keymapFile;
@@ -995,6 +1007,12 @@ public:
         headless = nullptr;
         analysis = nullptr;
         batch = nullptr;
+        checkProbe = nullptr;
+        checkWindow = nullptr;
+
+        // 화면을 모두 없앤 뒤에 그리기 객체를 내려놓는다.
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        lookAndFeel = nullptr;
     }
 
     void systemRequestedQuit() override
@@ -1032,6 +1050,18 @@ public:
     };
 
 private:
+    /** settings.json에 적어 둔 화면 테마. 없으면 빈 문자열. */
+    static juce::String savedThemeId()
+    {
+        juce::var parsed;
+        const auto file = Session::getSettingsFile();
+
+        if (file.existsAsFile() && juce::JSON::parse (file.loadFileAsString(), parsed).wasOk() && parsed.isObject())
+            return parsed["theme"].toString();
+
+        return {};
+    }
+
     static void writeReport (const juce::String& path, const juce::String& text)
     {
         if (path.isNotEmpty())
@@ -1710,6 +1740,7 @@ private:
         juce::Timer::callAfterDelay (500, [this] { stepBatch(); });
     }
 
+    std::unique_ptr<ui::LookAndFeel> lookAndFeel;    // 맨 먼저 만들고 맨 나중에 없앤다
     std::unique_ptr<Batch> batch;
     std::unique_ptr<Analysis> analysis;
     juce::File keymapFile;

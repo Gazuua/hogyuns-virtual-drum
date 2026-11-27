@@ -134,6 +134,7 @@ private:
     bool pedalConnected = false;
 
     juce::Label keymapCaption, quickCaption, heldLabel, pedalLabel, keyTitle, emptyHint;
+    juce::Rectangle<int> editorPanel;    // paint가 편집 칸 바탕을 그리는 자리
     juce::ComboBox keymapCombo, quickPadCombo, slotCombo;
     juce::TextButton duplicateButton, renameButton, folderButton, restoreButton, quickButton, pedalButton, resetHeldButton, addButton, removeButton;
     juce::ToggleButton followButton;

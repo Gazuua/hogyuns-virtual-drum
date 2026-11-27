@@ -128,7 +128,7 @@ Session::~Session()
 }
 
 //==============================================================================
-juce::File Session::getSettingsFile() const
+juce::File Session::getSettingsFile()
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                .getChildFile ("HogyunsVirtualDrum")

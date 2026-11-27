@@ -4,19 +4,13 @@
 
 #include <functional>
 
+#include "LookAndFeel.h"
 #include "Text.h"
+#include "Theme.h"
 
-/** 화면 여러 곳에서 함께 쓰는 색과 작은 도우미들. */
+/** 화면 여러 곳에서 함께 쓰는 작은 도우미들. 색과 크기는 Theme.h의 토큰을 쓴다. */
 namespace ui
 {
-
-inline const juce::Colour quietText { 0xff9fb0bd };
-inline const juce::Colour warningText { 0xffffcc80 };
-inline const juce::Colour accent { 0xffffb74d };
-inline const juce::Colour panel { 0xff222b33 };
-inline const juce::Colour panelEdge { 0xff3d4a55 };
-inline const juce::Colour danger { 0xffe57373 };
-inline const juce::Colour good { 0xff81c784 };
 
 /** 화면 한 장. 탭으로 바꿔 가며 보여 준다. */
 class Page : public juce::Component
@@ -50,15 +44,47 @@ inline void setupButton (juce::Component& parent, juce::Button& button, const ju
     parent.addAndMakeVisible (button);
 }
 
-inline void setupLabel (juce::Component& parent, juce::Label& label, const juce::String& text,
-                        float fontSize = 14.0f, juce::Colour colour = juce::Colours::white, bool bold = false)
+/** 글 꼬리표의 크기, 굵기, 색을 쓰임에 맞춘다. */
+inline void setTextStyle (juce::Label& label, Text style)
+{
+    const auto& t = theme();
+    auto size = type::body;
+    auto bold = false;
+    auto colour = t.text;
+
+    switch (style)
+    {
+        case Text::title:      size = type::title;      bold = true;    break;
+        case Text::section:    size = type::section;    bold = true;    break;
+        case Text::heading:    size = type::heading;    bold = true;    break;
+        case Text::body:       break;
+        case Text::detail:     size = type::caption;                    break;
+        case Text::caption:    size = type::caption;    colour = t.textMuted;    break;
+        case Text::hint:       colour = t.textMuted;                    break;
+        case Text::small:      size = type::small;      colour = t.textMuted;    break;
+        case Text::warning:    size = type::caption;    colour = t.warning;      break;
+    }
+
+    label.setFont (juce::FontOptions (size, bold ? juce::Font::bold : juce::Font::plain));
+    label.setColour (juce::Label::textColourId, colour);
+}
+
+inline void setupLabel (juce::Component& parent, juce::Label& label, const juce::String& text, Text style = Text::body)
 {
     label.setText (text, juce::dontSendNotification);
-    label.setFont (juce::FontOptions (fontSize, bold ? juce::Font::bold : juce::Font::plain));
-    label.setColour (juce::Label::textColourId, colour);
+    setTextStyle (label, style);
     label.setMinimumHorizontalScale (0.8f);
     parent.addAndMakeVisible (label);
 }
+
+/** 큰 칸(패널): 면으로 채운 둥근 네모. 테두리는 없다. */
+inline void fillPanel (juce::Graphics& g, juce::Rectangle<float> area)
+{
+    g.setColour (theme().surface);
+    g.fillRoundedRectangle (area, theme().panelRadius);
+}
+
+inline void fillPanel (juce::Graphics& g, juce::Rectangle<int> area)    { fillPanel (g, area.toFloat()); }
 
 /** 가로 슬라이더: 오른쪽에 값 상자, 더블 클릭하면 기본값으로 돌아간다. */
 inline void setupSlider (juce::Component& parent, juce::Slider& slider, double minimum, double maximum, double step,
@@ -95,22 +121,6 @@ inline void setupCombo (juce::Component& parent, juce::ComboBox& combo, std::fun
     combo.onChange = std::move (onChange);
     noFocus (combo);
     parent.addAndMakeVisible (combo);
-}
-
-/** 패드 id로 악기 종류를 짐작해 색을 고른다. */
-inline juce::Colour padColour (const juce::String& padId)
-{
-    const auto id = padId.toLowerCase();
-
-    if (id.startsWith ("kick") || id.startsWith ("bass"))                  return juce::Colour (0xffe57373);
-    if (id.startsWith ("snare") || id.startsWith ("sidestick"))            return juce::Colour (0xffffb74d);
-    if (id.startsWith ("hihat") || id.startsWith ("hat"))                  return juce::Colour (0xff4dd0e1);
-    if (id.startsWith ("tom"))                                             return juce::Colour (0xff81c784);
-    if (id.startsWith ("ride"))                                            return juce::Colour (0xff64b5f6);
-    if (id.startsWith ("crash") || id.startsWith ("china")
-        || id.startsWith ("splash") || id.startsWith ("cymbal"))           return juce::Colour (0xffba68c8);
-
-    return juce::Colour (0xff90a4ae);
 }
 
 inline bool isCymbalPad (const juce::String& padId)

@@ -77,11 +77,11 @@ GamePage::GamePage (Session& sessionToUse)
     addChildComponent (highway);
 
     // 곡 고르기
-    ui::setupLabel (*this, folderLabel, {}, 13.5f, ui::quietText);
+    ui::setupLabel (*this, folderLabel, {}, ui::Text::caption);
     ui::setupButton (*this, folderButton, ko ("음악 폴더 바꾸기"), [this] { chooseFolder(); });
     ui::setupButton (*this, rescanButton, ko ("새로 고침"), [this] { library.rescan(); });
 
-    searchEditor.setTextToShowWhenEmpty (ko ("곡 이름이나 폴더 이름으로 찾기"), ui::quietText);
+    searchEditor.setTextToShowWhenEmpty (ko ("곡 이름이나 폴더 이름으로 찾기"), ui::theme().textMuted);
     searchEditor.onTextChange = [this] { rebuildRows(); };
     searchEditor.onReturnKey = [this] { searchEditor.giveAwayKeyboardFocus(); };
     searchEditor.onEscapeKey = [this] { searchEditor.giveAwayKeyboardFocus(); };
@@ -97,14 +97,9 @@ GamePage::GamePage (Session& sessionToUse)
 
     songTable.setModel (this);
     songTable.setRowHeight (24);
-    songTable.setColour (juce::ListBox::backgroundColourId, ui::panel);
     songTable.setWantsKeyboardFocus (false);
     songTable.setMouseClickGrabsKeyboardFocus (false);
     songTable.getHeader().setStretchToFitActive (true);
-    songTable.getHeader().setColour (juce::TableHeaderComponent::backgroundColourId, juce::Colour (0xff2e3942));
-    songTable.getHeader().setColour (juce::TableHeaderComponent::textColourId, juce::Colours::white);
-    songTable.getHeader().setColour (juce::TableHeaderComponent::outlineColourId, ui::panelEdge);
-    songTable.getHeader().setColour (juce::TableHeaderComponent::highlightColourId, juce::Colour (0xff4a5d6e));
     songTable.getViewport()->setScrollBarsShown (true, false);
 
     const auto sortable = juce::TableHeaderComponent::visible | juce::TableHeaderComponent::sortable | juce::TableHeaderComponent::resizable;
@@ -116,12 +111,12 @@ GamePage::GamePage (Session& sessionToUse)
     songTable.getHeader().addColumn (ko ("최고 기록"), bestColumn, 96, 80, 130, sortable);
     addAndMakeVisible (songTable);
 
-    ui::setupLabel (*this, songTitleLabel, {}, 16.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, songInfoLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, songTitleLabel, {}, ui::Text::section);
+    ui::setupLabel (*this, songInfoLabel, {}, ui::Text::caption);
     songTitleLabel.setJustificationType (juce::Justification::topLeft);
     songInfoLabel.setJustificationType (juce::Justification::topLeft);
 
-    ui::setupLabel (*this, levelLabel, ko ("단계"), 13.5f, ui::quietText);
+    ui::setupLabel (*this, levelLabel, ko ("단계"), ui::Text::caption);
 
     for (int level = 0; level < hvd::numChartLevels; ++level)
     {
@@ -129,24 +124,24 @@ GamePage::GamePage (Session& sessionToUse)
         ui::setupButton (*this, button, ko (levelNames[level]), [this, level] { setLevel (level); });
         button.setClickingTogglesState (true);
         button.setRadioGroupId (300);
-        button.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff4a5d6e));
+        ui::setButtonKind (button, ui::ButtonKind::segment);
         button.setConnectedEdges ((level > 0 ? juce::Button::ConnectedOnLeft : 0) | (level < hvd::numChartLevels - 1 ? juce::Button::ConnectedOnRight : 0));
         button.setTooltip (ko (levelHints[level]));
     }
 
-    ui::setupLabel (*this, speedLabel, ko ("곡 속도"), 13.5f, ui::quietText);
+    ui::setupLabel (*this, speedLabel, ko ("곡 속도"), ui::Text::caption);
     ui::setupSlider (*this, speedSlider, 50.0, 100.0, 5.0, 100.0, "%", 0);
     speedSlider.setValue (static_cast<double> (session.getSetting ("gameSpeed", 100.0)), juce::dontSendNotification);
     speedSlider.onDragEnd = [this] { session.setSetting ("gameSpeed", speedSlider.getValue()); };
 
-    ui::setupLabel (*this, scrollLabel, ko ("노트 속도"), 13.5f, ui::quietText);
+    ui::setupLabel (*this, scrollLabel, ko ("노트 속도"), ui::Text::caption);
     ui::setupSlider (*this, scrollSlider, 200.0, 1000.0, 20.0, 440.0, {}, 0);
     scrollSlider.setValue (static_cast<double> (session.getSetting ("gameScroll", 440.0)), juce::dontSendNotification);
     scrollSlider.onValueChange = [this] { highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue())); };
     scrollSlider.onDragEnd = [this] { session.setSetting ("gameScroll", scrollSlider.getValue()); };
     highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue()));
 
-    ui::setupLabel (*this, offsetLabel, ko ("판정 보정"), 13.5f, ui::quietText);
+    ui::setupLabel (*this, offsetLabel, ko ("판정 보정"), ui::Text::caption);
     ui::setupSlider (*this, offsetSlider, -150.0, 150.0, 1.0, 0.0, " ms", 0);
     offsetSlider.setValue (static_cast<double> (session.getSetting ("gameOffsetMs", 0.0)), juce::dontSendNotification);
     offsetSlider.onDragEnd = [this] { session.setSetting ("gameOffsetMs", offsetSlider.getValue()); };
@@ -163,7 +158,7 @@ GamePage::GamePage (Session& sessionToUse)
     setupToggle (*this, autoplayToggle, ko ("오토 모드 (대신 연주)"), [] {});
     autoplayToggle.setTooltip (ko ("프로그램이 채보대로 정확한 박자에 대신 칩니다. 기록은 남지 않습니다. 연주 도중에도 아래의 \"오토\" 버튼으로 켜고 끌 수 있습니다."));
 
-    ui::setupLabel (*this, orderLabel, ko ("레인 순서"), 13.5f, ui::quietText);
+    ui::setupLabel (*this, orderLabel, ko ("레인 순서"), ui::Text::caption);
     orderCombo.addItem (ko ("키보드에서의 자리 순"), 1);
     orderCombo.addItem (ko ("드럼 세트에서의 자리 순"), 2);
     orderCombo.setSelectedId (session.getSetting ("gameLaneOrder", "keys").toString() == "kit" ? 2 : 1, juce::dontSendNotification);
@@ -174,7 +169,7 @@ GamePage::GamePage (Session& sessionToUse)
     });
 
     ui::setupButton (*this, startButton, ko ("시작"), [this] { startSelected(); });
-    startButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff7a5a1e));
+    ui::setButtonKind (startButton, ui::ButtonKind::primary);
 
     ui::setupButton (*this, analyseButton, ko ("채보 만들기"), [this]
     {
@@ -223,7 +218,7 @@ GamePage::GamePage (Session& sessionToUse)
     if (! library.isSeparatorInstalled())
         separatorToggle.setTooltip (ko ("드럼 분리 도구가 없어 완성곡에서 바로 받아 적습니다 (tools/setup-demucs.ps1)."));
 
-    ui::setupLabel (*this, progressLabel, {}, 13.0f, ui::warningText);
+    ui::setupLabel (*this, progressLabel, {}, ui::Text::warning);
     progressLabel.setJustificationType (juce::Justification::topLeft);
     progressLabel.setMinimumHorizontalScale (0.7f);
 
@@ -239,7 +234,6 @@ GamePage::GamePage (Session& sessionToUse)
     // 연주 도중에 오토 모드를 켜고 끈다 (어려운 구간만 프로그램에 맡길 때).
     ui::setupButton (*this, autoButton, ko ("오토"), [this] { runner.setAutoplay (autoButton.getToggleState()); });
     autoButton.setClickingTogglesState (true);
-    autoButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff7a5a1e));
     autoButton.setTooltip (ko ("프로그램이 대신 칩니다. 켠 판은 기록이 남지 않습니다."));
     ui::setupButton (*this, retryButton, ko ("다시 하기"), [this]
     {
@@ -259,7 +253,10 @@ GamePage::GamePage (Session& sessionToUse)
         applyOffsetButton.setButtonText (ko ("보정했습니다"));
     });
 
-    ui::setupLabel (*this, playHintLabel, ko ("Esc: 잠깐 멈춤  ·  노트가 흰 줄에 닿을 때 치기 (킥은 가로 막대)  ·  오토: 대신 연주"), 13.5f, ui::quietText);
+    ui::setupLabel (*this, playHintLabel, ko ("Esc: 잠깐 멈춤  ·  노트가 흰 줄에 닿을 때 치기 (킥은 가로 막대)  ·  오토: 대신 연주"), ui::Text::caption);
+
+    ui::setButtonKind (rescanButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (stopButton, ui::ButtonKind::danger);
 
     library.addChangeListener (this);
     session.addChangeListener (this);
@@ -601,9 +598,9 @@ void GamePage::updateProgress()
 void GamePage::paintRowBackground (juce::Graphics& g, int row, int, int, bool selected)
 {
     if (selected)
-        g.fillAll (juce::Colour (0xff3d5266));
+        g.fillAll (ui::theme().selection);
     else if (row % 2 == 1)
-        g.fillAll (juce::Colours::white.withAlpha (0.025f));
+        g.fillAll (ui::theme().text.withAlpha (0.03f));
 }
 
 void GamePage::paintCell (juce::Graphics& g, int row, int column, int width, int height, bool)
@@ -614,7 +611,7 @@ void GamePage::paintCell (juce::Graphics& g, int row, int column, int width, int
     const auto& song = library.getSong (rows[static_cast<std::size_t> (row)]);
     const auto level = static_cast<std::size_t> (getLevel());
     juce::String text;
-    auto colour = juce::Colours::white;
+    auto colour = ui::theme().text;
     auto justification = juce::Justification::centredLeft;
 
     switch (column)
@@ -625,29 +622,29 @@ void GamePage::paintCell (juce::Graphics& g, int row, int column, int width, int
 
         case folderColumn:
             text = song.folder;
-            colour = ui::quietText;
+            colour = ui::theme().textMuted;
             break;
 
         case lengthColumn:
             text = song.hasChart ? ui::formatTime (song.duration).upToFirstOccurrenceOf (".", false, false) : juce::String();
-            colour = ui::quietText;
+            colour = ui::theme().textMuted;
             justification = juce::Justification::centredRight;
             break;
 
         case tempoColumn:
             text = song.hasChart && song.tempo > 0.0f ? juce::String (juce::roundToInt (song.tempo)) : juce::String();
-            colour = ui::quietText;
+            colour = ui::theme().textMuted;
             justification = juce::Justification::centredRight;
             break;
 
         case starsColumn:
             text = song.hasChart ? starsText (song.stars[level]) : (song.error.isNotEmpty() ? ko ("실패") : juce::String());
-            colour = song.hasChart ? (song.precise ? ui::accent : ui::accent.withAlpha (0.6f)) : ui::danger;
+            colour = song.hasChart ? (song.precise ? ui::theme().accent : ui::theme().accent.withAlpha (0.6f)) : ui::theme().danger;
             break;
 
         case bestColumn:
             text = song.bestScore[level] > 0 ? song.bestGrade[level] + "  " + juce::String (song.bestScore[level]) : juce::String();
-            colour = ui::good;
+            colour = ui::theme().good;
             break;
 
         default:
@@ -655,7 +652,7 @@ void GamePage::paintCell (juce::Graphics& g, int row, int column, int width, int
     }
 
     g.setColour (colour);
-    g.setFont (juce::FontOptions (13.5f));
+    g.setFont (juce::FontOptions (ui::type::body - 0.5f));
     g.drawText (text, 6, 0, width - 10, height, justification, true);
 }
 
@@ -972,8 +969,7 @@ void GamePage::paint (juce::Graphics& g)
     if (playView)
         return;
 
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (sidePanel.toFloat(), 10.0f);
+    ui::fillPanel (g, sidePanel);
 }
 
 void GamePage::resized()

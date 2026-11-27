@@ -521,6 +521,8 @@ void drawKeyCaps (juce::Graphics& g, const juce::StringArray& keys, Point centre
     if (keys.isEmpty())
         return;
 
+    // 글자가 11px 아래로 내려가지 않게 캡의 높이에 하한을 둔다.
+    height = juce::jmax (height, 11.0f / 0.68f);
     const auto fontSize = height * 0.68f;
     std::vector<float> widths;
     auto total = 0.0f;
@@ -538,11 +540,12 @@ void drawKeyCaps (juce::Graphics& g, const juce::StringArray& keys, Point centre
     {
         const auto cap = juce::Rectangle<float> (x, centre.y - height * 0.5f, widths[static_cast<std::size_t> (i)], height);
 
-        g.setColour (juce::Colour (0xf0181c20));
+        const auto& stage = ui::theme().stage;
+        g.setColour (stage.keycap);
         g.fillRoundedRectangle (cap, height * 0.25f);
-        g.setColour (juce::Colours::white.withAlpha (0.45f));
+        g.setColour (stage.keycapEdge);
         g.drawRoundedRectangle (cap.reduced (0.5f), height * 0.25f, 1.0f);
-        g.setColour (juce::Colours::white);
+        g.setColour (stage.keycapText);
         g.drawText (keys[i], cap, juce::Justification::centred, false);
 
         x += cap.getWidth() + 3.0f;
@@ -552,7 +555,7 @@ void drawKeyCaps (juce::Graphics& g, const juce::StringArray& keys, Point centre
 /** 어두운 테두리를 두른 글자. 밝은 헤드와 황동 위에서도 읽힌다. */
 void drawName (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area, float fontSize, juce::Colour colour, juce::Colour halo)
 {
-    g.setFont (juce::FontOptions (fontSize, juce::Font::bold));
+    g.setFont (juce::FontOptions (juce::jmax (11.0f, fontSize), juce::Font::bold));
     g.setColour (halo);
 
     for (const auto offset : { Point (-1.0f, 0.0f), Point (1.0f, 0.0f), Point (0.0f, -1.0f), Point (0.0f, 1.0f) })
@@ -931,21 +934,23 @@ void KitView::drawFloor (juce::Graphics& g) const
 {
     const auto bounds = getLocalBounds().toFloat();
     const auto width = bounds.getWidth(), height = bounds.getHeight();
+    const auto& stage = ui::theme().stage;
 
     // 나무 바닥: 가까울수록 널이 넓어 보인다.
-    g.fillAll (juce::Colour (0xff17120f));
+    g.fillAll (stage.floor);
     constexpr int numPlanks = 13;
 
     for (int plank = 0; plank < numPlanks; ++plank)
     {
         const auto top = height * std::pow (static_cast<float> (plank) / numPlanks, 1.5f);
         const auto bottom = height * std::pow (static_cast<float> (plank + 1) / numPlanks, 1.5f);
-        const auto shade = 0.82f + 0.18f * static_cast<float> ((plank * 7) % 5) / 4.0f;
+        const auto variance = ui::theme().dark ? 0.18f : 0.06f;    // 밝은 바닥은 널마다의 차이를 줄인다
+        const auto shade = 1.0f - variance + variance * static_cast<float> ((plank * 7) % 5) / 4.0f;
 
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3a2a1f).withMultipliedBrightness (shade), 0.0f, top,
-                                                 juce::Colour (0xff2b1f17).withMultipliedBrightness (shade), 0.0f, bottom, false));
+        g.setGradientFill (juce::ColourGradient (stage.plankNear.withMultipliedBrightness (shade), 0.0f, top,
+                                                 stage.plankFar.withMultipliedBrightness (shade), 0.0f, bottom, false));
         g.fillRect (0.0f, top, width, bottom - top);
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.setColour (stage.plankLine);
         g.fillRect (0.0f, bottom - 1.0f, width, 1.0f);
     }
 
@@ -959,9 +964,9 @@ void KitView::drawFloor (juce::Graphics& g) const
 
     const auto rounded = rug.createPathWithRoundedCorners (16.0f);
 
-    g.setColour (juce::Colours::black.withAlpha (0.4f));
+    g.setColour (stage.rugShadow);
     g.fillPath (rounded, juce::AffineTransform::translation (0.0f, 5.0f));
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3b1a22), 0.0f, height * 0.2f, juce::Colour (0xff5a2530), 0.0f, height, false));
+    g.setGradientFill (juce::ColourGradient (stage.rugFar, 0.0f, height * 0.2f, stage.rugNear, 0.0f, height, false));
     g.fillPath (rounded);
 
     // 러그의 테두리 무늬
@@ -974,15 +979,15 @@ void KitView::drawFloor (juce::Graphics& g) const
         border.lineTo (width * (0.025f + inset), height * (0.985f - inset * 0.8f));
         border.closeSubPath();
 
-        g.setColour (juce::Colour (0xffd9b26a).withAlpha (inset < 0.04f ? 0.45f : 0.2f));
+        g.setColour (stage.rugTrim.withMultipliedAlpha (inset < 0.04f ? 1.0f : 0.45f));
         g.strokePath (border.createPathWithRoundedCorners (10.0f), juce::PathStrokeType (inset < 0.04f ? 2.0f : 1.0f));
     }
 
     // 무대 조명: 가운데가 밝고 가장자리는 어둡다.
     g.saveState();
     g.addTransform (juce::AffineTransform::scale (1.0f, height / width, width * 0.5f, height * 0.5f));
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0x30ffe7b0), width * 0.5f, height * 0.5f,
-                                             juce::Colour (0xb0000000), width * 1.08f, height * 0.5f, true));
+    g.setGradientFill (juce::ColourGradient (stage.light, width * 0.5f, height * 0.5f,
+                                             stage.vignette, width * 1.08f, height * 0.5f, true));
     g.fillRect (-width, -height * 3.0f, width * 3.0f, height * 7.0f);
     g.restoreState();
 }
@@ -1113,6 +1118,9 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
     const auto nameSize = juce::jlimit (11.0f, 15.0f, 9.5f + radius * 0.07f);
     const auto lightHalo = juce::Colours::white.withAlpha (0.55f * alpha);
     const auto darkHalo = juce::Colours::black.withAlpha (0.75f * alpha);
+    const auto& stage = ui::theme().stage;
+    const auto floorText = stage.nameText.withMultipliedAlpha (alpha);
+    const auto floorHalo = stage.nameHalo.withMultipliedAlpha (alpha);
 
     switch (kind)
     {
@@ -1145,7 +1153,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
             {
                 drawKeyCaps (g, item.keys, centre.translated (0.0f, radius * 0.86f + capHeight * 0.5f), capHeight * 0.9f);
                 const auto area = juce::Rectangle<float> (radius * 3.0f, nameSize + 2.0f).withCentre (centre.translated (0.0f, -radius * 0.78f - nameSize * 0.5f));
-                drawName (g, name, area, nameSize - 1.0f, juce::Colours::white.withAlpha (alpha), darkHalo);
+                drawName (g, name, area, nameSize - 1.0f, floorText, floorHalo);
             }
             else
             {
@@ -1171,7 +1179,7 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
         {
             const auto small = radius < 30.0f;
             const auto area = juce::Rectangle<float> (radius * 2.6f, nameSize + 2.0f).withCentre (centre.translated (0.0f, small ? -radius - nameSize * 0.5f : -radius * 0.25f));
-            drawName (g, name, area, nameSize - 1.0f, juce::Colours::white.withAlpha (alpha), darkHalo);
+            drawName (g, name, area, nameSize - 1.0f, small ? floorText : juce::Colours::white.withAlpha (alpha), small ? floorHalo : darkHalo);
             drawKeyCaps (g, item.keys, centre.translated (0.0f, small ? 0.0f : radius * 0.25f), capHeight * 0.92f);
             break;
         }
@@ -1186,7 +1194,7 @@ void KitView::paint (juce::Graphics& g)
         return;
 
     juce::Path outline;
-    outline.addRoundedRectangle (bounds.toFloat(), 10.0f);
+    outline.addRoundedRectangle (bounds.toFloat(), ui::theme().panelRadius);
     g.reduceClipRegion (outline);
 
     // 바닥은 크기가 바뀔 때만 다시 그려 둔다.
@@ -1239,16 +1247,17 @@ void KitView::paint (juce::Graphics& g)
         for (std::size_t i = 0; i < items.size(); ++i)
         {
             const auto radius = radiusOf (items[i]);
-            g.setColour (juce::Colours::white.withAlpha (static_cast<int> (i) == dragged ? 0.95f : 0.4f));
+            g.setColour (ui::theme().stage.nameText.withAlpha (static_cast<int> (i) == dragged ? 0.95f : 0.45f));
             g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 1.6f).withCentre (centreOf (items[i])), 1.2f);
         }
 
-        g.setColour (juce::Colours::black.withAlpha (0.6f));
-        g.fillRoundedRectangle (8.0f, static_cast<float> (getHeight()) - 30.0f, 360.0f, 22.0f, 5.0f);
-        g.setColour (ui::warningText);
-        g.setFont (juce::FontOptions (13.0f));
+        const auto& stage = ui::theme().stage;
+        g.setColour (stage.editOverlay);
+        g.fillRoundedRectangle (8.0f, static_cast<float> (getHeight()) - 32.0f, 360.0f, 24.0f, ui::theme().controlRadius);
+        g.setColour (stage.editText);
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (ko ("배치 편집 중: 끌어서 옮기고, 마우스 휠로 크기를 바꿉니다"),
-                    juce::Rectangle<int> (14, getHeight() - 30, 350, 22), juce::Justification::centredLeft, true);
+                    juce::Rectangle<int> (16, getHeight() - 32, 350, 24), juce::Justification::centredLeft, true);
     }
 }
 

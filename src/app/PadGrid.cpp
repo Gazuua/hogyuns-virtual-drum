@@ -1,19 +1,13 @@
 #include "PadGrid.h"
 
+#include "Theme.h"
+
 namespace
 {
 
 constexpr int numColumns = 6;
 constexpr int gap = 8;
 constexpr int maxTileHeight = 120;
-
-const juce::Colour tileColour { 0xff28323b };
-const juce::Colour tileEdgeColour { 0xff3d4a55 };
-const juce::Colour hitColour { 0xffffb74d };
-const juce::Colour nameColour { 0xfff2f4f5 };
-const juce::Colour keysColour { 0xff9fb0bd };
-const juce::Colour litNameColour { 0xff1d1404 };    // 켜진 타일 위에서 읽히는 어두운 글자색
-const juce::Colour litKeysColour { 0xff4a3510 };
 
 } // namespace
 
@@ -67,25 +61,34 @@ juce::Rectangle<int> PadGrid::getTileBounds (int index) const
 
 void PadGrid::paint (juce::Graphics& g)
 {
+    const auto& t = ui::theme();
+
     for (int i = 0; i < static_cast<int> (tiles.size()); ++i)
     {
         const auto& tile = tiles[static_cast<std::size_t> (i)];
         const auto level = brightness[static_cast<std::size_t> (i)];
         const auto bounds = getTileBounds (i).toFloat();
 
-        const auto fill = tileColour.interpolatedWith (hitColour, level);
+        // 친 타일은 액센트로 번쩍인다.
+        const auto fill = t.surface.interpolatedWith (t.accent, level);
 
         g.setColour (fill.withMultipliedAlpha (tile.hasSound ? 1.0f : 0.45f));
-        g.fillRoundedRectangle (bounds, 8.0f);
-        g.setColour (tileEdgeColour.interpolatedWith (hitColour, level));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
+        g.fillRoundedRectangle (bounds, t.panelRadius);
 
-        auto text = getTileBounds (i).reduced (12, 9);
+        if (! t.dark && level < 0.5f)
+        {
+            g.setColour (t.border);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), t.panelRadius, 1.0f);
+        }
 
-        // 타일이 밝아지면 글자를 어두운 색으로 바꿔 어느 밝기에서도 읽히게 한다.
-        const auto lit = fill.getPerceivedBrightness() > 0.45f;
+        auto text = getTileBounds (i).reduced (14, 10);
 
-        g.setColour (lit ? litNameColour : nameColour);
+        // 타일이 밝아지면 글자색을 바탕에 맞춰 바꿔 어느 밝기에서도 읽히게 한다.
+        const auto lit = level > 0.15f;
+        const auto nameColour = lit ? t.textOn (fill) : t.text;
+        const auto keysColour = lit ? nameColour.withAlpha (0.7f) : t.textMuted;
+
+        g.setColour (nameColour);
         g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
         g.drawText (tile.name, text.removeFromTop (22), juce::Justification::centredLeft, true);
 
@@ -130,7 +133,7 @@ void PadGrid::paint (juce::Graphics& g)
             lines.getReference (maxLines - 1) << "  ...";
         }
 
-        g.setColour (lit ? litKeysColour : keysColour);
+        g.setColour (keysColour);
         g.setFont (keyFont);
 
         auto keyArea = text.removeFromBottom (lineHeight * lines.size());

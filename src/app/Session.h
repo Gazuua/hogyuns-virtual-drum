@@ -323,12 +323,14 @@ public:
     juce::var getSetting (const juce::Identifier& name, const juce::var& fallback) const;
     void setSetting (const juce::Identifier& name, const juce::var& value);
 
+    /** 프로그램 설정 파일(settings.json). 화면 테마처럼 세션을 만들기 전에 읽어야 하는 값에도 쓴다. */
+    static juce::File getSettingsFile();
+
 private:
     void handleIncomingMidiMessage (juce::MidiInput* source, const juce::MidiMessage& message) override;
 
     void loadSettings();
     void saveSettings() const;
-    juce::File getSettingsFile() const;
 
     void applyKeymap();
     void applyPedal();

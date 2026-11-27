@@ -59,6 +59,7 @@ private:
     bool updating = false;
 
     juce::Label kitCaption, padTitle, samplesCaption, samplesText, hintLabel, kitInfo;
+    juce::Rectangle<int> listPanel, editorPanel;    // paint가 칸 바탕을 그리는 자리
     juce::ComboBox kitCombo;
     juce::TextButton duplicateButton, renameKitButton, importButton, sfzButton, exportButton, folderButton, restoreButton;
     juce::ListBox padList { {}, this };

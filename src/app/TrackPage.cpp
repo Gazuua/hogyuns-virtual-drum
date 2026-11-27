@@ -4,7 +4,6 @@ namespace
 {
 
 constexpr float timingRangeMs = 60.0f;
-const juce::Colour recordingColour { 0xff8e2f2f };
 
 } // namespace
 
@@ -32,9 +31,11 @@ void TrackBar::setState (double positionSeconds, double lengthSeconds, double lo
 
 void TrackBar::paint (juce::Graphics& g)
 {
+    const auto& t = ui::theme();
     const auto bounds = getLocalBounds().toFloat();
-    g.setColour (juce::Colour (0xff161b20));
-    g.fillRoundedRectangle (bounds, 5.0f);
+    const auto radius = juce::jmin (6.0f, t.controlRadius);
+    g.setColour (t.surfaceSunken);
+    g.fillRoundedRectangle (bounds, radius);
 
     if (length <= 0.0)
         return;
@@ -47,15 +48,15 @@ void TrackBar::paint (juce::Graphics& g)
     // 반복 구간
     if (loopEnd > loopStart)
     {
-        g.setColour (ui::accent.withAlpha (loopEnabled ? 0.35f : 0.15f));
+        g.setColour (t.accent.withAlpha (loopEnabled ? 0.35f : 0.15f));
         g.fillRect (juce::Rectangle<float> (toX (loopStart), bounds.getY(), toX (loopEnd) - toX (loopStart), bounds.getHeight()));
     }
 
     // 지나온 부분과 지금 위치
     const auto x = toX (position);
-    g.setColour (juce::Colour (0xff4dd0e1).withAlpha (0.30f));
-    g.fillRoundedRectangle (bounds.withRight (x), 5.0f);
-    g.setColour (juce::Colours::white);
+    g.setColour (t.info.withAlpha (0.35f));
+    g.fillRoundedRectangle (bounds.withRight (x), radius);
+    g.setColour (t.text);
     g.fillRect (x - 1.0f, bounds.getY(), 2.0f, bounds.getHeight());
 }
 
@@ -81,9 +82,10 @@ void TimingView::setTiming (const Session::Timing& newTiming)
 
 void TimingView::paint (juce::Graphics& g)
 {
+    const auto& t = ui::theme();
     const auto bounds = getLocalBounds().toFloat();
-    g.setColour (juce::Colour (0xff161b20));
-    g.fillRoundedRectangle (bounds, 5.0f);
+    g.setColour (t.surfaceSunken);
+    g.fillRoundedRectangle (bounds, juce::jmin (6.0f, t.controlRadius));
 
     const auto centreX = bounds.getCentreX();
     const auto toX = [&bounds, centreX] (float ms)
@@ -92,13 +94,13 @@ void TimingView::paint (juce::Graphics& g)
     };
 
     // "정확"으로 보는 범위(±10ms)와 가운데 선
-    g.setColour (ui::good.withAlpha (0.12f));
+    g.setColour (t.good.withAlpha (0.14f));
     g.fillRect (juce::Rectangle<float> (toX (-10.0f), bounds.getY(), toX (10.0f) - toX (-10.0f), bounds.getHeight()));
-    g.setColour (juce::Colours::white.withAlpha (0.5f));
+    g.setColour (t.text.withAlpha (0.5f));
     g.fillRect (centreX - 0.5f, bounds.getY(), 1.0f, bounds.getHeight());
 
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (12.0f));
+    g.setColour (t.textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
     g.drawText (ko ("빠름"), getLocalBounds().reduced (8, 2), juce::Justification::topLeft);
     g.drawText (ko ("늦음"), getLocalBounds().reduced (8, 2), juce::Justification::topRight);
 
@@ -114,7 +116,7 @@ void TimingView::paint (juce::Graphics& g)
         const auto freshness = 1.0f - static_cast<float> (age) / static_cast<float> (Session::Timing::historySize);
         const auto y = bounds.getY() + 18.0f + (bounds.getHeight() - 30.0f) * freshness;
 
-        g.setColour ((distance <= 10.0f ? ui::good : (distance <= 25.0f ? ui::accent : ui::danger)).withAlpha (0.25f + 0.75f * freshness));
+        g.setColour ((distance <= 10.0f ? t.good : (distance <= 25.0f ? t.warning : t.danger)).withAlpha (0.25f + 0.75f * freshness));
         g.fillEllipse (toX (ms) - 4.0f, y - 4.0f, 8.0f, 8.0f);
     }
 }
@@ -124,9 +126,9 @@ TrackPage::TrackPage (Session& sessionToUse)
     : session (sessionToUse)
 {
     // 반주
-    ui::setupLabel (*this, trackTitle, ko ("반주"), 17.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, trackName, {}, 14.0f);
-    ui::setupLabel (*this, timeLabel, {}, 14.0f, ui::quietText);
+    ui::setupLabel (*this, trackTitle, ko ("반주"), ui::Text::section);
+    ui::setupLabel (*this, trackName, {});
+    ui::setupLabel (*this, timeLabel, {}, ui::Text::hint);
     timeLabel.setJustificationType (juce::Justification::centredRight);
 
     ui::setupButton (*this, openButton, ko ("음악 파일 열기…"), [this] { openTrack(); });
@@ -137,11 +139,11 @@ TrackPage::TrackPage (Session& sessionToUse)
     bar.onSeek = [this] (double seconds) { session.getTrack().seek (seconds); };
     addAndMakeVisible (bar);
 
-    ui::setupLabel (*this, gainCaption, ko ("반주 음량"), 13.0f, ui::quietText);
+    ui::setupLabel (*this, gainCaption, ko ("반주 음량"), ui::Text::caption);
     ui::setupSlider (*this, gainSlider, 0.0, 1.5, 0.01, 0.7);
     gainSlider.onValueChange = [this] { session.setTrackGain (static_cast<float> (gainSlider.getValue())); };
 
-    ui::setupLabel (*this, speedCaption, ko ("속도 (음높이는 그대로)"), 13.0f, ui::quietText);
+    ui::setupLabel (*this, speedCaption, ko ("속도 (음높이는 그대로)"), ui::Text::caption);
     ui::setupSlider (*this, speedSlider, 50.0, 150.0, 5.0, 100.0, " %", 0);
     speedSlider.onValueChange = [this] { session.getTrack().setSpeed (static_cast<float> (speedSlider.getValue() / 100.0)); };
 
@@ -170,10 +172,10 @@ TrackPage::TrackPage (Session& sessionToUse)
     loopToggle.onClick = [this] { applyLoop(); };
     ui::noFocus (loopToggle);
     addAndMakeVisible (loopToggle);
-    ui::setupLabel (*this, loopLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, loopLabel, {}, ui::Text::caption);
 
     // 녹음
-    ui::setupLabel (*this, recordTitle, ko ("녹음 (WAV 파일)"), 17.0f, juce::Colours::white, true);
+    ui::setupLabel (*this, recordTitle, ko ("녹음 (WAV 파일)"), ui::Text::section);
     ui::setupButton (*this, recordButton, {}, [this] { toggleRecording(); });
     ui::setupButton (*this, recordFolderButton, ko ("녹음 폴더 열기"), [this]
     {
@@ -186,10 +188,10 @@ TrackPage::TrackPage (Session& sessionToUse)
     recordTrackToggle.onClick = [this] { session.setSetting ("recordTrack", recordTrackToggle.getToggleState()); };
     ui::noFocus (recordTrackToggle);
     addAndMakeVisible (recordTrackToggle);
-    ui::setupLabel (*this, recordLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, recordLabel, {}, ui::Text::caption);
 
     // 연주 기록
-    ui::setupLabel (*this, takeTitle, ko ("연주 기록 (다시 듣기, MIDI)"), 17.0f, juce::Colours::white, true);
+    ui::setupLabel (*this, takeTitle, ko ("연주 기록 (다시 듣기, MIDI)"), ui::Text::section);
     ui::setupButton (*this, takeRecordButton, {}, [this]
     {
         if (session.isTakeRecording())
@@ -208,13 +210,19 @@ TrackPage::TrackPage (Session& sessionToUse)
 
     ui::setupButton (*this, takeExportButton, ko ("MIDI로 내보내기…"), [this] { exportMidi(); });
     ui::setupButton (*this, takeImportButton, ko ("MIDI 불러오기…"), [this] { importMidi(); });
-    ui::setupLabel (*this, takeLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, takeLabel, {}, ui::Text::caption);
 
     // 박자 연습
-    ui::setupLabel (*this, timingTitle, ko ("박자 연습"), 17.0f, juce::Colours::white, true);
-    ui::setupLabel (*this, timingLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, timingTitle, ko ("박자 연습"), ui::Text::section);
+    ui::setupLabel (*this, timingLabel, {}, ui::Text::caption);
     ui::setupButton (*this, timingResetButton, ko ("지우기"), [this] { session.resetTiming(); });
     addAndMakeVisible (timingView);
+
+    // 버튼 종류: 재생이 주요, 녹음은 켜지면 빨간 바탕, 폴더 열기는 조용한 버튼
+    ui::setButtonKind (playButton, ui::ButtonKind::primary);
+    ui::setButtonKind (recordButton, ui::ButtonKind::danger);
+    ui::setButtonKind (takeRecordButton, ui::ButtonKind::danger);
+    ui::setButtonKind (recordFolderButton, ui::ButtonKind::quiet);
 
     session.addChangeListener (this);
     refresh();
@@ -227,10 +235,8 @@ TrackPage::~TrackPage()
 
 void TrackPage::paint (juce::Graphics& g)
 {
-    g.setColour (ui::panel);
-
     for (const auto& section : sections)
-        g.fillRoundedRectangle (section.toFloat(), 8.0f);
+        ui::fillPanel (g, section);
 }
 
 void TrackPage::resized()
@@ -245,7 +251,7 @@ void TrackPage::resized()
     auto row = track.removeFromTop (28);
     trackTitle.setBounds (row.removeFromLeft (56));
     openButton.setBounds (row.removeFromLeft (130));
-    row.removeFromLeft (6);
+    row.removeFromLeft (ui::space::small);
     unloadButton.setBounds (row.removeFromLeft (56));
     row.removeFromLeft (12);
     timeLabel.setBounds (row.removeFromRight (150));
@@ -254,7 +260,7 @@ void TrackPage::resized()
     track.removeFromTop (10);
     row = track.removeFromTop (30);
     playButton.setBounds (row.removeFromLeft (92));
-    row.removeFromLeft (6);
+    row.removeFromLeft (ui::space::small);
     rewindButton.setBounds (row.removeFromLeft (84));
     row.removeFromLeft (12);
     bar.setBounds (row.reduced (0, 3));
@@ -271,7 +277,7 @@ void TrackPage::resized()
     track.removeFromTop (10);
     row = track.removeFromTop (28);
     loopStartButton.setBounds (row.removeFromLeft (110));
-    row.removeFromLeft (6);
+    row.removeFromLeft (ui::space::small);
     loopEndButton.setBounds (row.removeFromLeft (110));
     row.removeFromLeft (12);
     loopToggle.setBounds (row.removeFromLeft (110));
@@ -303,12 +309,12 @@ void TrackPage::resized()
     take.removeFromTop (6);
     row = take.removeFromTop (28);
     takeRecordButton.setBounds (row.removeFromLeft (120));
-    row.removeFromLeft (6);
+    row.removeFromLeft (ui::space::small);
     takePlayButton.setBounds (row.removeFromLeft (120));
     take.removeFromTop (6);
     row = take.removeFromTop (28);
     takeExportButton.setBounds (row.removeFromLeft (150));
-    row.removeFromLeft (6);
+    row.removeFromLeft (ui::space::small);
     takeImportButton.setBounds (row.removeFromLeft (150));
     take.removeFromTop (6);
     takeLabel.setBounds (take.removeFromTop (40));
@@ -347,15 +353,13 @@ void TrackPage::refresh()
 
     const auto recording = session.getAudio().isRecording();
     recordButton.setButtonText (recording ? ko ("녹음 멈추기") : ko ("녹음 시작"));
-    recordButton.setColour (juce::TextButton::buttonColourId,
-                            recording ? recordingColour : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+    recordButton.setToggleState (recording, juce::dontSendNotification);    // 녹음 중이면 빨간 바탕
     recordTrackToggle.setEnabled (! recording);
 
     const auto takeRecording = session.isTakeRecording();
     const auto takePlaying = session.isTakePlaying();
     takeRecordButton.setButtonText (takeRecording ? ko ("기록 멈추기") : ko ("기록 시작"));
-    takeRecordButton.setColour (juce::TextButton::buttonColourId,
-                                takeRecording ? recordingColour : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+    takeRecordButton.setToggleState (takeRecording, juce::dontSendNotification);
     takePlayButton.setButtonText (takePlaying ? ko ("재생 멈추기") : ko ("다시 재생"));
     takePlayButton.setEnabled (session.hasTake() || takeRecording);
     takeExportButton.setEnabled (session.hasTake());

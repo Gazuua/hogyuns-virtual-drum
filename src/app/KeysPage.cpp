@@ -6,8 +6,6 @@ namespace
 constexpr float unitsWide = 22.5f;
 constexpr float unitsHigh = 6.25f;
 
-const juce::Colour functionColour { 0xff78909c };
-const juce::Colour emptyKeyColour { 0xff28323b };
 
 struct Choice
 {
@@ -242,9 +240,11 @@ void KeyboardView::refreshHeld()
 
 void KeyboardView::paint (juce::Graphics& g)
 {
+    const auto& t = ui::theme();
     const auto unit = juce::jmin (static_cast<float> (getWidth()) / unitsWide, static_cast<float> (getHeight()) / unitsHigh);
-    const auto labelSize = juce::jlimit (9.0f, 12.0f, unit * 0.25f);
-    const auto textSize = juce::jlimit (9.5f, 13.0f, unit * 0.27f);
+    const auto labelSize = juce::jlimit (11.0f, 12.0f, unit * 0.25f);
+    const auto textSize = juce::jlimit (11.0f, 13.0f, unit * 0.27f);
+    const auto radius = juce::jmin (6.0f, t.controlRadius);
 
     for (const auto& shape : shapes())
     {
@@ -253,36 +253,37 @@ void KeyboardView::paint (juce::Graphics& g)
         const auto held = heldShown[shape.code];
         const auto bound = cap.text.isNotEmpty();
 
-        auto fill = bound ? cap.colour.withMultipliedBrightness (0.42f) : emptyKeyColour;
+        // 빈 키는 칸 면, 정해진 키는 악기 색을 옅게 섞은 면, 누르고 있는 키는 악기 색 그대로
+        auto fill = bound ? t.padTint (cap.colour) : t.surface;
 
         if (held)
-            fill = bound ? cap.colour : ui::accent;
+            fill = bound ? cap.colour : t.accent;
 
         g.setColour (fill);
-        g.fillRoundedRectangle (bounds, 5.0f);
+        g.fillRoundedRectangle (bounds, radius);
 
         if (shape.code == selected)
         {
-            g.setColour (juce::Colours::white);
-            g.drawRoundedRectangle (bounds.reduced (1.0f), 5.0f, 2.0f);
+            g.setColour (t.text);
+            g.drawRoundedRectangle (bounds.reduced (1.0f), radius, 2.0f);
         }
-        else
+        else if (bound || ! t.dark)
         {
-            g.setColour (bound ? cap.colour.withAlpha (0.8f) : ui::panelEdge);
-            g.drawRoundedRectangle (bounds.reduced (0.5f), 5.0f, 1.0f);
+            g.setColour (bound ? cap.colour.withAlpha (t.dark ? 0.55f : 0.65f) : t.border);
+            g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
         }
 
-        const auto dark = held;
-        auto inner = bounds.reduced (4.0f, 2.0f).toNearestInt();
+        const auto onFill = t.textOn (fill);
+        auto inner = bounds.reduced (5.0f, 2.0f).toNearestInt();
 
-        g.setColour (dark ? juce::Colour (0xff14181c) : (bound ? juce::Colours::white.withAlpha (0.75f) : ui::quietText));
+        g.setColour (held ? onFill.withAlpha (0.75f) : (bound ? t.text.withAlpha (0.7f) : t.textFaint));
         g.setFont (juce::FontOptions (labelSize));
         g.drawText (fromUtf8 (hvd::keyLabel (shape.code)), inner.removeFromTop (juce::roundToInt (labelSize + 3.0f)),
                     juce::Justification::topLeft, true);
 
         if (bound)
         {
-            g.setColour (dark ? juce::Colour (0xff14181c) : juce::Colours::white);
+            g.setColour (held ? onFill : t.text);
             g.setFont (juce::FontOptions (textSize, juce::Font::bold));
 
             auto text = cap.text;
@@ -313,7 +314,7 @@ void KeyboardView::mouseDown (const juce::MouseEvent& event)
 KeysPage::KeysPage (Session& sessionToUse)
     : session (sessionToUse)
 {
-    ui::setupLabel (*this, keymapCaption, ko ("키 배열"), 14.0f, ui::quietText);
+    ui::setupLabel (*this, keymapCaption, ko ("키 배열"), ui::Text::hint);
     ui::setupCombo (*this, keymapCombo, [this]
     {
         if (! updating && keymapCombo.getSelectedItemIndex() >= 0)
@@ -357,7 +358,7 @@ KeysPage::KeysPage (Session& sessionToUse)
     });
     restoreButton.setTooltip (ko ("고치기 전 상태로 되돌립니다."));
 
-    ui::setupLabel (*this, quickCaption, ko ("빠른 지정"), 14.0f, ui::quietText);
+    ui::setupLabel (*this, quickCaption, ko ("빠른 지정"), ui::Text::hint);
     ui::setupCombo (*this, quickPadCombo, [] {});
     ui::setupButton (*this, quickButton, ko ("이 패드를 칠 키 누르기"), [this] { startQuickAssign(); });
 
@@ -367,10 +368,10 @@ KeysPage::KeysPage (Session& sessionToUse)
     addAndMakeVisible (followButton);
 
     ui::setupButton (*this, pedalButton, ko ("페달 등록"), [this] { pedalButtonClicked(); });
-    ui::setupLabel (*this, pedalLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, pedalLabel, {}, ui::Text::caption);
     pedalLabel.setMinimumHorizontalScale (0.75f);
 
-    ui::setupLabel (*this, heldLabel, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, heldLabel, {}, ui::Text::caption);
     heldLabel.setJustificationType (juce::Justification::centredRight);
     ui::setupButton (*this, resetHeldButton, ko ("최대값 지우기"), [this] { session.resetMaxHeldKeyCount(); });
 
@@ -378,7 +379,7 @@ KeysPage::KeysPage (Session& sessionToUse)
     keyboard.isKeyHeld = [this] (hvd::KeyCode key) { return session.isKeyHeld (key); };
     addAndMakeVisible (keyboard);
 
-    ui::setupLabel (*this, keyTitle, {}, 17.0f, juce::Colours::white, true);
+    ui::setupLabel (*this, keyTitle, {}, ui::Text::section);
     ui::setupCombo (*this, slotCombo, [this]
     {
         if (! updating)
@@ -389,7 +390,7 @@ KeysPage::KeysPage (Session& sessionToUse)
     });
     ui::setupButton (*this, addButton, ko ("이 키에 동작 추가"), [this] { addBinding(); });
     ui::setupButton (*this, removeButton, ko ("이 동작 지우기"), [this] { removeBinding(); });
-    ui::setupLabel (*this, emptyHint, {}, 14.0f, ui::quietText);
+    ui::setupLabel (*this, emptyHint, {}, ui::Text::hint);
     emptyHint.setJustificationType (juce::Justification::topLeft);
 
     //==============================================================================
@@ -491,7 +492,7 @@ KeysPage::KeysPage (Session& sessionToUse)
     {
         ui::setupCombo (*picker, picker->from, pedalChanged);
         ui::setupCombo (*picker, picker->to, pedalChanged);
-        ui::setupLabel (*picker, picker->arrow, ko ("→"), 15.0f, ui::quietText);
+        ui::setupLabel (*picker, picker->arrow, ko ("→"), ui::Text::hint);
         picker->arrow.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (*picker);
     }
@@ -568,9 +569,14 @@ KeysPage::KeysPage (Session& sessionToUse)
 
     for (std::size_t i = 0; i < rows.size(); ++i)
     {
-        ui::setupLabel (*this, rows[i].caption, ko (rowSpecs[i].first), 13.0f, ui::quietText);
+        ui::setupLabel (*this, rows[i].caption, ko (rowSpecs[i].first), ui::Text::caption);
         rows[i].control = rowSpecs[i].second;
     }
+
+    // 버튼 종류: 드문 일(폴더, 되돌리기)은 조용하게, 지우는 일은 위험 표시
+    ui::setButtonKind (folderButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (restoreButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (removeButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
     rebuild();
@@ -595,29 +601,28 @@ void KeysPage::visibilityChanged()
 
 void KeysPage::paint (juce::Graphics& g)
 {
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (keyTitle.getBounds().getUnion (emptyHint.getBounds()).expanded (14, 10).toFloat(), 8.0f);
+    ui::fillPanel (g, editorPanel);
 }
 
 void KeysPage::resized()
 {
     auto area = getLocalBounds();
 
-    auto top = area.removeFromTop (30);
+    auto top = area.removeFromTop (ui::space::control);
     keymapCaption.setBounds (top.removeFromLeft (56));
     keymapCombo.setBounds (top.removeFromLeft (180));
     top.removeFromLeft (8);
     duplicateButton.setBounds (top.removeFromLeft (60));
-    top.removeFromLeft (6);
+    top.removeFromLeft (ui::space::small);
     renameButton.setBounds (top.removeFromLeft (96));
-    top.removeFromLeft (6);
+    top.removeFromLeft (ui::space::small);
     folderButton.setBounds (top.removeFromLeft (84));
-    top.removeFromLeft (6);
+    top.removeFromLeft (ui::space::small);
     restoreButton.setBounds (top.removeFromLeft (96));
     top.removeFromLeft (24);
     quickCaption.setBounds (top.removeFromLeft (64));
     quickPadCombo.setBounds (top.removeFromLeft (150));
-    top.removeFromLeft (6);
+    top.removeFromLeft (ui::space::small);
     quickButton.setBounds (top.removeFromLeft (170));
 
     area.removeFromTop (6);
@@ -639,8 +644,9 @@ void KeysPage::resized()
                                             juce::jmax (150, area.getHeight() - 236));
     keyboard.setBounds (area.removeFromTop (keyboardHeight));
 
-    area.removeFromTop (12);
-    auto editor = area.reduced (14, 10);
+    area.removeFromTop (ui::space::medium);
+    editorPanel = area;
+    auto editor = area.reduced (ui::space::large, ui::space::medium);
 
     auto title = editor.removeFromTop (28);
     removeButton.setBounds (title.removeFromRight (120));
@@ -844,7 +850,7 @@ void KeysPage::rebuild()
 
             caps[code].text = describe (first);
             caps[code].count = static_cast<int> (list.size());
-            caps[code].colour = ((action.isEmpty() || action == "hit") && ! pads.isEmpty()) ? ui::padColour (pads[0]) : functionColour;
+            caps[code].colour = ((action.isEmpty() || action == "hit") && ! pads.isEmpty()) ? ui::padColour (pads[0]) : ui::theme().otherPad;
         }
 
         keyboard.setCaps (std::move (caps));
@@ -1119,8 +1125,7 @@ void KeysPage::updatePedalStatus()
     const auto registered = session.getPedal().device.isNotEmpty();
 
     pedalButton.setButtonText (learning ? ko ("등록 마치기") : (registered ? ko ("페달…") : ko ("페달 등록")));
-    pedalButton.setColour (juce::TextButton::buttonColourId,
-                           learning ? juce::Colour (0xff7a5a1e) : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+    pedalButton.setToggleState (learning, juce::dontSendNotification);    // 등록 중이면 켜진 모양
     pedalLabel.setText (text, juce::dontSendNotification);
 }
 
@@ -1318,8 +1323,7 @@ void KeysPage::tick()
 
         const auto armed = session.isKeyCaptureArmed();
         quickButton.setButtonText (armed ? ko ("키를 누르세요… (Esc 취소)") : ko ("이 패드를 칠 키 누르기"));
-        quickButton.setColour (juce::TextButton::buttonColourId,
-                               armed ? juce::Colour (0xff7a5a1e) : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+        quickButton.setToggleState (armed, juce::dontSendNotification);    // 키를 기다리는 동안 켜진 모양
 
         // 페달이 꽂혀 있는지는 1초에 한 번쯤만 알아본다.
         if (tickCount % 60 == 0)

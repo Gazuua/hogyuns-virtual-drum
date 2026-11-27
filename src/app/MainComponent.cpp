@@ -11,33 +11,185 @@
 namespace
 {
 
-const juce::Colour metronomeOnColour { 0xff7a5a1e };
 constexpr int maxMessageLines = 5;
+constexpr int headerHeight = 40;
+constexpr int statusHeight = 24;
 
 const char* const pageNames[MainComponent::numPages] = { "play", "kit", "keys", "mixer", "track", "game", "practice" };
 const char* const pageTitles[MainComponent::numPages] = { "연주", "킷", "키 배열", "믹서", "반주 · 녹음", "리듬 게임", "연습 기록" };
 
-const char* const pageHints[MainComponent::numPages] = {
-    "키를 누르거나 패드를 클릭해 연주합니다.",
-    "패드마다 소리를 고르고 다듬습니다. 바로 저장됩니다.",
-    "키마다 칠 패드와 주법을 정합니다. 바로 저장됩니다.",
-    "패드별 음량과 드럼 전체 이펙트. 킷에 저장됩니다.",
-    "음악에 맞춰 치고 녹음합니다.",
-    "곡에서 뽑은 채보에 맞춰 칩니다.",
-    "곡에 맞춰 친 기록과 박자.",
+/** 오디오·MIDI 장치 고르기 아래에 화면 테마 고르기를 붙인 설정 창 내용. */
+class SettingsPanel final : public juce::Component
+{
+public:
+    SettingsPanel (Session& sessionToUse)
+        : session (sessionToUse),
+          selector (session.getAudio().getDeviceManager(),
+                    0, 0,     // 입력은 쓰지 않는다
+                    2, 2,     // 출력은 스테레오
+                    true, false, true, false)
+    {
+        // 출력 장치와 함께 MIDI 입력 장치도 고른다. 켜 둔 MIDI 장치의 노트로 패드를 칠 수 있다.
+        // 장치 고르기는 내용에 맞춰 스스로 높이를 바꾸므로, 그 아래에 테마 줄을 붙인다(childBoundsChanged).
+        selector.setSize (540, 420);
+        addAndMakeVisible (selector);
+
+        ui::setupLabel (*this, themeCaption, ko ("화면 테마"));
+
+        const auto ids = ui::themeIds();
+
+        for (int i = 0; i < ids.size(); ++i)
+            themeCombo.addItem (ui::themeDisplayName (ids[i]), i + 1);
+
+        themeCombo.setSelectedItemIndex (juce::jmax (0, ids.indexOf (ui::theme().id)), juce::dontSendNotification);
+        ui::setupCombo (*this, themeCombo, [this, ids]
+        {
+            const auto id = ids[themeCombo.getSelectedItemIndex()];
+            session.setSetting ("theme", id);
+            themeNote.setVisible (id != ui::theme().id);
+        });
+
+        ui::setupLabel (*this, themeNote, ko ("다시 켜면 바뀜"), ui::Text::caption);
+        themeNote.setVisible (false);
+
+        setSize (540, selector.getHeight() + themeRowHeight);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (ui::theme().border);
+        g.fillRect (getLocalBounds().withHeight (1).withY (selector.getBottom()));
+    }
+
+    void childBoundsChanged (juce::Component* child) override
+    {
+        if (child == &selector)
+            setSize (getWidth(), selector.getHeight() + themeRowHeight);
+    }
+
+    void resized() override
+    {
+        selector.setBounds (0, 0, getWidth(), selector.getHeight());
+        auto bottom = juce::Rectangle<int> (0, selector.getBottom(), getWidth(), themeRowHeight).reduced (ui::space::large, 10);
+
+        // 장치 고르기의 항목 이름 칸과 줄을 맞춘다 (이름은 폭의 35% 앞에서 끝나고, 고르는 칸은 거기서 시작한다).
+        const auto controlX = proportionOfWidth (0.35f);
+        themeCaption.setJustificationType (juce::Justification::centredRight);
+        themeCaption.setBounds (bottom.withRight (controlX - ui::space::tight));
+        bottom.setLeft (controlX);
+        themeCombo.setBounds (bottom.removeFromLeft (160));
+        bottom.removeFromLeft (ui::space::medium);
+        themeNote.setBounds (bottom);
+    }
+
+private:
+    static constexpr int themeRowHeight = 48;
+
+    Session& session;
+    juce::AudioDeviceSelectorComponent selector;
+    juce::Label themeCaption, themeNote;
+    juce::ComboBox themeCombo;
 };
 
 } // namespace
 
+//==============================================================================
+NoticeBand::NoticeBand()
+{
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    setWantsKeyboardFocus (false);
+    setMouseClickGrabsKeyboardFocus (false);
+}
+
+bool NoticeBand::setLines (const juce::StringArray& newLines)
+{
+    if (newLines == lines)
+        return false;
+
+    lines = newLines;
+
+    if (lines.isEmpty())
+        expanded = false;
+
+    repaint();
+    return true;
+}
+
+int NoticeBand::getWantedHeight() const
+{
+    if (lines.isEmpty())
+        return 0;
+
+    return expanded ? headerHeight + lines.size() * lineHeight + ui::space::small : headerHeight;
+}
+
+void NoticeBand::paint (juce::Graphics& g)
+{
+    const auto& t = ui::theme();
+    const auto bounds = getLocalBounds().toFloat();
+
+    // 내용 위에 떠 있으므로 불투명한 면에 경고 색을 살짝 섞는다.
+    g.setColour (t.shadow);
+    g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), t.controlRadius);
+    g.setColour (t.surfaceRaised.interpolatedWith (t.warning, t.dark ? 0.16f : 0.10f));
+    g.fillRoundedRectangle (bounds, t.controlRadius);
+    g.setColour (t.warning.withAlpha (0.55f));
+    g.drawRoundedRectangle (bounds.reduced (0.5f), t.controlRadius, 1.0f);
+
+    auto area = getLocalBounds().reduced (ui::space::medium, 0);
+    auto header = area.removeFromTop (headerHeight);
+
+    // 동그라미 안의 느낌표
+    const auto mark = header.removeFromLeft (16).toFloat().withSizeKeepingCentre (16.0f, 16.0f);
+    g.setColour (t.warning);
+    g.fillEllipse (mark);
+    g.setColour (t.textOn (t.warning));
+    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.drawText ("!", mark, juce::Justification::centred, false);
+    header.removeFromLeft (ui::space::small);
+
+    g.setColour (t.textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
+    g.drawText (expanded ? ko ("접기") : ko ("펼치기"), header.removeFromRight (48), juce::Justification::centredRight, false);
+
+    const auto title = ko ("문제 ") + juce::String (lines.size()) + ko ("개");
+    g.setColour (t.warning);
+    g.setFont (juce::FontOptions (ui::type::caption, juce::Font::bold));
+    const auto titleWidth = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), title) + ui::space::medium;
+    g.drawText (title, header.removeFromLeft (titleWidth), juce::Justification::centredLeft, false);
+
+    g.setColour (t.text);
+    g.setFont (juce::FontOptions (ui::type::caption));
+
+    if (! expanded)
+    {
+        g.drawText (lines[0], header, juce::Justification::centredLeft, true);
+        return;
+    }
+
+    area.removeFromLeft (16 + ui::space::small);
+
+    for (const auto& line : lines)
+        g.drawText (line, area.removeFromTop (lineHeight), juce::Justification::centredLeft, true);
+}
+
+void NoticeBand::mouseUp (const juce::MouseEvent& event)
+{
+    if (! event.mouseWasClicked() || lines.isEmpty())
+        return;
+
+    expanded = ! expanded;
+
+    if (onToggle)
+        onToggle();
+
+    repaint();
+}
+
+//==============================================================================
 MainComponent::MainComponent (const Options& options)
     : session (options)
 {
-    titleLabel.setText ("Hogyun's Virtual Drum", juce::dontSendNotification);
-    titleLabel.setFont (juce::FontOptions (20.0f, juce::Font::bold));
-    addAndMakeVisible (titleLabel);
-
-    ui::setupLabel (*this, hintLabel, {}, 14.0f, ui::quietText);
-
     pages[0] = std::make_unique<PlayPage> (session);
     pages[1] = std::make_unique<KitPage> (session);
     pages[2] = std::make_unique<KeysPage> (session);
@@ -54,13 +206,15 @@ MainComponent::MainComponent (const Options& options)
         ui::setupButton (*this, tabButtons[index], ko (pageTitles[index]), [this, i] { showPage (i); });
         tabButtons[index].setClickingTogglesState (true);
         tabButtons[index].setRadioGroupId (100);
-        tabButtons[index].setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff4a5d6e));
-        tabButtons[index].setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0)
-                                             | (i < numPages - 1 ? juce::Button::ConnectedOnRight : 0));
+        ui::setButtonKind (tabButtons[index], ui::ButtonKind::tab);
     }
 
-    ui::setupButton (*this, audioButton, ko ("오디오 · MIDI 설정"), [this] { showAudioSettings(); });
-    ui::setupButton (*this, tempoDownButton, "-", [this] { session.getEngine().setTempo (std::round (session.getEngine().getTempo()) - 1.0f); updateTempoControls(); });
+    // 설정은 탭과 떨어진 조용한 버튼이다.
+    ui::setupButton (*this, settingsButton, ko ("설정"), [this] { showAudioSettings(); });
+    ui::setButtonKind (settingsButton, ui::ButtonKind::quiet);
+    settingsButton.setTooltip (ko ("오디오 · MIDI 설정"));
+
+    ui::setupButton (*this, tempoDownButton, ko ("−"), [this] { session.getEngine().setTempo (std::round (session.getEngine().getTempo()) - 1.0f); updateTempoControls(); });
     ui::setupButton (*this, tempoUpButton, "+", [this] { session.getEngine().setTempo (std::round (session.getEngine().getTempo()) + 1.0f); updateTempoControls(); });
     ui::setupButton (*this, tapButton, ko ("탭"), [this] { tapTempoFromButton(); });
     ui::setupButton (*this, metronomeButton, {}, [this]
@@ -70,16 +224,21 @@ MainComponent::MainComponent (const Options& options)
         updateTempoControls();
     });
 
-    tempoLabel.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+    tempoDownButton.setTooltip (ko ("템포 −1"));
+    tempoUpButton.setTooltip (ko ("템포 +1"));
+    tapButton.setTooltip (ko ("두 번 넘게 눌러 템포 정하기 (F1)"));
+
+    // 트랜스포트(전체 음량, 템포, 메트로놈) 안의 버튼은 한 덩어리로 보이게 바탕 없이 그린다.
+    for (auto* button : { &tempoDownButton, &tempoUpButton, &tapButton, &metronomeButton })
+        ui::setButtonKind (*button, ui::ButtonKind::quiet);
+
+    ui::setupLabel (*this, tempoLabel, {}, ui::Text::heading);
     tempoLabel.setJustificationType (juce::Justification::centred);
-    addAndMakeVisible (tempoLabel);
 
     // 전체 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다(timerCallback). 두 번 누르면 기본값.
-    ui::setupLabel (*this, masterCaption, ko ("전체 음량"), 13.0f, ui::quietText);
-    masterCaption.setJustificationType (juce::Justification::centredRight);
     ui::setupSlider (*this, masterSlider, 0.0, AudioHost::maxMasterGain, 0.01, AudioHost::defaultMasterGain);
-    masterSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 48, 22);
-    masterSlider.setTooltip (ko ("드럼과 메트로놈의 음량. 두 번 누르면 ") + juce::String (AudioHost::defaultMasterGain, 1));
+    masterSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 22);
+    masterSlider.setTooltip (ko ("전체 음량: 드럼과 메트로놈. 두 번 누르면 ") + juce::String (AudioHost::defaultMasterGain, 1));
     masterSlider.setValue (session.getMasterGain(), juce::dontSendNotification);
     masterSlider.onValueChange = [this]
     {
@@ -87,15 +246,18 @@ MainComponent::MainComponent (const Options& options)
         masterDirty = true;
     };
 
-    statusLabel.setFont (juce::FontOptions (13.0f));
-    statusLabel.setColour (juce::Label::textColourId, ui::quietText);
-    statusLabel.setJustificationType (juce::Justification::topLeft);
-    addAndMakeVisible (statusLabel);
+    // 맨 아래 상태 표시줄 한 줄: 왼쪽은 킷과 키 배열, 오른쪽은 지연과 CPU (자세한 장치 정보는 툴팁)
+    ui::setupLabel (*this, statusLabel, {}, ui::Text::caption);
+    statusLabel.setColour (juce::Label::textColourId, ui::theme().textFaint);
+    statusLabel.setMinimumHorizontalScale (0.7f);
 
-    messageLabel.setFont (juce::FontOptions (13.0f));
-    messageLabel.setJustificationType (juce::Justification::topLeft);
-    messageLabel.setColour (juce::Label::textColourId, ui::warningText);
-    addAndMakeVisible (messageLabel);
+    ui::setupLabel (*this, latencyLabel, {}, ui::Text::caption);
+    latencyLabel.setColour (juce::Label::textColourId, ui::theme().textFaint);
+    latencyLabel.setJustificationType (juce::Justification::centredRight);
+
+    // 문제 목록은 화면 내용 위에 겹쳐 띄운다 (생기거나 없어져도 화면이 밀리지 않게).
+    notices.onToggle = [this] { layoutNotices(); };
+    addChildComponent (notices);
 
     session.addChangeListener (this);
 
@@ -143,66 +305,180 @@ void MainComponent::showPage (int index)
         tabButtons[static_cast<std::size_t> (i)].setToggleState (shown, juce::dontSendNotification);
     }
 
-    hintLabel.setText (ko (pageHints[currentPage]), juce::dontSendNotification);
     pages[static_cast<std::size_t> (currentPage)]->pageShown();
+    notices.toFront (false);
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    const auto& t = ui::theme();
+    g.fillAll (t.background);
+
+    // 탭: 알약 모양이면 묶음 바탕을, 밑줄 모양이면 머리줄 아래에 옅은 선을 그린다 (고른 탭의 줄이 그 위에 놓인다).
+    if (t.tabs == ui::TabStyle::segment)
+    {
+        g.setColour (t.tabTrack);
+        g.fillRoundedRectangle (tabArea.toFloat(), t.controlRadius + 1.0f);
+    }
+    else
+    {
+        g.setColour (t.border);
+        g.fillRect (headerLine);
+    }
+
+    // 트랜스포트: 전체 음량, 템포, 메트로놈을 한 덩어리로
+    g.setColour (t.surface);
+    g.fillRoundedRectangle (transportArea.toFloat(), t.controlRadius + 1.0f);
+
+    if (! t.dark)
+    {
+        g.setColour (t.border);
+        g.drawRoundedRectangle (transportArea.toFloat().reduced (0.5f), t.controlRadius + 1.0f, 1.0f);
+    }
+
+    g.setColour (t.border);
+
+    for (const auto x : transportDividers)
+        g.fillRect (juce::Rectangle<int> (x, transportArea.getY() + 8, 1, transportArea.getHeight() - 16));
+
+    // 음량 그림 (스피커)
+    {
+        const auto box = speakerArea.toFloat().withSizeKeepingCentre (16.0f, 14.0f);
+        juce::Path speaker;
+        speaker.startNewSubPath (box.getX(), box.getY() + 4.5f);
+        speaker.lineTo (box.getX() + 3.5f, box.getY() + 4.5f);
+        speaker.lineTo (box.getX() + 7.5f, box.getY() + 1.0f);
+        speaker.lineTo (box.getX() + 7.5f, box.getBottom() - 1.0f);
+        speaker.lineTo (box.getX() + 3.5f, box.getBottom() - 4.5f);
+        speaker.lineTo (box.getX(), box.getBottom() - 4.5f);
+        speaker.closeSubPath();
+        g.setColour (t.textMuted);
+        g.fillPath (speaker);
+
+        juce::Path waves;
+        waves.addCentredArc (box.getX() + 8.0f, box.getCentreY(), 3.5f, 3.5f, 0.0f, 0.75f, 2.4f, true);
+        waves.addCentredArc (box.getX() + 8.0f, box.getCentreY(), 6.5f, 6.5f, 0.0f, 0.75f, 2.4f, true);
+        g.strokePath (waves, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // 상태 표시줄 위의 선
+    g.setColour (t.border);
+    g.fillRect (statusLine);
+
+    // 끊김 칩: 늦은 콜백이 생기면 주황으로
+    if (dropouts > 0 && ! dropoutChip.isEmpty())
+    {
+        const auto chip = dropoutChip.toFloat();
+        g.setColour (t.warning.withAlpha (t.dark ? 0.20f : 0.14f));
+        g.fillRoundedRectangle (chip, chip.getHeight() * 0.5f);
+        g.setColour (t.warning);
+        g.setFont (juce::FontOptions (ui::type::caption, juce::Font::bold));
+        g.drawText (ko ("끊김 ") + juce::String (dropouts), dropoutChip, juce::Justification::centred, false);
+    }
 }
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced (18, 14);
+    const auto& t = ui::theme();
+    auto area = getLocalBounds().reduced (ui::space::large, ui::space::medium);
 
-    auto header = area.removeFromTop (32);
-    titleLabel.setBounds (header.removeFromLeft (236));
-    audioButton.setBounds (header.removeFromRight (150));
+    //==============================================================================
+    // 머리줄 한 줄: [탭] ── [음량] [− 120 BPM +] [탭] [메트로놈]  [설정]
+    auto header = area.removeFromTop (headerHeight);
+    headerLine = { 0, header.getBottom() + (t.tabs == ui::TabStyle::segment ? 0 : ui::space::tight), getWidth(), 1 };
 
-    // 탭은 창이 좁으면 조금씩 좁힌다.
-    const auto tabWidth = juce::jlimit (76, 100, (header.getWidth() - 8) / numPages);
+    settingsButton.setBounds (header.removeFromRight (48).withSizeKeepingCentre (48, ui::space::control));
+    header.removeFromRight (ui::space::large);
+
+    // 트랜스포트 안의 고정 폭. 음량 슬라이더는 남는 자리를 쓰고, 좁으면 값 상자를 뺀다.
+    constexpr int pad = ui::space::tight;
+    constexpr int tempoWidth = 28 + 64 + 28;
+    constexpr int fixedWidth = pad + ui::space::small + 16 + ui::space::tight      // 여백, 스피커 그림
+                             + ui::space::small + 1 + ui::space::small              // 나눔 선
+                             + tempoWidth + ui::space::tight + 36                   // − 120 BPM + 탭
+                             + ui::space::small + 1 + ui::space::small              // 나눔 선
+                             + 84 + pad;                                            // 메트로놈
+    constexpr int minSlider = 96, sliderWithValue = 150, fullSlider = 200;
+
+    // 탭은 음량 값 상자가 들어갈 자리를 남기고 넓힌다. 창이 좁으면 탭을 줄이고, 그래도 모자라면 값 상자를 뺀다.
+    const auto tabWidth = juce::jlimit (68, 84, (header.getWidth() - ui::space::large - fixedWidth - sliderWithValue) / numPages);
+    tabArea = header.removeFromLeft (tabWidth * numPages).withSizeKeepingCentre (tabWidth * numPages, 36);
+
+    auto tabs = tabArea;
 
     for (auto& button : tabButtons)
-        button.setBounds (header.removeFromLeft (tabWidth));
+        button.setBounds (tabs.removeFromLeft (tabWidth));
 
-    area.removeFromTop (8);
+    header.removeFromLeft (ui::space::large);
+    const auto sliderWidth = juce::jlimit (minSlider, fullSlider, header.getWidth() - fixedWidth);
+    const auto showValue = sliderWidth >= sliderWithValue;
 
-    // 둘째 줄: 화면 설명은 왼쪽, 템포 조절은 오른쪽
-    auto tempoRow = area.removeFromTop (28);
-    metronomeButton.setBounds (tempoRow.removeFromRight (112));
-    tempoRow.removeFromRight (8);
-    tapButton.setBounds (tempoRow.removeFromRight (48));
-    tempoRow.removeFromRight (8);
-    tempoUpButton.setBounds (tempoRow.removeFromRight (30));
-    tempoLabel.setBounds (tempoRow.removeFromRight (88));
-    tempoDownButton.setBounds (tempoRow.removeFromRight (30));
-    tempoRow.removeFromRight (16);
-    masterSlider.setBounds (tempoRow.removeFromRight (170));
-    masterCaption.setBounds (tempoRow.removeFromRight (64));
-    tempoRow.removeFromRight (12);
-    hintLabel.setBounds (tempoRow);
+    if (showValue != (masterSlider.getTextBoxPosition() != juce::Slider::NoTextBox))
+        masterSlider.setTextBoxStyle (showValue ? juce::Slider::TextBoxRight : juce::Slider::NoTextBox, false, 44, 22);
 
-    area.removeFromTop (10);
+    transportArea = header.removeFromRight (fixedWidth + sliderWidth).withSizeKeepingCentre (fixedWidth + sliderWidth, 36);
 
-    // 아래: 문제 목록(있을 때만)과 상태 두 줄
-    statusLabel.setBounds (area.removeFromBottom (38));
-    area.removeFromBottom (4);
+    auto transport = transportArea.reduced (pad);
+    transport.removeFromLeft (ui::space::small);
+    speakerArea = transport.removeFromLeft (16);
+    transport.removeFromLeft (ui::space::tight);
+    masterSlider.setBounds (transport.removeFromLeft (sliderWidth));
+    transport.removeFromLeft (ui::space::small);
+    transportDividers[0] = transport.getX();
+    transport.removeFromLeft (ui::space::small + 1);
+    tempoDownButton.setBounds (transport.removeFromLeft (28));
+    tempoLabel.setBounds (transport.removeFromLeft (64));
+    tempoUpButton.setBounds (transport.removeFromLeft (28));
+    transport.removeFromLeft (ui::space::tight);
+    tapButton.setBounds (transport.removeFromLeft (36));
+    transport.removeFromLeft (ui::space::small);
+    transportDividers[1] = transport.getX();
+    transport.removeFromLeft (ui::space::small + 1);
+    metronomeButton.setBounds (transport);
 
-    if (messageLabel.getText().isNotEmpty())
+    area.removeFromTop (ui::space::medium);
+
+    //==============================================================================
+    // 아래: 상태 표시줄 한 줄
+    auto status = area.removeFromBottom (statusHeight);
+    statusLine = { 0, status.getY() - 1, getWidth(), 1 };
+    status = status.withTrimmedTop (ui::space::tight);
+
+    auto right = status.removeFromRight (200);
+    latencyLabel.setBounds (right);
+
+    if (dropouts > 0)
     {
-        const auto numLines = juce::StringArray::fromLines (messageLabel.getText()).size();
-        messageLabel.setBounds (area.removeFromBottom (numLines * 18 + 6));
-        area.removeFromBottom (4);
+        const auto text = ko ("끊김 ") + juce::String (dropouts);
+        const auto width = juce::GlyphArrangement::getStringWidthInt (juce::Font (juce::FontOptions (ui::type::caption, juce::Font::bold)), text) + 16;
+        const auto textWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (juce::FontOptions (ui::type::caption)), latencyLabel.getText()) + 8;
+        dropoutChip = juce::Rectangle<int> (right.getRight() - textWidth - ui::space::small - width, right.getY() + 1, width, right.getHeight() - 2);
     }
     else
     {
-        messageLabel.setBounds ({});
+        dropoutChip = {};
     }
+
+    statusLabel.setBounds (status);
+    area.removeFromBottom (ui::space::small);
+
+    contentArea = area;
 
     for (auto& page : pages)
         if (page != nullptr)
             page->setBounds (area);
+
+    layoutNotices();
+}
+
+void MainComponent::layoutNotices()
+{
+    // 화면 내용의 아래쪽에 겹쳐, 펼치면 위로 자란다.
+    const auto height = notices.getWantedHeight();
+    notices.setVisible (height > 0);
+
+    if (height > 0)
+        notices.setBounds (contentArea.withTop (contentArea.getBottom() - height));
 }
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
@@ -232,13 +508,11 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 void MainComponent::updateTempoControls()
 {
     auto& engine = session.getEngine();
-    tempoLabel.setText (ko ("템포 ") + juce::String (juce::roundToInt (engine.getTempo())), juce::dontSendNotification);
+    tempoLabel.setText (juce::String (juce::roundToInt (engine.getTempo())) + " BPM", juce::dontSendNotification);
 
     const auto on = engine.isMetronomeOn();
     metronomeButton.setButtonText (on ? (beatFlashTicks > 0 ? ko ("메트로놈 ●") : ko ("메트로놈 ○")) : ko ("메트로놈"));
-    metronomeButton.setColour (juce::TextButton::buttonColourId,
-                               on ? metronomeOnColour
-                                  : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+    metronomeButton.setToggleState (on, juce::dontSendNotification);    // 켜져 있으면 켜진 모양으로 그린다
 }
 
 void MainComponent::updateMasterControl()
@@ -262,31 +536,20 @@ void MainComponent::tapTempoFromButton()
 
 void MainComponent::refreshStatus()
 {
-    auto& engine = session.getEngine();
     auto& audio = session.getAudio();
 
+    // 왼쪽: 킷 이름 · 키 배열 이름
     juce::String text;
-    text << ko ("출력: ") << audio.describe()
-         << "  ·  CPU " << juce::String (audio.getCpuUsage() * 100.0, 1) << "%"
-         << "  ·  " << ko ("늦은 콜백 ") << audio.getLateCallbackCount() << "\n";
 
     if (const auto* kit = session.getKit())
     {
         const auto mapping = session.getMapping();
-
-        text << ko ("킷: ") << fromUtf8 (kit->name)
-             << "  ·  " << ko ("패드 ") << static_cast<int> (kit->pads.size())
-             << "  ·  " << ko ("키 배열: ") << (mapping != nullptr ? fromUtf8 (mapping->name) : ko ("없음"));
+        text << fromUtf8 (kit->name) << "  ·  " << (mapping != nullptr ? fromUtf8 (mapping->name) : ko ("키 배열 없음"));
     }
     else
     {
-        text << ko ("킷: 없음");
+        text << ko ("킷 없음");
     }
-
-    text << "  ·  " << ko ("울리는 소리 ") << engine.getActiveVoiceCount()
-         << "  ·  " << ko ("이어 치기 ") << engine.getActiveRunnerCount()
-         << "  ·  " << ko ("출력 크기 ")
-         << (statusPeak > 0.0001f ? juce::String (juce::Decibels::gainToDecibels (statusPeak), 1) + " dB" : juce::String ("-"));
 
     if (audio.isRecording())
         text << "  ·  " << ko ("● 녹음 중");
@@ -294,8 +557,33 @@ void MainComponent::refreshStatus()
     if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr)
         text << "  ·  " << ko ("글자 입력 중 (연주 멈춤, 엔터나 Esc로 끝내기)");
 
-    statusPeak = 0.0f;
     statusLabel.setText (text, juce::dontSendNotification);
+
+    // 오른쪽: 버퍼 지연과 CPU. 장치 이름, 샘플레이트, 버퍼 크기는 툴팁으로.
+    const auto status = audio.getStatus();
+    juce::String latency;
+
+    if (status.open && status.sampleRate > 0.0)
+        latency << juce::String (1000.0 * status.bufferSize / status.sampleRate, 1) << " ms";
+    else
+        latency << ko ("장치 없음");
+
+    latency << "  ·  CPU " << juce::roundToInt (audio.getCpuUsage() * 100.0) << "%";
+    latencyLabel.setText (latency, juce::dontSendNotification);
+    latencyLabel.setTooltip (ko ("출력: ") + audio.describe() + "  ·  " + ko ("늦은 콜백 ") + juce::String (audio.getLateCallbackCount()));
+
+    // 끊김: 켜고 2초 뒤부터 생긴 늦은 콜백 수
+    if (lateCallbackBaseline < 0 && tick >= 120)
+        lateCallbackBaseline = audio.getLateCallbackCount();
+
+    const auto nowDropouts = lateCallbackBaseline >= 0 ? juce::jmax (0, audio.getLateCallbackCount() - lateCallbackBaseline) : 0;
+
+    if (nowDropouts != dropouts)
+    {
+        dropouts = nowDropouts;
+        resized();
+        repaint();
+    }
 
     // 문제 목록: 오디오와 키보드 오류를 먼저, 그다음 파일을 읽으며 생긴 경고.
     juce::StringArray lines;
@@ -318,13 +606,8 @@ void MainComponent::refreshStatus()
         lines.add (ko ("그 밖에 ") + juce::String (hidden) + ko ("개"));
     }
 
-    const auto messageText = lines.joinIntoString ("\n");
-
-    if (messageText != messageLabel.getText())
-    {
-        messageLabel.setText (messageText, juce::dontSendNotification);
-        resized();
-    }
+    if (notices.setLines (lines))
+        layoutNotices();
 }
 
 void MainComponent::showAudioSettings()
@@ -335,17 +618,10 @@ void MainComponent::showAudioSettings()
         return;
     }
 
-    // 출력 장치와 함께 MIDI 입력 장치도 고른다. 켜 둔 MIDI 장치의 노트로 패드를 칠 수 있다.
-    auto selector = std::make_unique<juce::AudioDeviceSelectorComponent> (session.getAudio().getDeviceManager(),
-                                                                          0, 0,     // 입력은 쓰지 않는다
-                                                                          2, 2,     // 출력은 스테레오
-                                                                          true, false, true, false);
-    selector->setSize (540, 420);
-
     juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned (selector.release());
+    options.content.setOwned (new SettingsPanel (session));
     options.dialogTitle = ko ("오디오 · MIDI 설정");
-    options.dialogBackgroundColour = getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId);
+    options.dialogBackgroundColour = ui::theme().background;
     options.componentToCentreAround = this;
     options.escapeKeyTriggersCloseButton = true;
     options.useNativeTitleBar = true;
@@ -356,7 +632,6 @@ void MainComponent::showAudioSettings()
 void MainComponent::timerCallback()
 {
     session.poll();
-    statusPeak = juce::jmax (statusPeak, session.getOutputPeak());
 
     // 글자를 입력하는 칸에 커서가 있는 동안에는 키를 눌러도 연주하지 않는다.
     session.setPlayingSuspended (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr);

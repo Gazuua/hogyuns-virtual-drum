@@ -100,10 +100,19 @@ PlayPage::PlayPage (Session& sessionToUse)
     setButton.setClickingTogglesState (true);
     editButton.setClickingTogglesState (true);
 
-    ui::setupLabel (*this, functionKeyLabel, {}, 14.0f, ui::quietText);
-    ui::setupLabel (*this, lastKeyLabel, ko ("마지막 키: 아직 없음"), 15.0f);
-    ui::setupLabel (*this, timingLabel, {}, 14.0f, ui::quietText);
+    // 보기 전환(타일 / 드럼 세트)은 붙은 세그먼트로 그린다.
+    ui::setButtonKind (tilesButton, ui::ButtonKind::segment);
+    ui::setButtonKind (setButton, ui::ButtonKind::segment);
+    tilesButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+    setButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+
+    ui::setupLabel (*this, functionKeyLabel, {}, ui::Text::hint);
+    ui::setupLabel (*this, lastKeyLabel, ko ("마지막 키: 아직 없음"));
+    ui::setupLabel (*this, timingLabel, {}, ui::Text::hint);
     timingLabel.setJustificationType (juce::Justification::centredRight);
+
+    // 사용자가 맞춘 배치를 지우는 버튼이라 위험 표시를 한다.
+    ui::setButtonKind (resetButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
     setShowingSet (session.getSetting ("padView", "set").toString() != "tiles");
@@ -141,26 +150,25 @@ void PlayPage::resized()
 {
     auto area = getLocalBounds();
 
-    auto row = area.removeFromTop (28);
+    auto row = area.removeFromTop (ui::space::control);
     tilesButton.setBounds (row.removeFromLeft (64));
-    row.removeFromLeft (4);
     setButton.setBounds (row.removeFromLeft (92));
-    row.removeFromLeft (16);
+    row.removeFromLeft (ui::space::large);
     editButton.setBounds (row.removeFromLeft (92));
-    row.removeFromLeft (4);
+    row.removeFromLeft (ui::space::small);
     resetButton.setBounds (row.removeFromLeft (100));
-    row.removeFromLeft (4);
-    labelsButton.setBounds (row.removeFromLeft (108));
+    row.removeFromLeft (ui::space::small);
+    labelsButton.setBounds (row.removeFromLeft (112));
     silenceButton.setBounds (row.removeFromRight (92));
-    row.removeFromRight (12);
+    row.removeFromRight (ui::space::medium);
     timingLabel.setBounds (row);
 
     auto bottom = area.removeFromBottom (48);
     functionKeyLabel.setBounds (bottom.removeFromTop (22));
     lastKeyLabel.setBounds (bottom);
 
-    area.removeFromTop (8);
-    area.removeFromBottom (6);
+    area.removeFromTop (ui::space::small);
+    area.removeFromBottom (ui::space::small);
     padGrid.setBounds (area);
     kitView.setBounds (area);
 }

@@ -107,6 +107,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/KitLoader.cpp
     src/app/KitPage.cpp
     src/app/KitView.cpp
+    src/app/LookAndFeel.cpp
     src/app/Main.cpp
     src/app/MainComponent.cpp
     src/app/MixerPage.cpp
@@ -119,6 +120,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/RawKeyboard.cpp
     src/app/Session.cpp
     src/app/SfzImport.cpp
+    src/app/Theme.cpp
     src/app/TrackPage.cpp
     # 코어 자동 테스트. `--coretests <보고서>` 옵션으로 돌린다.
     tests/CoreTests.cpp)

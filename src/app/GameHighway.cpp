@@ -5,25 +5,22 @@
 namespace
 {
 
-const juce::Colour fieldColour { 0xff12171c };
-const juce::Colour laneLineColour { 0xff27313a };
-const juce::Colour perfectColour { 0xffffd54f };
-const juce::Colour greatColour { 0xff81c784 };
-const juce::Colour goodColour { 0xff64b5f6 };
-const juce::Colour missColour { 0xffe57373 };
-
-juce::Colour judgementColour (hvd::Judgement judgement)
+/** 판정의 색. 연주 판(늘 어두움) 위에서는 밝은 색을, 칸(테마의 면) 위에서는 그 바탕에서 읽히는 색을 쓴다. */
+juce::Colour judgementColour (hvd::Judgement judgement, bool onField = true)
 {
+    const auto& t = ui::theme();
+    const auto bright = onField || t.dark;
+
     switch (judgement)
     {
-        case hvd::Judgement::perfect:    return perfectColour;
-        case hvd::Judgement::great:      return greatColour;
-        case hvd::Judgement::good:       return goodColour;
-        case hvd::Judgement::miss:       return missColour;
+        case hvd::Judgement::perfect:    return bright ? juce::Colour (0xffffd54f) : juce::Colour (0xffa35c00);
+        case hvd::Judgement::great:      return bright ? juce::Colour (0xff81c784) : t.good;
+        case hvd::Judgement::good:       return bright ? juce::Colour (0xff64b5f6) : t.info;
+        case hvd::Judgement::miss:       return bright ? juce::Colour (0xffe57373) : t.danger;
         case hvd::Judgement::pending:    break;
     }
 
-    return juce::Colours::white;
+    return onField ? t.fieldText : t.text;
 }
 
 juce::String judgementName (hvd::Judgement judgement)
@@ -157,8 +154,11 @@ void GameHighway::paint (juce::Graphics& g)
 
 void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
 {
-    g.setColour (fieldColour);
-    g.fillRoundedRectangle (layout.field, 10.0f);
+    const auto& t = ui::theme();
+    const auto fieldText = t.fieldText;
+
+    g.setColour (t.field);
+    g.fillRoundedRectangle (layout.field, t.panelRadius);
 
     const auto lanesArea = layout.lanes;
     const auto numColumns = static_cast<int> (lanes.size());
@@ -183,14 +183,14 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
         }
     }
 
-    g.setColour (laneLineColour);
+    g.setColour (t.fieldLine);
 
     for (int column = 0; column <= numColumns; ++column)
         g.fillRect (lanesArea.getX() + layout.laneWidth * static_cast<float> (column) - 0.5f, layout.top, 1.0f, hitY - layout.top + 8.0f);
 
     if (runner == nullptr || runner->getState() == GameRunner::State::idle)
     {
-        g.setColour (ui::quietText);
+        g.setColour (fieldText.withAlpha (0.6f));
         g.setFont (juce::FontOptions (16.0f));
         g.drawText (ko ("곡을 고르고 시작을 누르세요"), layout.field.toNearestInt(), juce::Justification::centred);
         return;
@@ -221,7 +221,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
             if (y > hitY + 4.0f)
                 continue;
 
-            g.setColour (juce::Colours::white.withAlpha (barStart ? 0.22f : 0.07f));
+            g.setColour (fieldText.withAlpha (barStart ? 0.22f : 0.07f));
             g.fillRect (lanesArea.getX(), y - (barStart ? 1.0f : 0.5f), lanesArea.getWidth(), barStart ? 2.0f : 1.0f);
         }
     }
@@ -256,7 +256,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
                 const auto bar = juce::Rectangle<float> (lanesArea.getX() - 8.0f, y - 4.0f, lanesArea.getWidth() + 16.0f, 8.0f);
                 g.setColour (kickLane.colour.withAlpha (alpha));
                 g.fillRoundedRectangle (bar, 4.0f);
-                g.setColour (juce::Colours::white.withAlpha (missed ? 0.05f : 0.35f));
+                g.setColour (fieldText.withAlpha (missed ? 0.05f : 0.35f));
                 g.fillRoundedRectangle (bar.withHeight (2.0f), 1.0f);
                 continue;
             }
@@ -280,7 +280,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
             {
                 g.setColour (colour.withAlpha (alpha));
                 g.fillRoundedRectangle (box, 5.0f);
-                g.setColour (juce::Colours::white.withAlpha (missed ? 0.05f : 0.4f));
+                g.setColour (fieldText.withAlpha (missed ? 0.05f : 0.4f));
                 g.fillRoundedRectangle (box.reduced (4.0f, 0.0f).withHeight (3.0f).translated (0.0f, 2.0f), 1.5f);
             }
         }
@@ -289,7 +289,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
     g.restoreState();
 
     // 판정선과 레인마다의 과녁. 맞히면 과녁이 밝아지며 바깥으로 퍼진다.
-    g.setColour (juce::Colours::white.withAlpha (0.85f));
+    g.setColour (fieldText.withAlpha (0.85f));
     g.fillRoundedRectangle (lanesArea.getX() - 10.0f, hitY - 1.5f, lanesArea.getWidth() + 20.0f, 3.0f, 1.5f);
 
     for (int column = 0; column < numColumns; ++column)
@@ -334,11 +334,11 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
         g.setColour (lane.colour.withAlpha (0.8f));
         g.drawRoundedRectangle (box.reduced (0.5f), 6.0f, 1.0f);
 
-        g.setColour (juce::Colours::white);
+        g.setColour (fieldText);
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         g.drawFittedText (lane.name, box.removeFromTop (20.0f).toNearestInt(), juce::Justification::centred, 1, 0.7f);
 
-        g.setColour (ui::accent);
+        g.setColour (t.dark ? t.accent : t.accent.brighter (0.6f));
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
         g.drawFittedText (lane.keys.isEmpty() ? ko ("키 없음") : lane.keys.joinIntoString ("  "), box.toNearestInt(), juce::Justification::centred, 1, 0.6f);
     }
@@ -350,8 +350,8 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
 
         g.setColour (kickLane.colour.withAlpha (0.16f + 0.5f * flash));
         g.fillRoundedRectangle (box, 5.0f);
-        g.setColour (juce::Colours::white);
-        g.setFont (juce::FontOptions (12.5f, juce::Font::bold));
+        g.setColour (fieldText);
+        g.setFont (juce::FontOptions (ui::type::caption, juce::Font::bold));
 
         juce::String text;
         text << kickLane.name << ko (" (가로 막대)") << "   " << (kickLane.keys.isEmpty() ? ko ("키 없음") : kickLane.keys.joinIntoString ("  "));
@@ -375,7 +375,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
 
         if (popup.judgement != hvd::Judgement::perfect)
         {
-            g.setFont (juce::FontOptions (11.5f));
+            g.setFont (juce::FontOptions (ui::type::caption));
             g.drawText (popup.offsetMs < 0.0f ? ko ("빠름") : ko ("늦음"), box.translated (0.0f, 16.0f).toNearestInt(), juce::Justification::centred);
         }
     }
@@ -392,7 +392,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
 
     if (missPopup.age < 1.0f)
     {
-        g.setColour (missColour.withAlpha (1.0f - missPopup.age));
+        g.setColour (judgementColour (hvd::Judgement::miss).withAlpha (1.0f - missPopup.age));
         g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
         g.drawText (judgementName (hvd::Judgement::miss), centre.translated (0.0f, -26.0f).toNearestInt(), juce::Justification::centred);
     }
@@ -403,7 +403,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
         const auto size = 54.0f + 10.0f * comboPulse;
         const auto box = juce::Rectangle<float> (lanesArea.getX(), layout.top + 70.0f, lanesArea.getWidth(), 70.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.20f + 0.25f * comboPulse));
+        g.setColour (fieldText.withAlpha (0.20f + 0.25f * comboPulse));
         g.setFont (juce::FontOptions (size, juce::Font::bold));
         g.drawText (juce::String (combo), box.toNearestInt(), juce::Justification::centred);
         g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
@@ -413,7 +413,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
     // 준비 시간에는 남은 시간을 센다.
     if (now < 0.0 && runner->getState() == GameRunner::State::playing)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        g.setColour (fieldText.withAlpha (0.85f));
         g.setFont (juce::FontOptions (64.0f, juce::Font::bold));
         g.drawText (juce::String (static_cast<int> (std::ceil (-now / speed))), layout.field.withTrimmedBottom (160.0f).toNearestInt(), juce::Justification::centred);
     }
@@ -421,12 +421,12 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
     if (runner->getState() == GameRunner::State::paused)
     {
         g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRoundedRectangle (layout.field, 10.0f);
-        g.setColour (juce::Colours::white);
+        g.fillRoundedRectangle (layout.field, t.panelRadius);
+        g.setColour (fieldText);
         g.setFont (juce::FontOptions (26.0f, juce::Font::bold));
         g.drawText (ko ("잠깐 멈춤"), layout.field.toNearestInt(), juce::Justification::centred);
         g.setFont (juce::FontOptions (14.0f));
-        g.setColour (ui::quietText);
+        g.setColour (fieldText.withAlpha (0.7f));
         g.drawText (ko ("Esc 또는 \"계속\" 버튼으로 이어서 합니다"), layout.field.translated (0.0f, 34.0f).toNearestInt(), juce::Justification::centred);
     }
 
@@ -434,26 +434,26 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
     if (setup.duration > 0.0)
     {
         const auto bar = juce::Rectangle<float> (layout.field.getX() + 10.0f, layout.field.getY() + 4.0f, layout.field.getWidth() - 20.0f, 3.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.12f));
+        g.setColour (fieldText.withAlpha (0.12f));
         g.fillRoundedRectangle (bar, 1.5f);
-        g.setColour (ui::accent);
+        g.setColour (t.dark ? t.accent : t.accent.brighter (0.6f));
         g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * static_cast<float> (juce::jlimit (0.0, 1.0, now / setup.duration))), 1.5f);
     }
 }
 
 void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
 {
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (layout.hud, 10.0f);
+    g.setColour (ui::theme().surface);
+    g.fillRoundedRectangle (layout.hud, ui::theme().panelRadius);
 
     auto area = layout.hud.reduced (16.0f, 14.0f).toNearestInt();
 
-    g.setColour (juce::Colours::white);
+    g.setColour (ui::theme().text);
     g.setFont (juce::FontOptions (16.0f, juce::Font::bold));
     g.drawFittedText (infoTitle, area.removeFromTop (44), juce::Justification::topLeft, 2, 0.8f);
 
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (13.0f));
+    g.setColour (ui::theme().textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
     g.drawFittedText (infoDetail, area.removeFromTop (38), juce::Justification::topLeft, 2, 0.8f);
     area.removeFromTop (10);
 
@@ -465,8 +465,8 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
 
     const auto label = [&g, &area] (const juce::String& name, const juce::String& value, float valueSize, juce::Colour colour)
     {
-        g.setColour (ui::quietText);
-        g.setFont (juce::FontOptions (12.5f));
+        g.setColour (ui::theme().textMuted);
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (name, area.removeFromTop (16), juce::Justification::left);
         g.setColour (colour);
         g.setFont (juce::FontOptions (valueSize, juce::Font::bold));
@@ -474,9 +474,9 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
         area.removeFromTop (8);
     };
 
-    label (ko ("점수"), withThousands (game.getScore()), 30.0f, juce::Colours::white);
-    label (ko ("콤보"), juce::String (game.getCombo()) + ko ("  (최고 ") + juce::String (game.getMaxCombo()) + ")", 20.0f, ui::accent);
-    label (ko ("정확도"), juce::String (game.getAccuracy() * 100.0, 1) + "%", 20.0f, juce::Colours::white);
+    label (ko ("점수"), withThousands (game.getScore()), 30.0f, ui::theme().text);
+    label (ko ("콤보"), juce::String (game.getCombo()) + ko ("  (최고 ") + juce::String (game.getMaxCombo()) + ")", 20.0f, ui::theme().accent);
+    label (ko ("정확도"), juce::String (game.getAccuracy() * 100.0, 1) + "%", 20.0f, ui::theme().text);
 
     // 판정 수
     const hvd::Judgement kinds[] = { hvd::Judgement::perfect, hvd::Judgement::great, hvd::Judgement::good, hvd::Judgement::miss };
@@ -484,10 +484,10 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
     for (const auto kind : kinds)
     {
         auto row = area.removeFromTop (22);
-        g.setColour (judgementColour (kind));
+        g.setColour (judgementColour (kind, false));
         g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
         g.drawText (judgementName (kind), row.removeFromLeft (96), juce::Justification::left);
-        g.setColour (juce::Colours::white);
+        g.setColour (ui::theme().text);
         g.drawText (juce::String (game.getCount (kind)), row, juce::Justification::left);
     }
 
@@ -500,13 +500,13 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
         juce::String text;
         text << ko ("평균 ") << juce::String (std::abs (mean), 0) << " ms " << (mean < 0.0 ? ko ("빠름") : ko ("늦음"));
 
-        g.setColour (ui::quietText);
-        g.setFont (juce::FontOptions (13.0f));
+        g.setColour (ui::theme().textMuted);
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (text, area.removeFromTop (18), juce::Justification::left);
     }
 
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (13.0f));
+    g.setColour (ui::theme().textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
 
     juce::String time;
     time << ui::formatTime (runner->getSongSeconds()) << " / " << ui::formatTime (setup.duration);
@@ -514,7 +514,7 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
 
     if (runner->wasAssisted())
     {
-        g.setColour (ui::warningText);
+        g.setColour (ui::theme().warning);
         g.drawFittedText (setup.autoplay ? ko ("오토 모드: 프로그램이 대신 칩니다. 기록은 남지 않습니다.")
                                          : ko ("오토 모드를 써서 기록이 남지 않습니다."),
                           area.removeFromTop (36), juce::Justification::topLeft, 2);
@@ -526,26 +526,28 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
     const auto& game = runner->getGame();
 
     g.setColour (juce::Colours::black.withAlpha (0.6f));
-    g.fillRoundedRectangle (layout.field, 10.0f);
+    g.fillRoundedRectangle (layout.field, ui::theme().panelRadius);
 
     const auto panel = juce::Rectangle<float> (460.0f, 390.0f).withCentre (layout.field.getCentre());
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (panel, 12.0f);
-    g.setColour (ui::panelEdge);
-    g.drawRoundedRectangle (panel.reduced (0.5f), 12.0f, 1.0f);
+    g.setColour (ui::theme().surface);
+    g.fillRoundedRectangle (panel, ui::theme().panelRadius + 2.0f);
+    g.setColour (ui::theme().border);
+    g.drawRoundedRectangle (panel.reduced (0.5f), ui::theme().panelRadius + 2.0f, 1.0f);
 
     auto area = panel.reduced (24.0f, 18.0f).toNearestInt();
 
-    g.setColour (ui::quietText);
+    g.setColour (ui::theme().textMuted);
     g.setFont (juce::FontOptions (14.0f));
     g.drawText (runner->wasAssisted() ? ko ("결과 (오토 모드, 기록 안 남음)") : ko ("결과"), area.removeFromTop (20), juce::Justification::centred);
 
     const auto grade = game.getGrade();
-    g.setColour (grade == 'S' ? perfectColour : (grade == 'A' ? greatColour : (grade == 'B' ? goodColour : juce::Colours::white)));
+    g.setColour (grade == 'S' ? judgementColour (hvd::Judgement::perfect, false)
+                                : (grade == 'A' ? judgementColour (hvd::Judgement::great, false)
+                                                : (grade == 'B' ? judgementColour (hvd::Judgement::good, false) : ui::theme().text)));
     g.setFont (juce::FontOptions (92.0f, juce::Font::bold));
     g.drawText (juce::String::charToString (static_cast<juce::juce_wchar> (grade)), area.removeFromTop (104), juce::Justification::centred);
 
-    g.setColour (juce::Colours::white);
+    g.setColour (ui::theme().text);
     g.setFont (juce::FontOptions (30.0f, juce::Font::bold));
     g.drawText (withThousands (game.getScore()), area.removeFromTop (38), juce::Justification::centred);
 
@@ -564,7 +566,7 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
 
     for (const auto kind : kinds)
     {
-        g.setColour (judgementColour (kind));
+        g.setColour (judgementColour (kind, false));
         g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
         g.drawText (judgementName (kind) + " " + juce::String (game.getCount (kind)), counts.removeFromLeft (cell), juce::Justification::centred);
     }
@@ -578,8 +580,8 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
         timing << ko ("맞힌 타격은 평균 ") << juce::String (std::abs (mean), 0) << " ms " << (mean < 0.0 ? ko ("빨랐습니다") : ko ("늦었습니다"))
                << " (" << ko ("빠름 ") << game.getEarlyCount() << ", " << ko ("늦음 ") << game.getLateCount() << ")";
 
-        g.setColour (ui::quietText);
-        g.setFont (juce::FontOptions (13.0f));
+        g.setColour (ui::theme().textMuted);
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (timing, area.removeFromTop (20), juce::Justification::centred);
     }
 }

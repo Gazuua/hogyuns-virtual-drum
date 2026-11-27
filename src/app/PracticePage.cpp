@@ -13,10 +13,9 @@ constexpr float onBeatMs = 15.0f;   // 가운뎃값이 이 안이면 "박에 맞
 constexpr int minSectionHits = 3;   // 타격이 이보다 적은 구간은 그리지 않는다
 
 // 자료를 나타내는 색은 하나만 쓴다. 악기의 색은 이름 옆의 점에만 쓴다 (빨강과 초록이 "나쁨/좋음"으로 읽히지 않게).
-const juce::Colour markColour { 0xff64b5f6 };
-const juce::Colour tileColour { 0xff2a343d };
-const juce::Colour zeroLine { 0xff6b7a86 };
-const juce::Colour selectedRow { 0xff3a4a58 };
+juce::Colour markColour()    { return ui::theme().info; }
+juce::Colour tileColour()    { return ui::theme().surfaceSunken; }
+juce::Colour zeroLine()      { return ui::theme().textFaint; }
 
 // 항목 사이에 두는 가운뎃점. (한글과 마찬가지로 UTF-8로 만들어야 한다. 그냥 적으면 글자가 깨진다.)
 const juce::String dot = juce::String::fromUTF8 ("  \xc2\xb7  ");
@@ -116,42 +115,42 @@ void TimingRows::paint (juce::Graphics& g)
         g.setColour (ui::padColour (groupInfos[group].padId));
         g.fillRoundedRectangle (nameArea.removeFromLeft (10).withSizeKeepingCentre (8, 8).toFloat(), 2.0f);
         nameArea.removeFromLeft (8);
-        g.setColour (juce::Colours::white);
-        g.setFont (juce::FontOptions (14.0f));
+        g.setColour (ui::theme().text);
+        g.setFont (juce::FontOptions (ui::type::body));
         g.drawText (ko (groupInfos[group].name), nameArea, juce::Justification::centredLeft);
 
-        g.setColour (ui::quietText);
-        g.setFont (juce::FontOptions (13.0f));
+        g.setColour (ui::theme().textMuted);
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (withCommas (item.count) + ko ("타"), row.removeFromLeft (countWidth).withTrimmedRight (14), juce::Justification::centredRight);
 
         const auto verdictArea = row.removeFromRight (verdictWidth).withTrimmedLeft (14);
         const auto strip = row.toFloat();
 
         // 박에 맞았다고 보는 범위(±30ms)와 박의 자리(0)
-        g.setColour (juce::Colours::white.withAlpha (0.05f));
+        g.setColour (ui::theme().text.withAlpha (0.05f));
         g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (-hvd::PracticeReport::tightMs), strip.getY() + 3.0f,
                                                                 xOf (hvd::PracticeReport::tightMs), strip.getBottom() - 3.0f));
-        g.setColour (zeroLine);
+        g.setColour (zeroLine());
         g.fillRect (centre - 0.5f, strip.getY() + 2.0f, 1.0f, strip.getHeight() - 4.0f);
 
         // 타격의 가운데 80%가 놓인 범위
         const auto low = xOf (item.lowMs), high = xOf (item.highMs);
-        g.setColour (markColour.withAlpha (0.6f));
+        g.setColour (markColour().withAlpha (0.6f));
         g.fillRoundedRectangle (low, strip.getCentreY() - 4.0f, juce::jmax (4.0f, high - low), 8.0f, 4.0f);
 
         // 가운뎃값
-        g.setColour (juce::Colours::white);
+        g.setColour (ui::theme().text);
         g.fillRoundedRectangle (xOf (item.medianMs) - 1.5f, strip.getCentreY() - 8.0f, 3.0f, 16.0f, 1.5f);
 
-        g.setFont (juce::FontOptions (13.0f));
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (verdictOf (item.medianMs) + dot + juce::String (juce::CharPointer_UTF8 ("\xc2\xb1")) + juce::String (juce::roundToInt (item.spreadMs())) + "ms",
                     verdictArea, juce::Justification::centredLeft);
     }
 
     // 가로축: 가운데가 박, 왼쪽이 빠름, 오른쪽이 늦음
     const auto axis = juce::Rectangle<float> (stripLeft, static_cast<float> (y), stripRight - stripLeft, static_cast<float> (axisHeight));
-    g.setFont (juce::FontOptions (11.0f));
-    g.setColour (ui::quietText);
+    g.setFont (juce::FontOptions (ui::type::small));
+    g.setColour (ui::theme().textMuted);
 
     for (const auto ms : { -60, -30, 0, 30, 60 })
     {
@@ -209,25 +208,25 @@ float FlowChart::yOf (float offsetMs) const
 void FlowChart::paint (juce::Graphics& g)
 {
     const auto plot = plotArea();
-    g.setColour (tileColour);
+    g.setColour (tileColour());
     g.fillRoundedRectangle (plot, 4.0f);
 
     if (points.empty())
         return;
 
     // 박에 맞았다고 보는 범위
-    g.setColour (juce::Colours::white.withAlpha (0.045f));
+    g.setColour (ui::theme().text.withAlpha (0.045f));
     g.fillRect (plot.getX(), yOf (hvd::PracticeReport::tightMs), plot.getWidth(), yOf (-hvd::PracticeReport::tightMs) - yOf (hvd::PracticeReport::tightMs));
 
     // 세로축: 0이 박
-    g.setFont (juce::FontOptions (11.0f));
+    g.setFont (juce::FontOptions (ui::type::small));
 
     for (const auto ms : { -60, -30, 0, 30, 60 })
     {
         const auto y = yOf (static_cast<float> (ms));
-        g.setColour (ms == 0 ? zeroLine : ui::panelEdge.withAlpha (0.7f));
+        g.setColour (ms == 0 ? zeroLine() : ui::theme().border.withAlpha (0.7f));
         g.fillRect (plot.getX(), y - 0.5f, plot.getWidth(), 1.0f);
-        g.setColour (ui::quietText);
+        g.setColour (ui::theme().textMuted);
         g.drawText ((ms > 0 ? "+" : "") + juce::String (ms), juce::Rectangle<float> (0.0f, y - 8.0f, plot.getX() - 6.0f, 16.0f), juce::Justification::centredRight);
     }
 
@@ -241,9 +240,9 @@ void FlowChart::paint (juce::Graphics& g)
     for (auto seconds = std::ceil (firstSeconds / step) * step; seconds <= lastSeconds; seconds += step)
     {
         const auto x = xOf (seconds);
-        g.setColour (ui::panelEdge.withAlpha (0.5f));
+        g.setColour (ui::theme().border.withAlpha (0.5f));
         g.fillRect (x - 0.5f, plot.getY(), 1.0f, plot.getHeight());
-        g.setColour (ui::quietText);
+        g.setColour (ui::theme().textMuted);
         g.drawText (songTime (seconds), juce::Rectangle<float> (x - 24.0f, plot.getBottom() + 2.0f, 48.0f, 14.0f), juce::Justification::centred);
     }
 
@@ -251,12 +250,12 @@ void FlowChart::paint (juce::Graphics& g)
     if (juce::isPositiveAndBelow (hovered, static_cast<int> (sections.size())))
     {
         const auto& section = sections[static_cast<std::size_t> (hovered)];
-        g.setColour (juce::Colours::white.withAlpha (0.07f));
+        g.setColour (ui::theme().text.withAlpha (0.07f));
         g.fillRect (juce::Rectangle<float>::leftTopRightBottom (xOf (section.startSeconds), plot.getY(), xOf (section.endSeconds), plot.getBottom()));
     }
 
     // 타격 하나하나
-    g.setColour (juce::Colours::white.withAlpha (0.22f));
+    g.setColour (ui::theme().text.withAlpha (0.22f));
 
     for (const auto& point : points)
         g.fillEllipse (xOf (point.seconds) - 1.2f, yOf (point.offsetMs) - 1.2f, 2.4f, 2.4f);
@@ -273,10 +272,10 @@ void FlowChart::paint (juce::Graphics& g)
             continue;
 
         const auto top = yOf (section.stats.highMs), bottom = yOf (section.stats.lowMs);
-        g.setColour (markColour.withAlpha (0.28f));
+        g.setColour (markColour().withAlpha (0.28f));
         g.fillRoundedRectangle (left, top, right - left, juce::jmax (2.0f, bottom - top), 2.0f);
 
-        g.setColour (markColour);
+        g.setColour (markColour());
         g.fillRect (left, yOf (section.stats.medianMs) - 1.0f, right - left, 2.0f);
     }
 }
@@ -316,11 +315,10 @@ void FlowChart::mouseExit (const juce::MouseEvent&)
 PracticePage::PracticePage (Session& sessionToUse)
     : session (sessionToUse)
 {
-    ui::setupLabel (*this, listCaption, ko ("곡을 틀고 따라 친 기록"), 14.0f, ui::quietText);
+    ui::setupLabel (*this, listCaption, ko ("곡을 틀고 따라 친 기록"), ui::Text::hint);
 
     list.setModel (this);
     list.setRowHeight (26);
-    list.setColour (juce::ListBox::backgroundColourId, ui::panel);
     list.setOutlineThickness (0);
     ui::noFocus (list);
     addAndMakeVisible (list);
@@ -336,8 +334,11 @@ PracticePage::PracticePage (Session& sessionToUse)
     addAndMakeVisible (flowChart);
     flowChart.onHover = [this] (const hvd::PracticeSection* section) { showHover (section); };
 
-    ui::setupLabel (*this, hoverLabel, {}, 12.0f, ui::quietText);
+    ui::setupLabel (*this, hoverLabel, {}, ui::Text::caption);
     showHover (nullptr);
+
+    ui::setButtonKind (reloadButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (folderButton, ui::ButtonKind::quiet);
 }
 
 juce::Rectangle<int> PracticePage::detailArea() const
@@ -396,8 +397,8 @@ void PracticePage::paint (juce::Graphics& g)
     // 목록의 머리글
     auto header = juce::Rectangle<int> (0, 22, listWidth, 22).reduced (8, 0);
     header.removeFromRight (list.getViewport() != nullptr && list.getViewport()->isVerticalScrollBarShown() ? list.getViewport()->getScrollBarThickness() : 0);
-    g.setFont (juce::FontOptions (12.0f));
-    g.setColour (ui::quietText);
+    g.setFont (juce::FontOptions (ui::type::caption));
+    g.setColour (ui::theme().textMuted);
     g.drawText (ko ("박에 맞음"), header.removeFromRight (60), juce::Justification::centredRight);
     g.drawText (ko ("타격"), header.removeFromRight (52), juce::Justification::centredRight);
     g.drawText (ko ("언제"), header.removeFromLeft (88), juce::Justification::centredLeft);
@@ -405,13 +406,12 @@ void PracticePage::paint (juce::Graphics& g)
 
     // 오른쪽: 고른 연주
     const auto panel = detailArea();
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (panel.toFloat(), 8.0f);
+    ui::fillPanel (g, panel);
 
     if (! juce::isPositiveAndBelow (shown, getNumTakes()))
     {
-        g.setColour (ui::quietText);
-        g.setFont (juce::FontOptions (15.0f));
+        g.setColour (ui::theme().textMuted);
+        g.setFont (juce::FontOptions (ui::type::body));
         g.drawFittedText (ko ("기록이 없습니다.\n\n반주 화면이나 리듬 게임에서 곡을 틀고 치면 쌓입니다. 녹음은 필요 없습니다."),
                           panel.reduced (40), juce::Justification::centred, 6);
         return;
@@ -420,22 +420,22 @@ void PracticePage::paint (juce::Graphics& g)
     const auto& row = rows[static_cast<std::size_t> (shown)];
     const auto layout = layoutDetail();
 
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (13.0f));
+    g.setColour (ui::theme().textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
     auto title = layout.title;
     g.drawText (whenLine, title.removeFromRight (150), juce::Justification::centredRight);
 
-    g.setColour (juce::Colours::white);
-    g.setFont (juce::FontOptions (18.0f, juce::Font::bold));
+    g.setColour (ui::theme().text);
+    g.setFont (juce::FontOptions (ui::type::section, juce::Font::bold));
     g.drawText (row.take.getTitle(), title, juce::Justification::centredLeft, true);
 
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (13.0f));
+    g.setColour (ui::theme().textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
     g.drawText (subtitleText, layout.subtitle, juce::Justification::centredLeft, true);
 
     if (! row.hasChart)
     {
-        g.setFont (juce::FontOptions (15.0f));
+        g.setFont (juce::FontOptions (ui::type::body));
         g.drawFittedText (ko ("채보가 없어 박자를 재지 못했습니다.\n리듬 게임에서 이 곡의 채보를 만들면 나옵니다."),
                           panel.reduced (40).withTrimmedTop (80), juce::Justification::centred, 4);
         return;
@@ -450,25 +450,25 @@ void PracticePage::paint (juce::Graphics& g)
         auto area = tilesArea.removeFromLeft (tileWidth);
         tilesArea.removeFromLeft (10);
 
-        g.setColour (tileColour);
-        g.fillRoundedRectangle (area.toFloat(), 6.0f);
+        g.setColour (tileColour());
+        g.fillRoundedRectangle (area.toFloat(), juce::jmin (8.0f, ui::theme().controlRadius));
         area = area.reduced (12, 6);
 
         // 윗줄: 왼쪽에 무엇인지, 오른쪽에 덧붙이는 말. 아랫줄: 값.
         const auto top = area.removeFromTop (16);
-        g.setColour (ui::quietText);
-        g.setFont (juce::FontOptions (12.0f));
+        g.setColour (ui::theme().textMuted);
+        g.setFont (juce::FontOptions (ui::type::caption));
         g.drawText (tile.caption, top, juce::Justification::centredLeft);
         g.drawText (tile.note, top, juce::Justification::centredRight);
 
-        g.setColour (juce::Colours::white);
-        g.setFont (juce::FontOptions (24.0f, juce::Font::bold));
+        g.setColour (ui::theme().text);
+        g.setFont (juce::FontOptions (ui::type::display, juce::Font::bold));
         g.drawText (tile.value, area, juce::Justification::centredLeft, true);
     }
 
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (13.0f));
-    g.drawText (ko ("악기별 박자  ·  띠는 타격의 가운데 80%, 흰 눈금은 가운뎃값"), layout.rowsCaption, juce::Justification::centredLeft);
+    g.setColour (ui::theme().textMuted);
+    g.setFont (juce::FontOptions (ui::type::caption));
+    g.drawText (ko ("악기별 박자  ·  띠는 타격의 가운데 80%, 세로 눈금은 가운뎃값"), layout.rowsCaption, juce::Justification::centredLeft);
     g.drawText (ko ("곡의 흐름  ·  선은 네 마디의 가운뎃값, 띠는 가운데 80%, 점은 타격"), layout.flowCaption, juce::Justification::centredLeft);
     g.drawText (trendText, layout.trend, juce::Justification::centredLeft, true);
 }
@@ -583,8 +583,8 @@ void PracticePage::paintListBoxItem (int rowNumber, juce::Graphics& g, int width
 
     if (rowIsSelected)
     {
-        g.setColour (selectedRow);
-        g.fillRoundedRectangle (juce::Rectangle<int> (0, 0, width, height).reduced (1).toFloat(), 4.0f);
+        g.setColour (ui::theme().selection);
+        g.fillRoundedRectangle (juce::Rectangle<int> (0, 0, width, height).reduced (2, 1).toFloat(), juce::jmax (3.0f, ui::theme().controlRadius - 2.0f));
     }
 
     auto area = juce::Rectangle<int> (0, 0, width, height).reduced (8, 0);
@@ -592,12 +592,12 @@ void PracticePage::paintListBoxItem (int rowNumber, juce::Graphics& g, int width
     const auto count = area.removeFromRight (52);
     const auto when = area.removeFromLeft (88);
 
-    g.setFont (juce::FontOptions (13.0f));
-    g.setColour (ui::quietText);
+    g.setFont (juce::FontOptions (ui::type::caption));
+    g.setColour (ui::theme().textMuted);
     g.drawText (whenText (row.take.time, juce::Time::getCurrentTime()), when, juce::Justification::centredLeft);
     g.drawText (withCommas (row.take.numPlayed), count, juce::Justification::centredRight);
 
-    g.setColour (juce::Colours::white);
+    g.setColour (ui::theme().text);
     g.drawText (row.take.getTitle(), area.withTrimmedRight (6), juce::Justification::centredLeft, true);
     g.drawText (row.hasChart ? juce::String (juce::roundToInt (row.report.all.withinPercent)) + "%" : juce::String ("-"),
                 accuracy, juce::Justification::centredRight);

@@ -3,12 +3,42 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include <array>
+#include <functional>
 #include <memory>
 
 #include "Session.h"
 #include "Ui.h"
 
-/** 메인 화면. 위에 탭과 템포 조절, 가운데에 고른 화면(연주, 킷, 키 배열, 믹서, 반주·녹음, 리듬 게임, 연습 기록), 아래에 상태를 보여 준다. */
+/** 문제 목록 띠. 화면 내용 위에 겹쳐 뜨고, 누르면 펼치고 접는다. 화면 높이를 바꾸지 않는다. */
+class NoticeBand final : public juce::Component
+{
+public:
+    NoticeBand();
+
+    /** 보일 줄들. 비어 있으면 숨긴다. 바뀌었으면 true. */
+    bool setLines (const juce::StringArray& newLines);
+
+    /** 지금(접힘/펼침) 필요한 높이. */
+    int getWantedHeight() const;
+
+    /** 펼치거나 접었을 때 불린다 (놓을 자리를 다시 정하도록). */
+    std::function<void()> onToggle;
+
+    void paint (juce::Graphics&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+
+private:
+    juce::StringArray lines;
+    bool expanded = false;
+
+    static constexpr int headerHeight = 28;
+    static constexpr int lineHeight = 18;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NoticeBand)
+};
+
+/** 메인 화면. 위 한 줄에 탭과 트랜스포트(전체 음량, 템포, 메트로놈)와 설정, 가운데에 고른 화면
+    (연주, 킷, 키 배열, 믹서, 반주·녹음, 리듬 게임, 연습 기록), 아래에 한 줄짜리 상태 표시줄을 둔다. */
 class MainComponent final : public juce::Component,
                             private juce::Timer,
                             private juce::ChangeListener
@@ -46,6 +76,7 @@ private:
     void updateMasterControl();
     void tapTempoFromButton();
     void showAudioSettings();
+    void layoutNotices();
 
     Session session;
     juce::TooltipWindow tooltips { this, 600 };
@@ -57,16 +88,25 @@ private:
     std::uint32_t seenBeatCount = 0;
     int beatFlashTicks = 0;
     juce::int64 lastButtonTapMs = 0;
-    float statusPeak = 0.0f;
     int tick = 0;
 
-    juce::Label titleLabel, hintLabel, statusLabel, messageLabel, tempoLabel, masterCaption;
-    juce::TextButton audioButton, tempoDownButton, tempoUpButton, tapButton, metronomeButton;
+    // 끊김(늦은 콜백) 칩: 켜고 2초 동안 생긴 것은 장치가 자리 잡는 동안의 것이라 세지 않는다.
+    int lateCallbackBaseline = -1;
+    int dropouts = 0;
+
+    juce::Label statusLabel, latencyLabel, tempoLabel;
+    juce::TextButton settingsButton, tempoDownButton, tempoUpButton, tapButton, metronomeButton;
+    NoticeBand notices;
 
     // 전체 음량. 어느 화면에서든 보이게 윗줄에 둔다 (믹서 화면의 "전체 음량"과 같은 값).
     juce::Slider masterSlider;
     bool masterDirty = false;
     juce::Component::SafePointer<juce::DialogWindow> settingsDialog;
+
+    // paint가 그리는 것들: 탭 묶음, 머리줄 아래 선, 트랜스포트 칸과 그 안의 나눔 선, 음량 그림, 상태 표시줄 위 선, 끊김 칩
+    juce::Rectangle<int> tabArea, headerLine, transportArea, speakerArea, statusLine, dropoutChip;
+    std::array<int, 2> transportDividers {};
+    juce::Rectangle<int> contentArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

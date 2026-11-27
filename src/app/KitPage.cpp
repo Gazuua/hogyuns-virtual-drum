@@ -12,7 +12,7 @@ constexpr int listWidth = 250;
 KitPage::KitPage (Session& sessionToUse)
     : session (sessionToUse)
 {
-    ui::setupLabel (*this, kitCaption, ko ("킷"), 14.0f, ui::quietText);
+    ui::setupLabel (*this, kitCaption, ko ("킷"), ui::Text::hint);
     ui::setupCombo (*this, kitCombo, [this]
     {
         if (! updating && kitCombo.getSelectedItemIndex() >= 0)
@@ -37,17 +37,16 @@ KitPage::KitPage (Session& sessionToUse)
         });
     });
     restoreButton.setTooltip (ko ("고치기 전 상태로 되돌립니다."));
-    ui::setupLabel (*this, kitInfo, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, kitInfo, {}, ui::Text::caption);
 
-    padList.setRowHeight (26);
-    padList.setColour (juce::ListBox::backgroundColourId, ui::panel);
+    padList.setRowHeight (28);
     ui::noFocus (padList);
     addAndMakeVisible (padList);
 
     ui::setupButton (*this, addPadButton, ko ("패드 추가"), [this] { addPad(); });
     ui::setupButton (*this, removePadButton, ko ("패드 삭제"), [this] { removePad(); });
 
-    ui::setupLabel (*this, padTitle, {}, 18.0f, juce::Colours::white, true);
+    ui::setupLabel (*this, padTitle, {}, ui::Text::section);
     ui::setupButton (*this, renamePadButton, ko ("이름 바꾸기"), [this] { renamePad(); });
     ui::setupButton (*this, softButton, ko ("약하게"), [this] { session.previewPad (selectedPad, 0.3f); });
     ui::setupButton (*this, mediumButton, ko ("중간"), [this] { session.previewPad (selectedPad, 0.65f); });
@@ -79,7 +78,7 @@ KitPage::KitPage (Session& sessionToUse)
         const auto& spec = specs[i];
 
         field.name = spec.name;
-        ui::setupLabel (*this, field.caption, ko (spec.caption), 13.0f, ui::quietText);
+        ui::setupLabel (*this, field.caption, ko (spec.caption), ui::Text::caption);
         ui::setupSlider (*this, field.slider, spec.minimum, spec.maximum, spec.step, spec.defaultValue, ko (spec.suffix), spec.decimals);
 
         if (spec.midPoint != 0.0)
@@ -97,7 +96,7 @@ KitPage::KitPage (Session& sessionToUse)
     }
 
     // 모아 둔 소리 가운데 하나를 고른다. 화살표 버튼으로 차례로 넘기며 들어 볼 수 있다.
-    ui::setupLabel (*this, soundCaption, {}, 13.0f, ui::quietText);
+    ui::setupLabel (*this, soundCaption, {}, ui::Text::caption);
     ui::setupCombo (*this, soundCombo, [this]
     {
         if (! updating && soundCombo.getSelectedItemIndex() >= 0)
@@ -113,15 +112,19 @@ KitPage::KitPage (Session& sessionToUse)
     ui::noFocus (familyButton);
     addAndMakeVisible (familyButton);
 
-    ui::setupLabel (*this, samplesCaption, ko ("샘플 (세기 구간마다 한 줄, 같은 줄은 번갈아 냄)"), 13.0f, ui::quietText);
-    ui::setupLabel (*this, samplesText, {}, 13.0f);
+    ui::setupLabel (*this, samplesCaption, ko ("샘플 (세기 구간마다 한 줄, 같은 줄은 번갈아 냄)"), ui::Text::caption);
+    ui::setupLabel (*this, samplesText, {}, ui::Text::detail);
     samplesText.setJustificationType (juce::Justification::topLeft);
 
     ui::setupButton (*this, replaceButton, ko ("샘플 바꾸기…"), [this] { chooseSamples (false); });
     ui::setupButton (*this, appendButton, ko ("샘플 더하기…"), [this] { chooseSamples (true); });
     ui::setupLabel (*this, hintLabel,
-                    ko ("소리 파일을 끌어다 놓으면 바꿉니다. Ctrl을 누른 채 놓으면 더합니다."),
-                    13.0f, ui::quietText);
+                    ko ("소리 파일을 끌어다 놓으면 바꿉니다. Ctrl을 누른 채 놓으면 더합니다."), ui::Text::caption);
+
+    // 버튼 종류: 드문 일(폴더, 되돌리기)은 조용하게, 지우는 일은 위험 표시
+    ui::setButtonKind (folderButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (restoreButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (removePadButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
     rebuild();
@@ -134,51 +137,54 @@ KitPage::~KitPage()
 
 void KitPage::paint (juce::Graphics& g)
 {
-    g.setColour (ui::panel);
-    g.fillRoundedRectangle (getLocalBounds().withTrimmedTop (40).withTrimmedLeft (listWidth + 12).toFloat(), 8.0f);
+    // 패드 목록과 편집 칸
+    ui::fillPanel (g, listPanel);
+    ui::fillPanel (g, editorPanel);
 }
 
 void KitPage::resized()
 {
     auto area = getLocalBounds();
 
-    auto top = area.removeFromTop (30);
-    kitCaption.setBounds (top.removeFromLeft (30));
-    kitCombo.setBounds (top.removeFromLeft (200));
-    top.removeFromLeft (8);
+    auto top = area.removeFromTop (ui::space::control);
+    kitCaption.setBounds (top.removeFromLeft (28));
+    kitCombo.setBounds (top.removeFromLeft (196));
+    top.removeFromLeft (ui::space::small);
 
     for (auto* button : { &duplicateButton, &renameKitButton, &importButton, &sfzButton, &exportButton, &folderButton, &restoreButton })
     {
-        button->setBounds (top.removeFromLeft ((button == &renameKitButton || button == &sfzButton) ? 104 : (button == &restoreButton ? 92 : 80)));
-        top.removeFromLeft (6);
+        button->setBounds (top.removeFromLeft ((button == &renameKitButton || button == &sfzButton) ? 100 : (button == &restoreButton ? 88 : 76)));
+        top.removeFromLeft (ui::space::tight);
     }
 
-    top.removeFromLeft (6);
+    top.removeFromLeft (ui::space::small);
 
     kitInfo.setBounds (top);
-    area.removeFromTop (10);
+    area.removeFromTop (ui::space::medium);
 
     auto left = area.removeFromLeft (listWidth);
-    auto listButtons = left.removeFromBottom (28);
-    addPadButton.setBounds (listButtons.removeFromLeft (listWidth / 2 - 3));
-    removePadButton.setBounds (listButtons.removeFromRight (listWidth / 2 - 3));
-    left.removeFromBottom (6);
-    padList.setBounds (left);
+    auto listButtons = left.removeFromBottom (ui::space::control);
+    addPadButton.setBounds (listButtons.removeFromLeft (listWidth / 2 - ui::space::tight));
+    removePadButton.setBounds (listButtons.removeFromRight (listWidth / 2 - ui::space::tight));
+    left.removeFromBottom (ui::space::small);
+    listPanel = left;
+    padList.setBounds (left.reduced (ui::space::tight, ui::space::small));
 
-    area.removeFromLeft (12);
-    auto editor = area.reduced (16, 12);
+    area.removeFromLeft (ui::space::medium);
+    editorPanel = area;
+    auto editor = area.reduced (ui::space::large, ui::space::medium + 2);
 
-    auto title = editor.removeFromTop (30);
-    hardButton.setBounds (title.removeFromRight (64));
-    title.removeFromRight (4);
-    mediumButton.setBounds (title.removeFromRight (64));
-    title.removeFromRight (4);
-    softButton.setBounds (title.removeFromRight (64));
-    title.removeFromRight (16);
+    auto title = editor.removeFromTop (ui::space::control);
+    hardButton.setBounds (title.removeFromRight (60));
+    title.removeFromRight (ui::space::tight);
+    mediumButton.setBounds (title.removeFromRight (60));
+    title.removeFromRight (ui::space::tight);
+    softButton.setBounds (title.removeFromRight (60));
+    title.removeFromRight (ui::space::large);
     renamePadButton.setBounds (title.removeFromRight (100));
     padTitle.setBounds (title);
 
-    editor.removeFromTop (10);
+    editor.removeFromTop (ui::space::medium);
 
     // 조절 항목은 두 줄씩 나란히 놓는다.
     for (std::size_t i = 0; i < fields.size(); i += 2)
@@ -235,23 +241,25 @@ void KitPage::paintListBoxItem (int row, juce::Graphics& g, int width, int heigh
     const auto& pad = kit->pads[static_cast<std::size_t> (row)];
     const auto id = juce::String (pad.id);
 
+    const auto& t = ui::theme();
+
     if (selected)
     {
-        g.setColour (ui::accent.withAlpha (0.22f));
-        g.fillRect (0, 0, width, height);
+        g.setColour (t.selection);
+        g.fillRoundedRectangle (juce::Rectangle<int> (width, height).reduced (2, 1).toFloat(), juce::jmax (3.0f, t.controlRadius - 2.0f));
     }
 
     g.setColour (ui::padColour (id).withAlpha (pad.layers.empty() ? 0.35f : 1.0f));
-    g.fillEllipse (8.0f, static_cast<float> (height) * 0.5f - 5.0f, 10.0f, 10.0f);
+    g.fillEllipse (12.0f, static_cast<float> (height) * 0.5f - 4.0f, 8.0f, 8.0f);
 
-    g.setColour (juce::Colours::white.withAlpha (pad.layers.empty() ? 0.5f : 1.0f));
-    g.setFont (juce::FontOptions (14.0f));
-    g.drawText (fromUtf8 (pad.name), 26, 0, width - 80, height, juce::Justification::centredLeft, true);
+    g.setColour (t.text.withAlpha (pad.layers.empty() ? 0.5f : 1.0f));
+    g.setFont (juce::FontOptions (ui::type::body));
+    g.drawText (fromUtf8 (pad.name), 30, 0, width - 84, height, juce::Justification::centredLeft, true);
 
     const auto count = session.getKitDocument().countSamples (id);
-    g.setColour (ui::quietText);
-    g.setFont (juce::FontOptions (12.0f));
-    g.drawText (count > 0 ? juce::String (count) + ko ("개") : ko ("샘플 없음"), width - 78, 0, 70, height,
+    g.setColour (t.textFaint);
+    g.setFont (juce::FontOptions (ui::type::caption));
+    g.drawText (count > 0 ? juce::String (count) + ko ("개") : ko ("샘플 없음"), width - 82, 0, 70, height,
                 juce::Justification::centredRight, true);
 }
 
