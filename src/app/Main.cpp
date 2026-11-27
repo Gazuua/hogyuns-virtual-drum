@@ -386,6 +386,48 @@ bool checkDocuments (const juce::File& dataRoot, const juce::File& temp, juce::S
                 && std::abs (reloaded.spec.bindings.back().velocity - 0.5f) < 1.0e-6f,
             "keymap: new binding kept its values");
 
+    // 키 배열 줄 편집: 동작이나 주법을 바꾸면 쓰지 않게 된 항목만 지우고, 모르는 항목은 남긴다.
+    {
+        const juce::StringArray padIds { "kick", "snare", "hihat_closed", "hihat_open", "hihat_pedal", "crash1", "ride", "ride_bell" };
+        auto* line = new juce::DynamicObject();
+        line->setProperty ("key", "F10");
+        line->setProperty ("pad", "snare");
+        line->setProperty ("stroke", "repeat");
+        line->setProperty ("rate", "1/8");
+        line->setProperty ("accentEvery", 4);
+        line->setProperty ("swellMs", 800);
+        line->setProperty ("note", "kept");
+        const auto at = keymap.addBinding (juce::var (line));
+        const auto has = [&keymap, at] (const char* name) { return keymap.getBinding (at).hasProperty (name); };
+
+        keymap.setBindingStroke (at, "flam");
+        expect (keymap.getBinding (at)["stroke"] == "flam" && ! has ("rate") && ! has ("accentEvery") && has ("swellMs") && has ("note"),
+                "keymap line: stroke change drops the other stroke's values");
+        keymap.setBindingStroke (at, "pattern");
+        expect (keymap.getBinding (at)["steps"] == "X.x." && static_cast<int> (keymap.getBinding (at)["division"]) == 4, "keymap line: pattern starts with steps");
+        keymap.setBindingStroke (at, "single");
+        expect (! has ("stroke") && ! has ("steps") && ! has ("division"), "keymap line: single needs no stroke values");
+
+        keymap.setBindingPads (at, { "snare", "kick" });
+        expect (keymap.getBindingPads (at) == juce::StringArray ("snare", "kick") && has ("pads") && ! has ("pad"), "keymap line: two pads as a list");
+        keymap.setBindingPads (at, { "snare" });
+        expect (keymap.getBindingPads (at) == juce::StringArray ("snare") && has ("pad") && ! has ("pads"), "keymap line: one pad as pad");
+
+        keymap.setBindingAction (at, "choke", padIds);
+        expect (keymap.getBinding (at)["action"] == "choke" && keymap.getBindingPads (at) == juce::StringArray ("crash1", "ride", "ride_bell")
+                    && ! has ("velocity") && ! has ("swellMs") && has ("note"),
+                "keymap line: choke starts with the cymbals except the hi-hat");
+        keymap.setBindingAction (at, "pedal", padIds);
+        expect (keymap.getBindingPads (at).isEmpty() && keymap.getBinding (at)["swap"]["hihat_closed"] == "hihat_open"
+                    && keymap.getBinding (at)["releasePad"] == "hihat_pedal",
+                "keymap line: pedal starts as the hi-hat pedal");
+        keymap.setBindingAction (at, "hit", padIds);
+        expect (! has ("action") && ! has ("swap") && ! has ("releasePad") && keymap.getBindingPads (at) == juce::StringArray ("kick")
+                    && static_cast<double> (keymap.getBinding (at)["velocity"]) == 1.0 && has ("note"),
+                "keymap line: back to hit with the first pad");
+        keymap.removeBinding (at);
+    }
+
     // 킷: 값을 바꾸고, 패드를 추가해 킷 폴더 밖의 샘플을 넣는다.
     const auto kitFolder = temp.getChildFile ("kit");
     kitFolder.createDirectory();
@@ -1419,6 +1461,12 @@ private:
 
                 // 13. 백업과 되돌리기
                 test->ok = checkBackupRoundTrip (session, test->report) && test->ok;
+
+                // 고쳤다고 알려 두면 다음 poll()이 마우스를 놓은 뒤에 저장한다 (창이 없으니 단추는 떨어져 있다).
+                session.getKeymapDocument().setBindingProperty (0, "note", "saved after release");
+                session.markKeymapEdited();
+                session.poll();
+                test->expect (session.getKeymapFile().loadFileAsString().contains ("saved after release"), "a marked keymap edit is saved by poll");
 
                 // 14. 연습 기록: 로그에서 연주를 읽어 박자를 재고, 화면이 그것을 보여 주는지
                 auto& practice = dynamic_cast<PracticePage&> (headless->getPage (MainComponent::pageIndexFromName ("practice")));

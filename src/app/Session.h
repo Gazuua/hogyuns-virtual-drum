@@ -116,6 +116,10 @@ public:
     /** 고친 킷 문서를 저장한다. 샘플 구성이 바뀌었으면 reload를 true로 준다. */
     bool saveKit (bool reload);
 
+    /** 킷 문서를 고쳤다 (소리에는 이미 반영됨). poll()이 마우스를 놓은 뒤에 saveKit (false)로 저장한다.
+        슬라이더를 끄는 동안 파일을 거듭 쓰지 않으려는 것이다. 다른 화면으로 넘어가도 저장은 밀리지 않는다. */
+    void markKitEdited() noexcept                            { kitEdited = true; }
+
     /** 패드를 한 번 친다. source는 연주 로그에 남길 출처다 (연주 화면에서 마우스로 친 것은 mouse). */
     void previewPad (int pad, float velocity, hvd::HitSource source = hvd::HitSource::screen, bool followPedals = true);
     void allSoundOff();
@@ -172,6 +176,9 @@ public:
     /** 고친 키 배열 문서를 저장하고 바로 적용한다. */
     bool saveKeymap();
     void reloadKeymap();
+
+    /** 키 배열 문서를 고쳤다. poll()이 마우스를 놓은 뒤에 saveKeymap()으로 저장하고 적용한다. */
+    void markKeymapEdited() noexcept                         { keymapEdited = true; }
 
     //==============================================================================
     // 키 입력
@@ -326,11 +333,16 @@ public:
     /** 프로그램 설정 파일(settings.json). 화면 테마처럼 세션을 만들기 전에 읽어야 하는 값에도 쓴다. */
     static juce::File getSettingsFile();
 
+    /** 설정 값을 바로 바꾸고, settings.json에는 poll()이 마우스를 놓은 뒤에 적는다 (슬라이더로 고르는 값). */
+    void markSettingEdited (const juce::Identifier& name, const juce::var& value);
+
 private:
     void handleIncomingMidiMessage (juce::MidiInput* source, const juce::MidiMessage& message) override;
 
     void loadSettings();
     void saveSettings() const;
+    void savePendingEdits();
+    void updateMessages();
 
     void applyKeymap();
     void applyPedal();
@@ -391,6 +403,9 @@ private:
     juce::Time kitFileTime, keymapFileTime;
     juce::StringArray kitMessages, keymapMessages, messages;
     int pollCount = 0;
+
+    // 마우스를 놓은 뒤에 저장할 것 (화면 스레드)
+    bool kitEdited = false, keymapEdited = false, settingsEdited = false;
 
     // 키 입력 (입력 스레드와 주고받는 값은 atomic)
     std::array<std::atomic<bool>, hvd::numKeyCodes> held {};

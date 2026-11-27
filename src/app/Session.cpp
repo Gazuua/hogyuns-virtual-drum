@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "Json.h"
 #include "KeymapLoader.h"
@@ -21,6 +22,49 @@ using json::numberOr;
 juce::String toFileName (const juce::String& name)
 {
     return juce::File::createLegalFileName (name.trim()).trim();
+}
+
+/** folder 안의 문서 이름: 킷(folders)이면 kit.json이 든 폴더, 키 배열이면 .json 파일. 이름순이고 default가 맨 앞이다. */
+juce::StringArray listDocuments (const juce::File& folder, bool folders)
+{
+    juce::StringArray names;
+
+    if (folders)
+    {
+        for (const auto& entry : juce::RangedDirectoryIterator (folder, false, "*", juce::File::findDirectories))
+            if (entry.getFile().getChildFile ("kit.json").existsAsFile())
+                names.add (entry.getFile().getFileName());
+    }
+    else
+    {
+        for (const auto& entry : juce::RangedDirectoryIterator (folder, false, "*.json", juce::File::findFiles))
+            names.add (entry.getFile().getFileNameWithoutExtension());
+    }
+
+    names.sortNatural();
+
+    if (const auto index = names.indexOf ("default"); index > 0)
+        names.move (index, 0);
+
+    return names;
+}
+
+/** 킷 폴더나 키 배열 파일 from을 to로 복사하고, 복사본(document)의 이름을 newName으로 바꾼다. 복사하지 못하면 false. */
+template <typename Document>
+bool copyDocument (const juce::File& from, const juce::File& to, const juce::File& document, const juce::String& newName)
+{
+    if (! (from.isDirectory() ? from.copyDirectoryTo (to) : from.copyFileTo (to)))
+        return false;
+
+    Document copy;
+
+    if (copy.load (document))
+    {
+        copy.setName (newName.trim());
+        copy.save();
+    }
+
+    return true;
 }
 
 } // namespace
@@ -110,6 +154,16 @@ Session::Session (const Options& options)
 
 Session::~Session()
 {
+    // 마우스를 놓기 전에 닫혀도 고친 것은 남긴다. 키 배열은 다시 적용하지 않고 파일에만 쓴다.
+    if (kitEdited)
+        saveKit (false);
+
+    if (keymapEdited && keymapDocument.save())
+        noteContent (keymapFile, rememberedKeymap);
+
+    if (settingsEdited)
+        saveSettings();
+
     keyboard.stop();       // 입력 스레드가 엔진에 더 보내지 않게 먼저 멈춘다
     logKeysWanted.store (false, std::memory_order_relaxed);
     writeLogNote (beginLogLine ("end"));
@@ -160,7 +214,35 @@ void Session::setSetting (const juce::Identifier& name, const juce::var& value)
     {
         object->setProperty (name, value);
         saveSettings();
+        settingsEdited = false;    // 미뤄 둔 값도 함께 적혔다
     }
+}
+
+void Session::markSettingEdited (const juce::Identifier& name, const juce::var& value)
+{
+    if (auto* object = settings.getDynamicObject(); object != nullptr && object->getProperty (name) != value)
+    {
+        object->setProperty (name, value);
+        settingsEdited = true;
+    }
+}
+
+void Session::savePendingEdits()
+{
+    if (std::exchange (kitEdited, false))
+        saveKit (false);
+
+    if (std::exchange (keymapEdited, false))
+        saveKeymap();
+
+    if (std::exchange (settingsEdited, false))
+        saveSettings();
+}
+
+void Session::updateMessages()
+{
+    messages = kitMessages;
+    messages.addArray (keymapMessages);
 }
 
 //==============================================================================
@@ -198,6 +280,10 @@ void Session::poll()
         if (! replay.pump (engine, engine.getClock(), lookAhead))
             sendChangeMessage();    // 다시 재생이 끝났다
     }
+
+    // 고친 문서와 설정은 마우스를 놓은 뒤에 저장한다. 밖에서 고친 파일을 살피기 전에 한다.
+    if ((kitEdited || keymapEdited || settingsEdited) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+        savePendingEdits();
 
     // 킷이나 키 배열 파일을 밖에서 고쳐 저장하면 바로 다시 읽는다.
     if (++pollCount % 30 == 0)
@@ -273,19 +359,7 @@ void Session::drainHitEvents()
 //==============================================================================
 juce::StringArray Session::getKitFolderNames() const
 {
-    juce::StringArray names;
-
-    for (const auto& entry : juce::RangedDirectoryIterator (getKitsFolder(), false, "*", juce::File::findDirectories))
-        if (entry.getFile().getChildFile ("kit.json").existsAsFile())
-            names.add (entry.getFile().getFileName());
-
-    names.sortNatural();
-
-    // 기본 킷을 맨 앞에 둔다.
-    if (const auto index = names.indexOf ("default"); index > 0)
-        names.move (index, 0);
-
-    return names;
+    return listDocuments (getKitsFolder(), true);
 }
 
 void Session::selectKit (const juce::String& folderName)
@@ -314,16 +388,8 @@ juce::String Session::duplicateKit (const juce::String& newName)
     if (target.exists())
         return ko ("같은 이름의 킷이 이미 있습니다: ") + folderName;
 
-    if (! kitFolder.copyDirectoryTo (target))
+    if (! copyDocument<KitDocument> (kitFolder, target, target.getChildFile ("kit.json"), newName))
         return ko ("킷 폴더를 복사하지 못했습니다");
-
-    KitDocument copy;
-
-    if (copy.load (target.getChildFile ("kit.json")))
-    {
-        copy.setName (newName.trim());
-        copy.save();
-    }
 
     selectKit (folderName);
     return {};
@@ -398,6 +464,7 @@ juce::String Session::importKit (const juce::File& zipFile)
 
 void Session::reloadKit()
 {
+    kitEdited = false;    // 고쳐 두고 아직 저장하지 않은 것은 다시 읽는 문서와 함께 버린다
     kitMessages.clear();
     stopTakePlayback();
 
@@ -555,11 +622,12 @@ void Session::applyFxFromDocument()
 
 bool Session::saveKit (bool reload)
 {
+    kitEdited = false;
+
     if (! kitDocument.save())
     {
         kitMessages.add (ko ("킷 파일을 저장하지 못했습니다: ") + getKitFile().getFullPathName());
-        messages = kitMessages;
-        messages.addArray (keymapMessages);
+        updateMessages();
         sendChangeMessage();
         return false;
     }
@@ -714,17 +782,7 @@ void Session::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessa
 //==============================================================================
 juce::StringArray Session::getKeymapNames() const
 {
-    juce::StringArray names;
-
-    for (const auto& entry : juce::RangedDirectoryIterator (getKeymapsFolder(), false, "*.json", juce::File::findFiles))
-        names.add (entry.getFile().getFileNameWithoutExtension());
-
-    names.sortNatural();
-
-    if (const auto index = names.indexOf ("default"); index > 0)
-        names.move (index, 0);
-
-    return names;
+    return listDocuments (getKeymapsFolder(), false);
 }
 
 void Session::selectKeymap (const juce::String& name)
@@ -751,16 +809,8 @@ juce::String Session::duplicateKeymap (const juce::String& newName)
     if (target.exists())
         return ko ("같은 이름의 키 배열이 이미 있습니다: ") + fileName;
 
-    if (! keymapFile.copyFileTo (target))
+    if (! copyDocument<KeymapDocument> (keymapFile, target, target, newName))
         return ko ("키 배열 파일을 복사하지 못했습니다");
-
-    KeymapDocument copy;
-
-    if (copy.load (target))
-    {
-        copy.setName (newName.trim());
-        copy.save();
-    }
 
     selectKeymap (fileName);
     return {};
@@ -774,8 +824,7 @@ bool Session::saveKeymap()
     if (! ok)
     {
         keymapMessages.add (ko ("키 배열 파일을 저장하지 못했습니다: ") + keymapFile.getFullPathName());
-        messages = kitMessages;
-        messages.addArray (keymapMessages);
+        updateMessages();
     }
 
     return ok;
@@ -783,6 +832,7 @@ bool Session::saveKeymap()
 
 void Session::reloadKeymap()
 {
+    keymapEdited = false;    // 고쳐 두고 아직 저장하지 않은 것은 다시 읽는 문서와 함께 버린다
     keymapMessages.clear();
     keymapFileTime = keymapFile.getLastModificationTime();
 
@@ -823,8 +873,7 @@ void Session::reloadKeymap()
 
     noteContent (keymapFile, rememberedKeymap);
 
-    messages = kitMessages;
-    messages.addArray (keymapMessages);
+    updateMessages();
     sendChangeMessage();
 }
 

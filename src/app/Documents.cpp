@@ -1,6 +1,7 @@
 #include "Documents.h"
 
 #include "Json.h"
+#include "core/PadKinds.h"
 
 namespace
 {
@@ -16,30 +17,68 @@ void setOrRemove (juce::DynamicObject& object, const juce::Identifier& name, con
         object.setProperty (name, value);
 }
 
+// 키 배열 줄의 항목 무리 (src/core/Mapping.h의 BindingSpec). 동작이나 주법을 바꾸면 새 것에서 쓰지 않는 무리를 지운다.
+// 지우는 목록이 달라지면 사용자 키 배열의 값이 사라지므로 고칠 때 조심한다 (--selftest의 checkDocuments가 본다).
+constexpr const char* hitFields[] = { "velocity", "stroke", "rate", "intervalMs", "gap", "gapMs", "secondVelocity", "graceVelocity",
+                                      "softVelocity", "ramp", "swellMs", "swellStart", "jitter", "velocityJitter", "accentEvery",
+                                      "followDivisor", "steps", "division" };
+constexpr const char* pedalFields[] = { "swap", "releasedSwap", "releasePad", "releaseVelocity", "splash", "splashMs" };
+constexpr const char* repeatFields[] = { "rate", "intervalMs", "accentEvery", "softVelocity", "ramp", "followDivisor" };
+constexpr const char* multiFields[] = { "gap", "gapMs", "secondVelocity", "graceVelocity" };    // 더블, 플램, 드래그
+constexpr const char* patternFields[] = { "steps", "division" };
+
+template <std::size_t size>
+void removeAll (juce::DynamicObject& object, const char* const (&names)[size])
+{
+    for (const auto* name : names)
+        object.removeProperty (name);
+}
+
+void writePads (juce::DynamicObject& binding, const juce::StringArray& pads)
+{
+    binding.removeProperty ("pad");
+    binding.removeProperty ("pads");
+
+    if (pads.size() == 1)
+    {
+        binding.setProperty ("pad", pads[0]);
+    }
+    else if (pads.size() > 1)
+    {
+        juce::Array<juce::var> list;
+
+        for (const auto& pad : pads)
+            list.add (pad);
+
+        binding.setProperty ("pads", list);
+    }
+}
+
 } // namespace
 
 //==============================================================================
-bool KitDocument::load (const juce::File& kitFile)
+bool JsonDocument::load (const juce::File& source)
 {
     juce::var parsed;
 
-    if (! loadJsonObject (kitFile, parsed))
+    if (! loadJsonObject (source, parsed))
         return false;
 
-    file = kitFile;
+    file = source;
     root = parsed;
     return true;
 }
 
-bool KitDocument::save() const
-{
-    return isLoaded() && writeTextSafely (file, juce::JSON::toString (root) + "\n");
-}
-
-void KitDocument::setName (const juce::String& newName)
+void JsonDocument::setName (const juce::String& newName)
 {
     if (auto* object = root.getDynamicObject())
         object->setProperty ("name", newName);
+}
+
+//==============================================================================
+bool KitDocument::save() const
+{
+    return isLoaded() && writeTextSafely (file, juce::JSON::toString (root) + "\n");
 }
 
 juce::var KitDocument::findPad (const juce::String& padId) const
@@ -365,18 +404,6 @@ int KitDocument::selectPadSound (const juce::String& padId, int index, bool with
 }
 
 //==============================================================================
-bool KeymapDocument::load (const juce::File& keymapFile)
-{
-    juce::var parsed;
-
-    if (! loadJsonObject (keymapFile, parsed))
-        return false;
-
-    file = keymapFile;
-    root = parsed;
-    return true;
-}
-
 bool KeymapDocument::save() const
 {
     const auto* object = root.getDynamicObject();
@@ -413,12 +440,6 @@ bool KeymapDocument::save() const
 
     text << "}\n";
     return writeTextSafely (file, text);
-}
-
-void KeymapDocument::setName (const juce::String& newName)
-{
-    if (auto* object = root.getDynamicObject())
-        object->setProperty ("name", newName);
 }
 
 juce::Array<juce::var>* KeymapDocument::getBindings() const
@@ -464,4 +485,117 @@ void KeymapDocument::setBindingProperty (int index, const juce::Identifier& name
 {
     if (auto* binding = getBinding (index).getDynamicObject())
         setOrRemove (*binding, name, value);
+}
+
+juce::StringArray KeymapDocument::getBindingPads (int index) const
+{
+    const auto binding = getBinding (index);
+    juce::StringArray pads;
+
+    if (const auto pad = binding["pad"].toString(); pad.isNotEmpty())
+        pads.add (pad);
+
+    if (const auto* list = binding["pads"].getArray())
+        for (const auto& pad : *list)
+            if (pad.toString().isNotEmpty())
+                pads.addIfNotAlreadyThere (pad.toString());
+
+    return pads;
+}
+
+void KeymapDocument::setBindingPads (int index, const juce::StringArray& pads)
+{
+    if (auto* binding = getBinding (index).getDynamicObject())
+        writePads (*binding, pads);
+}
+
+void KeymapDocument::setBindingAction (int index, const juce::String& action, const juce::StringArray& kitPadIds)
+{
+    auto* binding = getBinding (index).getDynamicObject();
+
+    if (binding == nullptr)
+        return;
+
+    if (action == "hit")
+        binding->removeProperty ("action");
+    else
+        binding->setProperty ("action", action);
+
+    // 새 동작에서 쓰지 않는 항목은 지운다.
+    if (action != "hit")
+        removeAll (*binding, hitFields);
+
+    if (action != "pedal")
+        removeAll (*binding, pedalFields);
+
+    if (action != "hit" && action != "choke")
+        writePads (*binding, {});
+
+    if (action == "hit")
+    {
+        if (getBindingPads (index).isEmpty() && ! kitPadIds.isEmpty())
+            writePads (*binding, juce::StringArray (kitPadIds[0]));
+
+        if (! binding->hasProperty ("velocity"))
+            binding->setProperty ("velocity", 1.0);
+    }
+    else if (action == "choke" && getBindingPads (index).size() <= 1)
+    {
+        // 처음에는 하이햇이 아닌 심벌을 모두 고른다. 손으로 심벌을 잡아 멈추는 동작이기 때문이다.
+        juce::StringArray cymbals;
+
+        for (const auto& id : kitPadIds)
+            if (const auto instrument = hvd::instrumentOfPad (id.toStdString()); hvd::isCymbal (instrument) && instrument != hvd::Instrument::hihat)
+                cymbals.add (id);
+
+        if (! cymbals.isEmpty())
+            writePads (*binding, cymbals);
+    }
+    else if (action == "pedal" && ! binding->hasProperty ("swap"))
+    {
+        // 처음에는 하이햇 페달로 둔다: 누르는 동안 닫힌 하이햇을 열린 하이햇으로 바꾼다.
+        auto* swap = new juce::DynamicObject();
+
+        if (kitPadIds.contains ("hihat_closed") && kitPadIds.contains ("hihat_open"))
+            swap->setProperty ("hihat_closed", "hihat_open");
+        else if (kitPadIds.size() >= 2)
+            swap->setProperty (kitPadIds[0], kitPadIds[1]);
+
+        binding->setProperty ("swap", juce::var (swap));
+
+        if (kitPadIds.contains ("hihat_pedal"))
+            binding->setProperty ("releasePad", "hihat_pedal");
+    }
+}
+
+void KeymapDocument::setBindingStroke (int index, const juce::String& stroke)
+{
+    auto* binding = getBinding (index).getDynamicObject();
+
+    if (binding == nullptr)
+        return;
+
+    if (stroke == "single")
+        binding->removeProperty ("stroke");
+    else
+        binding->setProperty ("stroke", stroke);
+
+    // 주법마다 쓰는 항목이 다르므로 다른 주법의 값은 지운다.
+    if (stroke != "repeat")
+        removeAll (*binding, repeatFields);
+
+    if (stroke != "double" && stroke != "flam" && stroke != "drag")
+        removeAll (*binding, multiFields);
+
+    if (stroke != "pattern")
+        removeAll (*binding, patternFields);
+
+    if (stroke == "repeat" && ! binding->hasProperty ("rate"))
+        binding->setProperty ("rate", "1/16");
+
+    if (stroke == "pattern" && ! binding->hasProperty ("steps"))
+    {
+        binding->setProperty ("steps", "X.x.");
+        binding->setProperty ("division", 4);
+    }
 }
