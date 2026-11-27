@@ -20,6 +20,24 @@ struct FxSettings
     bool operator== (const FxSettings&) const = default;
 };
 
+/** 킷 파일의 "fx"에 적는 값 하나: 이름, 한도, 적지 않았을 때의 값, FxSettings의 어느 값인지. */
+struct FxField
+{
+    const char* name;
+    float minimum, maximum, fallback;
+    float FxSettings::* member;
+};
+
+inline constexpr FxField fxFields[] = {
+    { "eqLow",      -18.0f, 18.0f, 0.0f, &FxSettings::eqLowDb },
+    { "eqMid",      -18.0f, 18.0f, 0.0f, &FxSettings::eqMidDb },
+    { "eqHigh",     -18.0f, 18.0f, 0.0f, &FxSettings::eqHighDb },
+    { "comp",         0.0f,  1.0f, 0.0f, &FxSettings::compAmount },
+    { "reverb",       0.0f,  1.0f, 0.0f, &FxSettings::reverbLevel },
+    { "reverbSize",   0.0f,  1.0f, 0.5f, &FxSettings::reverbSize },
+    { "reverbDamp",   0.0f,  1.0f, 0.5f, &FxSettings::reverbDamp },
+};
+
 /** 드럼 버스에 거는 3밴드 EQ, 컴프레서, 리버브.
 
     오디오 스레드에서 process()를 부른다. prepare()는 오디오가 멈춰 있을 때 부르며 여기서만 메모리를 잡는다.

@@ -13,18 +13,6 @@
 namespace hvd
 {
 
-/** 연주 중에 바꿀 수 있는 패드 설정. 킷 파일의 값에서 시작하고 편집 화면이 바꾼다. */
-struct PadParams
-{
-    float volume = 1.0f;        // 배율
-    float pan = 0.0f;           // -1(왼쪽) ~ 1(오른쪽)
-    float pitchRatio = 1.0f;    // 재생 속도 배율
-    float reverbSend = 1.0f;    // 리버브로 보내는 양 0 ~ 1
-    float startSeconds = 0.0f;  // 샘플의 앞부분을 이만큼 건너뛰고 재생한다
-    float velocityCurve = 1.0f; // 세기를 음량으로 바꾸는 지수
-    bool mute = false;          // true면 쳐도 소리를 내지 않는다
-};
-
 /** 타격이 어디서 비롯됐는지. */
 enum class HitSource : std::uint8_t
 {

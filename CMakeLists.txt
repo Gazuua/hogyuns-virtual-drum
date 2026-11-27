@@ -28,6 +28,7 @@ add_library(hvd_core STATIC
     src/core/KeyCode.cpp
     src/core/Mapping.cpp
     src/core/PadKinds.cpp
+    src/core/Patterns.cpp
     src/core/Performer.cpp
     src/core/PracticeStats.cpp
     src/core/RhythmGame.cpp

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -113,6 +114,9 @@ struct Mapping
     std::vector<Pedal> pedals;
     std::vector<std::vector<KeyCode>> keysForPad;    // 화면 표시용: 패드를 치는 키들
 };
+
+/** 더블·플램·드래그의 간격(gapMs)을 적지 않았을 때 쓰는 값: 더블 85, 플램 28, 드래그 55(꾸밈음 둘을 합친 길이). 다른 주법은 0. */
+float defaultGapMs (std::string_view stroke) noexcept;
 
 /** "1/16", "1/8t"(셋잇단), "1/8d"(점음표) 같은 표기를 박 수로 바꾼다. 4분음표가 1박이다.
     읽지 못하면 0을 돌려준다. */

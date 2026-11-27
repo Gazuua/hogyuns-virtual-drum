@@ -11,16 +11,6 @@ namespace
 
 constexpr double scoreWeights[numJudgements] = { 0.0, 1.0, 0.7, 0.4, 0.0 };
 
-bool isTom (Lane lane) noexcept
-{
-    return lane == Lane::tomHigh || lane == Lane::tomMid || lane == Lane::tomFloor;
-}
-
-bool isCymbal (Lane lane) noexcept
-{
-    return lane == Lane::crash || lane == Lane::hihat || lane == Lane::ride;
-}
-
 } // namespace
 
 void RhythmGame::start (std::vector<ChartNote> newNotes, const JudgeWindows& newWindows, double playbackSpeed, bool relaxedLanes)
@@ -48,7 +38,7 @@ bool RhythmGame::laneMatches (Lane played, Lane wanted) const noexcept
     if (played == wanted)
         return true;
 
-    return relaxed && ((isTom (played) && isTom (wanted)) || (isCymbal (played) && isCymbal (wanted)));
+    return relaxed && ((isTomLane (played) && isTomLane (wanted)) || (isCymbalLane (played) && isCymbalLane (wanted)));
 }
 
 void RhythmGame::record (std::size_t index, Judgement judgement) noexcept

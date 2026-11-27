@@ -19,8 +19,10 @@
 #include "core/InputTiming.h"
 #include "core/KeyCode.h"
 #include "core/Mapping.h"
+#include "core/MetronomeTiming.h"
 #include "core/MouseTargets.h"
 #include "core/PadKinds.h"
+#include "core/Patterns.h"
 #include "core/PeakLimiter.h"
 #include "core/Performer.h"
 #include "core/PracticeStats.h"
@@ -1696,6 +1698,52 @@ void testPadParams()
     CHECK (isNear (render (engine, 64).left[0], 0.25f));
 }
 
+void testFieldTables()
+{
+    // 패드 값: 이름으로 찾고, 한도와 기본값이 엔진의 기본값과 맞는다.
+    for (const auto& field : hvd::padFields)
+    {
+        CHECK (hvd::findPadField (field.name) == &field);
+        CHECK (field.minimum <= field.fallback && field.fallback <= field.maximum);
+    }
+
+    CHECK (hvd::findPadField ("nothing") == nullptr);
+    CHECK (hvd::findPadField ("volume")->maximum == hvd::maxPadVolume);
+
+    const hvd::Pad pad;
+    CHECK (isNear (hvd::padField::volume.fallback, pad.volume) && isNear (hvd::padField::pan.fallback, pad.pan));
+    CHECK (isNear (hvd::padField::reverbSend.fallback, pad.reverbSend) && isNear (hvd::padField::chokeFadeMs.fallback, pad.chokeFadeMs));
+    CHECK (isNear (hvd::padField::velocityCurve.fallback, pad.velocityCurve));
+
+    const auto big = hvd::makePadParams (20.0, -3.0, 30.0, 2.0, 6000.0, 5.0);
+    CHECK (isNear (big.volume, hvd::maxPadVolume) && isNear (big.pan, -1.0f) && isNear (big.pitchRatio, 4.0f));
+    CHECK (isNear (big.reverbSend, 1.0f) && isNear (big.startSeconds, 5.0f) && isNear (big.velocityCurve, 4.0f) && ! big.mute);
+
+    const auto normal = hvd::makePadParams (0.5, 0.25, -12.0, 0.3, 80.0, 1.5);
+    CHECK (isNear (normal.volume, 0.5f) && isNear (normal.pan, 0.25f) && isNear (normal.pitchRatio, 0.5f));
+    CHECK (isNear (normal.reverbSend, 0.3f) && isNear (normal.startSeconds, 0.08f) && isNear (normal.velocityCurve, 1.5f));
+    CHECK (isNear (hvd::makePadParams (1.0, 0.0, 0.0, 1.0, -5.0, -1.0).startSeconds, 0.0f));
+
+    // 이펙트 값: 기본값이 FxSettings의 기본값과 같고, 값마다 다른 칸을 가리킨다.
+    const hvd::FxSettings defaults;
+    hvd::FxSettings marked;
+    auto index = 1.0f;
+
+    for (const auto& field : hvd::fxFields)
+    {
+        CHECK (isNear (defaults.*field.member, field.fallback));
+        CHECK (field.minimum <= field.fallback && field.fallback <= field.maximum);
+        marked.*field.member = index;
+        index += 1.0f;
+    }
+
+    CHECK (marked.eqLowDb == 1.0f && marked.eqMidDb == 2.0f && marked.eqHighDb == 3.0f && marked.compAmount == 4.0f);
+    CHECK (marked.reverbLevel == 5.0f && marked.reverbSize == 6.0f && marked.reverbDamp == 7.0f);
+
+    CHECK (isNear (hvd::defaultGapMs ("double"), 85.0f) && isNear (hvd::defaultGapMs ("flam"), 28.0f) && isNear (hvd::defaultGapMs ("drag"), 55.0f));
+    CHECK (hvd::defaultGapMs ("single") == 0.0f && hvd::defaultGapMs ("") == 0.0f);
+}
+
 void testHitEventsAndPeaks()
 {
     auto kit = makeImpulseKit();
@@ -2629,6 +2677,125 @@ void testRhythmGame()
     CHECK (game.hit (Lane::snare, 2.09).judgement == Judgement::pending);    // 실제 시간으로 180ms: 구간 밖
 }
 
+void testChartHelpers()
+{
+    using hvd::Lane;
+
+    CHECK (hvd::subdivisionOf (makeNote (1.0, Lane::kick, 0.8f, -1.0)) == -1);
+    CHECK (hvd::subdivisionOf (makeNote (1.0, Lane::kick, 0.8f, 2.0)) == 0);
+    CHECK (hvd::subdivisionOf (makeNote (1.0, Lane::kick, 0.8f, 2.25)) == 6);
+    CHECK (hvd::subdivisionOf (makeNote (1.0, Lane::kick, 0.8f, 2.5)) == 12);
+    CHECK (hvd::subdivisionOf (makeNote (1.0, Lane::kick, 0.8f, 2.0 + 1.0 / 3.0)) == 8);
+    CHECK (hvd::subdivisionOf (makeNote (1.0, Lane::kick, 0.8f, 2.99999)) == 0);
+
+    // 셋잇단: 1/3, 2/3 자리가 아홉 개 넘게, 16분음표 엇박의 두 배보다 많아야 한다.
+    std::vector<hvd::ChartNote> notes;
+
+    for (int i = 0; i < 9; ++i)
+        notes.push_back (makeNote (i, Lane::hihat, 0.8f, i + (i % 2 == 0 ? 1.0 / 3.0 : 2.0 / 3.0)));
+
+    CHECK (hvd::hasTripletFeel (notes));
+    notes.pop_back();
+    CHECK (! hvd::hasTripletFeel (notes));
+    notes.push_back (makeNote (9.0, Lane::hihat, 0.8f, 9.0 + 1.0 / 3.0));
+
+    for (int i = 0; i < 5; ++i)
+        notes.push_back (makeNote (10.0 + i, Lane::kick, 0.8f, 10.0 + i + 0.25));
+
+    CHECK (! hvd::hasTripletFeel (notes));    // 9 > 5 × 2가 아니다
+
+    CHECK (hvd::isTomLane (Lane::tomHigh) && hvd::isTomLane (Lane::tomMid) && hvd::isTomLane (Lane::tomFloor));
+    CHECK (! hvd::isTomLane (Lane::snare) && ! hvd::isTomLane (Lane::kick));
+    CHECK (hvd::isCymbalLane (Lane::crash) && hvd::isCymbalLane (Lane::hihat) && hvd::isCymbalLane (Lane::ride));
+    CHECK (! hvd::isCymbalLane (Lane::snare) && ! hvd::isCymbalLane (Lane::tomFloor));
+
+    CHECK (std::string_view (hvd::laneShortName (Lane::crash)) == "CR" && std::string_view (hvd::laneShortName (Lane::ride)) == "RD");
+    CHECK (std::string_view (hvd::laneShortName (Lane::tomFloor)) == "T3" && std::string_view (hvd::laneShortName (Lane::kick)) == "KK");
+}
+
+void testPatterns()
+{
+    using hvd::Lane;
+
+    // 연습 패턴: 템포 110, 여덟 마디, 박 35개
+    std::vector<double> beats;
+    const auto notes = hvd::makePracticePattern (110.0, beats);
+    const auto beat = 60.0 / 110.0;
+
+    CHECK (beats.size() == 35 && isNear (static_cast<float> (beats.back()), static_cast<float> (34.0 * beat)));
+    CHECK (notes.size() == 96);
+
+    auto sorted = true, onGrid = true;
+    std::array<int, hvd::numLanes> perLane {};
+
+    for (std::size_t i = 0; i < notes.size(); ++i)
+    {
+        sorted = sorted && (i == 0 || notes[i].seconds >= notes[i - 1].seconds);
+        onGrid = onGrid && std::abs (notes[i].beat * beat - notes[i].seconds) < 1.0e-9;
+        ++perLane[static_cast<std::size_t> (notes[i].lane)];
+    }
+
+    CHECK (sorted && onGrid);
+    CHECK (perLane[static_cast<std::size_t> (Lane::crash)] == 2);
+    CHECK (perLane[static_cast<std::size_t> (Lane::snare)] == 14 && perLane[static_cast<std::size_t> (Lane::kick)] == 18);
+    CHECK (perLane[static_cast<std::size_t> (Lane::tomHigh)] == 4 && perLane[static_cast<std::size_t> (Lane::tomFloor)] == 2);
+    CHECK (notes.front().lane == Lane::crash && notes.front().seconds == 0.0);
+
+    // 검사용 록 패턴: 16마디, 1초에서 시작
+    const auto hits = hvd::makeRockPattern (120.0);
+    CHECK (hits.size() == 204);
+    CHECK (! hits.empty() && hits.front().seconds == 1.0);
+
+    auto lanesMatch = true;
+    auto crashes = 0;
+    sorted = true;
+
+    for (std::size_t i = 0; i < hits.size(); ++i)
+    {
+        hvd::Lane lane = Lane::kick;
+        lanesMatch = lanesMatch && hvd::laneForPadId (hits[i].pad, lane) && lane == hits[i].lane;
+        sorted = sorted && (i == 0 || hits[i].seconds >= hits[i - 1].seconds);
+        crashes += hits[i].lane == Lane::crash ? 1 : 0;
+    }
+
+    CHECK (lanesMatch && sorted && crashes == 2);
+    CHECK (isNear (static_cast<float> (hits.back().seconds), static_cast<float> (1.0 + (15 * 4.0 + 3.75) * 0.5)));
+}
+
+void testMetronomeTiming()
+{
+    // 템포 120의 16분음표 격자: 6000샘플 (48 kHz)
+    constexpr double grid = 6000.0, rate = 48000.0;
+    constexpr std::uint64_t beat = 480000;
+
+    CHECK (isNear (static_cast<float> (hvd::gridOffsetMs (beat + 6100, beat, grid, rate)), 100.0f / 48.0f));
+    CHECK (isNear (static_cast<float> (hvd::gridOffsetMs (beat + 5900, beat, grid, rate)), -100.0f / 48.0f));
+    CHECK (isNear (static_cast<float> (hvd::gridOffsetMs (beat - 100, beat, grid, rate)), -100.0f / 48.0f));
+    CHECK (isNear (static_cast<float> (hvd::gridOffsetMs (beat + 3000, beat, grid, rate)), 62.5f));
+    CHECK (isNear (static_cast<float> (hvd::gridOffsetMs (beat, beat, grid, rate)), 0.0f));
+
+    hvd::MetronomeTiming timing;
+    CHECK (timing.count == 0 && timing.stored() == 0);
+
+    for (const auto ms : { 4.0f, -2.0f, 6.0f })
+        timing.add (ms);
+
+    CHECK (timing.count == 3 && timing.stored() == 3 && isNear (timing.lastMs, 6.0f));
+    CHECK (isNear (timing.averageAbsMs, 4.0f));
+    CHECK (isNear (timing.recent (0), 6.0f) && isNear (timing.recent (2), 4.0f));
+
+    // 고리 버퍼가 차면 오래된 것부터 밀려난다.
+    for (int i = 0; i < hvd::MetronomeTiming::historySize; ++i)
+        timing.add (static_cast<float> (i));
+
+    CHECK (timing.count == 35 && timing.stored() == hvd::MetronomeTiming::historySize);
+    CHECK (isNear (timing.recent (0), 31.0f) && isNear (timing.recent (31), 0.0f));
+    CHECK (isNear (timing.averageAbsMs, 15.5f));
+
+    timing.reset();
+    CHECK (timing.count == 0 && timing.lastMs == 0.0f && timing.averageAbsMs == 0.0f && timing.offsetsMs[0] == 0.0f);
+}
+
 void testChartVariants()
 {
     using hvd::Lane;
@@ -3167,6 +3334,7 @@ int hvd::runCoreTests (std::string& log)
         testMappingChangeStopsRunners,
         testRunnerLimit,
         testPadParams,
+        testFieldTables,
         testHitEventsAndPeaks,
         testHitAtAndAux,
         testHitOrigin,
@@ -3182,7 +3350,10 @@ int hvd::runCoreTests (std::string& log)
         testPadKinds,
         testStandardPads,
         testRhythmGame,
+        testChartHelpers,
+        testPatterns,
         testChartVariants,
+        testMetronomeTiming,
         testPracticeStats,
         testTranscriber,
         testTranscriberStereo,

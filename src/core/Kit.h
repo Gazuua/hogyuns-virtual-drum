@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -30,6 +32,66 @@ struct Layer
 /** 패드 음량(배율)의 한도. 킷 화면과 믹서의 슬라이더, 킷 불러오기가 모두 이 값을 쓴다.
     10배는 +20dB다. 드럼 버스의 리미터가 꼭대기를 붙잡으므로 크게 올려도 찢어지지는 않는다. */
 constexpr float maxPadVolume = 10.0f;
+
+/** 킷 파일의 패드에 적는 숫자 하나: 이름, 한도, 적지 않았을 때의 값. 킷 불러오기와 Session이 함께 쓴다.
+    화면의 슬라이더 범위는 이 한도 안에서 따로 정한다 (일부러 좁힌 것). */
+struct PadField
+{
+    const char* name;
+    float minimum, maximum, fallback;
+
+    constexpr double clamp (double value) const noexcept    { return std::clamp (value, static_cast<double> (minimum), static_cast<double> (maximum)); }
+};
+
+namespace padField
+{
+inline constexpr PadField volume        { "volume",        0.0f,  maxPadVolume, 1.0f };     // 배율
+inline constexpr PadField pan           { "pan",          -1.0f,  1.0f,         0.0f };
+inline constexpr PadField pitch         { "pitch",       -24.0f,  24.0f,        0.0f };     // 반음
+inline constexpr PadField reverbSend    { "reverbSend",    0.0f,  1.0f,         1.0f };
+inline constexpr PadField startMs       { "startMs",       0.0f,  5000.0f,      0.0f };     // 샘플 앞에서 건너뛸 시간
+inline constexpr PadField velocityCurve { "velocityCurve", 0.0f,  4.0f,         1.0f };     // 적지 않으면 킷 전체의 값, 그것도 없으면 1
+inline constexpr PadField chokeFadeMs   { "chokeFadeMs",   1.0f,  2000.0f,      20.0f };
+} // namespace padField
+
+inline constexpr PadField padFields[] = { padField::volume, padField::pan, padField::pitch, padField::reverbSend,
+                                          padField::startMs, padField::velocityCurve, padField::chokeFadeMs };
+
+/** 이름이 같은 패드 값. 모르는 이름이면 nullptr. */
+inline const PadField* findPadField (std::string_view name) noexcept
+{
+    for (const auto& field : padFields)
+        if (name == field.name)
+            return &field;
+
+    return nullptr;
+}
+
+/** 연주 중에 바꿀 수 있는 패드 설정. 킷 파일의 값에서 시작하고 편집 화면이 바꾼다. */
+struct PadParams
+{
+    float volume = 1.0f;        // 배율
+    float pan = 0.0f;           // -1(왼쪽) ~ 1(오른쪽)
+    float pitchRatio = 1.0f;    // 재생 속도 배율
+    float reverbSend = 1.0f;    // 리버브로 보내는 양 0 ~ 1
+    float startSeconds = 0.0f;  // 샘플의 앞부분을 이만큼 건너뛰고 재생한다
+    float velocityCurve = 1.0f; // 세기를 음량으로 바꾸는 지수
+    bool mute = false;          // true면 쳐도 소리를 내지 않는다
+};
+
+/** 킷 파일에 적힌 값을 한도 안으로 줄여 엔진의 값으로 바꾼다 (반음 → 재생 속도 배율, ms → 초). */
+inline PadParams makePadParams (double volume, double pan, double pitchSemitones, double reverbSend,
+                                double startMs, double velocityCurve) noexcept
+{
+    PadParams params;
+    params.volume = static_cast<float> (padField::volume.clamp (volume));
+    params.pan = static_cast<float> (padField::pan.clamp (pan));
+    params.pitchRatio = static_cast<float> (std::pow (2.0, padField::pitch.clamp (pitchSemitones) / 12.0));
+    params.reverbSend = static_cast<float> (padField::reverbSend.clamp (reverbSend));
+    params.startSeconds = static_cast<float> (padField::startMs.clamp (startMs) * 0.001);
+    params.velocityCurve = static_cast<float> (padField::velocityCurve.clamp (velocityCurve));
+    return params;
+}
 
 /** 소리가 나는 단위 하나. 예: 스네어, 라이드 벨. */
 struct Pad

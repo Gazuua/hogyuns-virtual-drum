@@ -93,7 +93,7 @@ bool buildStroke (const BindingSpec& binding, Stroke& stroke, std::vector<std::s
     {
         stroke.type = Stroke::Type::multi;
         stroke.numExtra = 1;
-        stroke.extra[0].delay = gapInterval (binding, 85.0f, warnings);
+        stroke.extra[0].delay = gapInterval (binding, defaultGapMs (name), warnings);
         stroke.extra[0].velocityScale = scaleOr (binding.secondVelocity, base, 0.8f);
     }
     else if (name == "flam")
@@ -102,13 +102,13 @@ bool buildStroke (const BindingSpec& binding, Stroke& stroke, std::vector<std::s
         stroke.type = Stroke::Type::multi;
         stroke.firstScale = scaleOr (binding.graceVelocity, base, 0.35f);
         stroke.numExtra = 1;
-        stroke.extra[0].delay = gapInterval (binding, 28.0f, warnings);
+        stroke.extra[0].delay = gapInterval (binding, defaultGapMs (name), warnings);
         stroke.extra[0].velocityScale = 1.0f;
     }
     else if (name == "drag")
     {
         // 꾸밈음 두 개 뒤에 본음.
-        const auto total = binding.gapMs > 0.0f ? binding.gapMs : 55.0f;
+        const auto total = binding.gapMs > 0.0f ? binding.gapMs : defaultGapMs (name);
 
         stroke.type = Stroke::Type::multi;
         stroke.firstScale = scaleOr (binding.graceVelocity, base, 0.3f);
@@ -177,6 +177,15 @@ bool buildStroke (const BindingSpec& binding, Stroke& stroke, std::vector<std::s
 }
 
 } // namespace
+
+float defaultGapMs (std::string_view stroke) noexcept
+{
+    if (stroke == "double")    return 85.0f;
+    if (stroke == "flam")      return 28.0f;
+    if (stroke == "drag")      return 55.0f;
+
+    return 0.0f;
+}
 
 float parseBeats (const std::string& text) noexcept
 {

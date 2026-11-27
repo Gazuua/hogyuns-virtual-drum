@@ -74,20 +74,8 @@ TimingStats timingStatsOf (std::vector<float> offsetsMs, float tightMs)
 
 int practiceGridOf (const Chart& chart) noexcept
 {
-    // Chart.cpp의 makeChartVariant와 같은 기준: 박 안의 1/3, 2/3 자리의 노트가 16분음표 엇박 자리보다 뚜렷이 많으면 셋잇단이다.
-    auto onTriplets = 0, onSixteenths = 0;
-
-    for (const auto& note : chart.notes)
-    {
-        if (note.beat < 0.0)
-            continue;
-
-        const auto sub = static_cast<int> (std::lround ((note.beat - std::floor (note.beat)) * 24.0)) % 24;
-        onTriplets += (sub == 8 || sub == 16) ? 1 : 0;
-        onSixteenths += (sub == 6 || sub == 18) ? 1 : 0;
-    }
-
-    return (onTriplets > onSixteenths * 2 && onTriplets > 8) ? 3 : 4;
+    // 단계 덜어 내기(makeChartVariant)와 같은 기준이다.
+    return hasTripletFeel (chart.notes) ? 3 : 4;
 }
 
 PracticeReport analysePractice (const std::vector<PracticeHit>& hits, const Chart& chart, int barsPerSection)

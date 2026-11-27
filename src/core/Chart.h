@@ -28,8 +28,15 @@ const char* laneName (Lane lane) noexcept;
 /** 이름으로 레인을 찾는다. 모르는 이름이면 false. */
 bool laneFromName (std::string_view name, Lane& lane) noexcept;
 
-/** 패드 id로 그 패드가 속한 레인을 짐작한다. 짐작할 수 없으면 false. */
+/** 글 악보에 쓰는 두 글자 이름: CR, HH, SN, T1, T2, T3, RD, KK. tools/play_log.py의 SHORT와 같다. */
+const char* laneShortName (Lane lane) noexcept;
+
+/** 패드 id로 그 패드가 속한 레인을 짐작한다 (instrumentOfPad 위에 탐 순서를 얹는다). 짐작할 수 없으면 false. */
 bool laneForPadId (std::string_view padId, Lane& lane) noexcept;
+
+/** 탐 셋 / 크래시·하이햇·라이드. 리듬 게임의 "비슷한 레인도 맞음"과 채점이 같은 무리를 쓴다. */
+bool isTomLane (Lane lane) noexcept;
+bool isCymbalLane (Lane lane) noexcept;
 
 /** 채보의 노트 하나. */
 struct ChartNote
@@ -63,6 +70,12 @@ struct Chart
 enum class ChartLevel : std::uint8_t { easy = 0, normal, hard, full };
 
 constexpr int numChartLevels = 4;
+
+/** 박 안에서의 자리를 1/24박 단위로 돌려준다 (0 ~ 23). 격자에 없는 노트(beat가 음수)는 -1. */
+int subdivisionOf (const ChartNote& note) noexcept;
+
+/** 셋잇단 느낌의 곡인지: 박 안의 1/3, 2/3 자리 노트가 16분음표 엇박 자리의 두 배보다 많고 여덟 개를 넘는다. */
+bool hasTripletFeel (const std::vector<ChartNote>& notes) noexcept;
 
 /** 받아 적은 채보에서 단계에 맞게 노트를 덜어 낸다. */
 std::vector<ChartNote> makeChartVariant (const Chart& chart, ChartLevel level);

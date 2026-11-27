@@ -13,16 +13,7 @@ namespace
 {
 
 constexpr const char* laneNames[numLanes] = { "crash", "hihat", "snare", "tom_high", "tom_mid", "tom_floor", "ride", "kick" };
-
-/** 박 안에서의 자리를 1/24박 단위로 돌려준다 (0 ~ 23). 격자에 없는 노트는 -1. */
-int subdivisionOf (const ChartNote& note)
-{
-    if (note.beat < 0.0)
-        return -1;
-
-    const auto fraction = note.beat - std::floor (note.beat);
-    return static_cast<int> (std::lround (fraction * 24.0)) % 24;
-}
+constexpr const char* laneShortNames[numLanes] = { "CR", "HH", "SN", "T1", "T2", "T3", "RD", "KK" };
 
 bool isOneOf (int value, std::initializer_list<int> list)
 {
@@ -35,6 +26,12 @@ const char* laneName (Lane lane) noexcept
 {
     const auto index = static_cast<int> (lane);
     return index >= 0 && index < numLanes ? laneNames[index] : "";
+}
+
+const char* laneShortName (Lane lane) noexcept
+{
+    const auto index = static_cast<int> (lane);
+    return index >= 0 && index < numLanes ? laneShortNames[index] : "";
 }
 
 bool laneFromName (std::string_view name, Lane& lane) noexcept
@@ -81,23 +78,46 @@ bool laneForPadId (std::string_view padId, Lane& lane) noexcept
     return false;
 }
 
-//==============================================================================
-std::vector<ChartNote> makeChartVariant (const Chart& chart, ChartLevel level)
+bool isTomLane (Lane lane) noexcept
 {
-    if (level == ChartLevel::full)
-        return chart.notes;
+    return lane == Lane::tomHigh || lane == Lane::tomMid || lane == Lane::tomFloor;
+}
 
-    // 셋잇단 느낌의 곡인지: 박 안의 1/3, 2/3 자리에 놓인 노트가 16분음표 엇박 자리보다 많은지 본다.
+bool isCymbalLane (Lane lane) noexcept
+{
+    return lane == Lane::crash || lane == Lane::hihat || lane == Lane::ride;
+}
+
+//==============================================================================
+int subdivisionOf (const ChartNote& note) noexcept
+{
+    if (note.beat < 0.0)
+        return -1;
+
+    const auto fraction = note.beat - std::floor (note.beat);
+    return static_cast<int> (std::lround (fraction * 24.0)) % 24;
+}
+
+bool hasTripletFeel (const std::vector<ChartNote>& notes) noexcept
+{
     auto onTriplets = 0, onSixteenths = 0;
 
-    for (const auto& note : chart.notes)
+    for (const auto& note : notes)
     {
         const auto sub = subdivisionOf (note);
         onTriplets += isOneOf (sub, { 8, 16 }) ? 1 : 0;
         onSixteenths += isOneOf (sub, { 6, 18 }) ? 1 : 0;
     }
 
-    const auto triplets = onTriplets > onSixteenths * 2 && onTriplets > 8;
+    return onTriplets > onSixteenths * 2 && onTriplets > 8;
+}
+
+std::vector<ChartNote> makeChartVariant (const Chart& chart, ChartLevel level)
+{
+    if (level == ChartLevel::full)
+        return chart.notes;
+
+    const auto triplets = hasTripletFeel (chart.notes);
     const auto easy = level == ChartLevel::easy;
     const auto normal = level == ChartLevel::normal;
 
