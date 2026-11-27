@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <string>
+
+#include "PadKinds.h"
 
 namespace hvd
 {
@@ -12,27 +13,6 @@ namespace
 {
 
 constexpr const char* laneNames[numLanes] = { "crash", "hihat", "snare", "tom_high", "tom_mid", "tom_floor", "ride", "kick" };
-
-std::string lowered (std::string_view text)
-{
-    std::string result (text);
-
-    for (auto& c : result)
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char> (c - 'A' + 'a');
-
-    return result;
-}
-
-bool startsWith (const std::string& text, std::string_view prefix)
-{
-    return text.size() >= prefix.size() && text.compare (0, prefix.size(), prefix) == 0;
-}
-
-bool contains (const std::string& text, std::string_view part)
-{
-    return text.find (part) != std::string::npos;
-}
 
 /** 박 안에서의 자리를 1/24박 단위로 돌려준다 (0 ~ 23). 격자에 없는 노트는 -1. */
 int subdivisionOf (const ChartNote& note)
@@ -73,31 +53,32 @@ bool laneFromName (std::string_view name, Lane& lane) noexcept
 
 bool laneForPadId (std::string_view padId, Lane& lane) noexcept
 {
-    const auto id = lowered (padId);
-
-    if (startsWith (id, "kick") || startsWith (id, "bass") || startsWith (id, "bd"))
-        lane = Lane::kick;
-    else if (startsWith (id, "snare") || startsWith (id, "sidestick") || startsWith (id, "rim") || startsWith (id, "clap") || startsWith (id, "sd"))
-        lane = Lane::snare;
-    else if (startsWith (id, "hihat") || startsWith (id, "hat") || startsWith (id, "hh"))
-        lane = Lane::hihat;
-    else if (startsWith (id, "ride"))
-        lane = Lane::ride;
-    else if (startsWith (id, "crash") || startsWith (id, "china") || startsWith (id, "splash") || startsWith (id, "cymbal"))
-        lane = Lane::crash;
-    else if (startsWith (id, "tom"))
+    switch (instrumentOfPad (padId))
     {
-        if (contains (id, "floor") || contains (id, "low") || contains (id, "3") || contains (id, "4"))
-            lane = Lane::tomFloor;
-        else if (contains (id, "mid") || contains (id, "2"))
-            lane = Lane::tomMid;
-        else
-            lane = Lane::tomHigh;
-    }
-    else
-        return false;
+        case Instrument::kick:     lane = Lane::kick;   return true;
+        case Instrument::snare:    lane = Lane::snare;  return true;
+        case Instrument::hihat:    lane = Lane::hihat;  return true;
+        case Instrument::ride:     lane = Lane::ride;   return true;
+        case Instrument::crash:
+        case Instrument::china:    lane = Lane::crash;  return true;
+        case Instrument::other:    return false;
 
-    return true;
+        case Instrument::tom:
+        {
+            const auto has = [padId] (std::string_view part) { return containsIgnoringCase (padId, part); };
+
+            if (has ("floor") || has ("low") || has ("3") || has ("4"))
+                lane = Lane::tomFloor;
+            else if (has ("mid") || has ("2"))
+                lane = Lane::tomMid;
+            else
+                lane = Lane::tomHigh;
+
+            return true;
+        }
+    }
+
+    return false;
 }
 
 //==============================================================================

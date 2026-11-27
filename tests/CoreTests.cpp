@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 #include "core/Chart.h"
@@ -19,11 +20,13 @@
 #include "core/KeyCode.h"
 #include "core/Mapping.h"
 #include "core/MouseTargets.h"
+#include "core/PadKinds.h"
 #include "core/PeakLimiter.h"
 #include "core/Performer.h"
 #include "core/PracticeStats.h"
 #include "core/Replay.h"
 #include "core/SpscQueue.h"
+#include "core/StandardPads.h"
 #include "core/TrackPlayer.h"
 
 namespace
@@ -2446,6 +2449,105 @@ void testLanes()
     CHECK (! hvd::laneFromName ("nothing", lane));
 }
 
+void testPadKinds()
+{
+    using hvd::Instrument;
+    using hvd::instrumentOfPad;
+
+    CHECK (instrumentOfPad ("kick") == Instrument::kick);
+    CHECK (instrumentOfPad ("Bass_Drum") == Instrument::kick);
+    CHECK (instrumentOfPad ("bd2") == Instrument::kick);
+    CHECK (instrumentOfPad ("snare_rim") == Instrument::snare);
+    CHECK (instrumentOfPad ("snare_buzz") == Instrument::snare);
+    CHECK (instrumentOfPad ("sidestick") == Instrument::snare);
+    CHECK (instrumentOfPad ("rim") == Instrument::snare);
+    CHECK (instrumentOfPad ("clap") == Instrument::snare);
+    CHECK (instrumentOfPad ("sd") == Instrument::snare);
+    CHECK (instrumentOfPad ("hihat_splash") == Instrument::hihat);
+    CHECK (instrumentOfPad ("hat_open") == Instrument::hihat);
+    CHECK (instrumentOfPad ("HH") == Instrument::hihat);
+    CHECK (instrumentOfPad ("tom_floor") == Instrument::tom);
+    CHECK (instrumentOfPad ("ride_bell") == Instrument::ride);
+    CHECK (instrumentOfPad ("crash_trash") == Instrument::crash);
+    CHECK (instrumentOfPad ("splash") == Instrument::crash);
+    CHECK (instrumentOfPad ("cymbal_fx") == Instrument::crash);
+    CHECK (instrumentOfPad ("China") == Instrument::china);
+    CHECK (instrumentOfPad ("cowbell") == Instrument::other);
+    CHECK (instrumentOfPad ("") == Instrument::other);
+    CHECK (instrumentOfPad ("pad_1") == Instrument::other);
+
+    CHECK (hvd::isCymbal (Instrument::hihat) && hvd::isCymbal (Instrument::ride) && hvd::isCymbal (Instrument::crash) && hvd::isCymbal (Instrument::china));
+    CHECK (! hvd::isCymbal (Instrument::kick) && ! hvd::isCymbal (Instrument::snare) && ! hvd::isCymbal (Instrument::tom) && ! hvd::isCymbal (Instrument::other));
+
+    CHECK (hvd::padFamily ("ride_bell") == "ride");
+    CHECK (hvd::padFamily ("Ride_Edge") == "ride");
+    CHECK (hvd::padFamily ("snare_rim") == "snare");
+    CHECK (hvd::padFamily ("snare_buzz") == "snare");
+    CHECK (hvd::padFamily ("sidestick") == "snare");
+    CHECK (hvd::padFamily ("hihat_closed") == "hihat");
+    CHECK (hvd::padFamily ("hihat_splash") == "hihat");
+    CHECK (hvd::padFamily ("crash1") == "crash1");
+    CHECK (hvd::padFamily ("tom_floor") == "tom_floor");
+    CHECK (hvd::padFamily ("_bell") == "");
+
+    CHECK (isNear (hvd::hihatOpenness ("hihat_closed"), 0.0f));
+    CHECK (isNear (hvd::hihatOpenness ("hihat_half"), 0.45f));
+    CHECK (isNear (hvd::hihatOpenness ("HiHat_Open"), 1.0f));
+    CHECK (isNear (hvd::hihatOpenness ("hihat_pedal"), 0.0f));
+    CHECK (isNear (hvd::hihatOpenness ("crash_open"), 0.0f));
+
+    CHECK (hvd::startsWithIgnoringCase ("Crash1", "crash") && ! hvd::startsWithIgnoringCase ("cr", "crash"));
+    CHECK (hvd::containsIgnoringCase ("Tom_Floor", "floor") && hvd::containsIgnoringCase ("x", "") && ! hvd::containsIgnoringCase ("tom", "low"));
+
+    // 같은 악기와 같은 초크 그룹의 패드를 함께 멈춘다.
+    hvd::Kit kit;
+
+    for (const auto* id : { "ride", "ride_bell", "crash1", "hihat_closed", "hihat_open", "snare", "sidestick", "snare_rim", "kick", "tom_floor", "splash" })
+        kit.pads.push_back (makePad (id, 0));
+
+    kit.pads[3].group = kit.pads[4].group = 0;     // 하이햇 둘
+    kit.pads[2].group = kit.pads[10].group = 1;    // 크래시와 스플래시
+
+    const auto sets = hvd::chokeSetsOf (kit);
+    using Set = std::vector<std::uint16_t>;
+
+    CHECK (sets.size() == kit.pads.size());
+    CHECK (sets[0] == Set ({ 0, 1 }) && sets[1] == Set ({ 0, 1 }));
+    CHECK (sets[2] == Set ({ 2, 10 }) && sets[10] == Set ({ 2, 10 }));
+    CHECK (sets[3] == Set ({ 3, 4 }) && sets[4] == Set ({ 3, 4 }));
+    CHECK (sets[5] == Set ({ 5, 6, 7 }) && sets[6] == Set ({ 5, 6, 7 }) && sets[7] == Set ({ 5, 6, 7 }));
+    CHECK (sets[8] == Set ({ 8 }) && sets[9] == Set ({ 9 }));
+}
+
+void testStandardPads()
+{
+    std::array<int, hvd::numLanes> preferred {};
+
+    for (const auto& pad : hvd::standardPads)
+    {
+        hvd::Lane lane = hvd::Lane::kick;
+        CHECK (hvd::laneForPadId (pad.id, lane) && lane == pad.lane);
+        CHECK (pad.midiNote >= 0 && pad.midiNote < 128);
+        CHECK (pad.x > 0.0f && pad.x < 1.0f && pad.y > 0.0f && pad.y < 1.0f && pad.size > 0.05f && pad.size < 0.6f);
+        CHECK (hvd::findStandardPad (pad.id) == &pad);
+
+        if (pad.preferred)
+            ++preferred[static_cast<std::size_t> (pad.lane)];
+    }
+
+    // 레인마다 대표 패드가 하나씩 있다.
+    for (int i = 0; i < hvd::numLanes; ++i)
+    {
+        CHECK (preferred[static_cast<std::size_t> (i)] == 1);
+        CHECK (std::string_view (hvd::preferredPadOf (static_cast<hvd::Lane> (i))).size() > 0);
+    }
+
+    CHECK (std::string_view (hvd::preferredPadOf (hvd::Lane::crash)) == "crash1");
+    CHECK (std::string_view (hvd::preferredPadOf (hvd::Lane::hihat)) == "hihat_closed");
+    CHECK (hvd::findStandardPad ("kick")->midiNote == 36 && hvd::findStandardPad ("hihat_half")->midiNote == 23);
+    CHECK (hvd::findStandardPad ("hihat_splash") == nullptr && hvd::findStandardPad ("") == nullptr);
+}
+
 hvd::ChartNote makeNote (double seconds, hvd::Lane lane, float velocity = 0.8f, double beat = -1.0)
 {
     hvd::ChartNote note;
@@ -3077,6 +3179,8 @@ int hvd::runCoreTests (std::string& log)
         testReplay,
         testTrackLeadIn,
         testLanes,
+        testPadKinds,
+        testStandardPads,
         testRhythmGame,
         testChartVariants,
         testPracticeStats,
