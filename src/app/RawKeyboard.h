@@ -34,7 +34,7 @@ public:
 
     enum class MouseButton { left, right };
 
-    /** 입력 스레드에서 불린다. 등록한 창이 맨 앞에 있고 그 창 위를 눌렀을 때만 불린다.
+    /** 입력 스레드에서 불린다. 등록한 창이 맨 앞에 있을 때만 불린다. 누른 자리가 그 창의 어디인지는 받는 쪽이 판단한다.
         x, y는 누른 자리의 화면 좌표(모니터의 실제 화소)다. 왼손잡이 설정으로 단추를 바꿨으면 바뀐 대로 넘긴다. */
     using MouseHandler = std::function<void (MouseButton button, int x, int y)>;
 
@@ -82,6 +82,14 @@ public:
     /** 검사용: 창의 클라이언트 영역 왼쪽 위의 화면 좌표(모니터의 실제 화소)와 그 창의 화면 배율(DPI / 96). 실패하면 false. */
     static bool clientOriginOf (void* nativeWindowHandle, int& x, int& y, double& scale);
 
+    /** 검사용: 이 스레드에서 WindowFromPoint를 부르는 데 걸린 시간(ms). 예전에 입력 스레드가 클릭마다 부르던 것이다.
+        그 자리의 창이 expectedWindow(의 자식)이면 foundExpected가 true다. x, y는 모니터의 실제 화소. */
+    static double windowFromPointMs (int x, int y, void* expectedWindow, bool& foundExpected);
+
+    /** 이 스레드가 지금 처리하는 메시지(마우스 클릭 등)가 생긴 뒤 흐른 시간(ms, 약 16ms 단위). 모르면 0.
+        화면 스레드가 바빠 클릭을 늦게 받았을 때, 누른 때를 어림하는 데 쓴다. */
+    static double currentMessageAgeMs() noexcept;
+
     /** 지금 꽂혀 있는 키보드 장치들 (풋스위치도 키보드로 잡힌다). */
     static std::vector<Device> listDevices();
 
@@ -128,6 +136,7 @@ public:
 
     /** 검사용: 스레드를 시작하지 않고 처리기만 지정한다. */
     void setHandlerForTesting (Handler newHandler)    { handler = std::move (newHandler); }
+    void setMouseHandlerForTesting (MouseHandler newHandler)    { mouseHandler = std::move (newHandler); }
 
 private:
     void threadMain();

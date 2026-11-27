@@ -265,6 +265,25 @@ bool RawKeyboard::clientOriginOf (void* nativeWindowHandle, int& x, int& y, doub
     return ok && dpi > 0;
 }
 
+double RawKeyboard::windowFromPointMs (int x, int y, void* expectedWindow, bool& foundExpected)
+{
+    const auto previous = SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    const auto start = std::chrono::steady_clock::now();
+    const auto under = WindowFromPoint (POINT { x, y });
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    SetThreadDpiAwarenessContext (previous);
+
+    foundExpected = under != nullptr && GetAncestor (under, GA_ROOT) == static_cast<HWND> (expectedWindow);
+    return std::chrono::duration<double, std::milli> (elapsed).count();
+}
+
+double RawKeyboard::currentMessageAgeMs() noexcept
+{
+    // GetMessageTime()은 이 스레드가 마지막으로 꺼낸 메시지가 생긴 시각이다 (GetTickCount와 같은 시계, 약 16ms 단위).
+    const auto age = static_cast<std::int32_t> (GetTickCount() - static_cast<DWORD> (GetMessageTime()));
+    return age > 0 && age < 60000 ? static_cast<double> (age) : 0.0;
+}
+
 std::vector<RawKeyboard::Device> RawKeyboard::listDevices()
 {
     std::vector<Device> devices;
@@ -453,14 +472,10 @@ void RawKeyboard::processRawInput (void* deviceHandle, unsigned makeCode, unsign
 
 void RawKeyboard::processRawMouse (unsigned buttonFlags, int x, int y)
 {
+    // 맨 앞 창이 등록한 창일 때만 넘긴다. 누른 자리가 연주 자리인지는 처리기가 화면이 넘긴 자리 목록으로 본다.
+    // 우리 팝업이나 대화 상자가 떠 있으면 화면 스레드가 자리 목록을 비워 둔다 (PlayPage::publishMouseTargets).
+    // 창에 메시지를 보내는 함수(WindowFromPoint 등)는 부르지 않는다. 그 창의 스레드(화면 스레드)가 답할 때까지 기다리게 된다.
     if (! mouseHandler || ! isInFront())
-        return;
-
-    // 누른 자리가 등록한 창 위일 때만 넘긴다. 다른 창(메뉴, 대화 상자)이 그 위에 떠 있으면 그 창의 클릭이다.
-    auto* window = static_cast<HWND> (activeWindow.load());
-    const auto under = WindowFromPoint (POINT { x, y });
-
-    if (window == nullptr || under == nullptr || GetAncestor (under, GA_ROOT) != window)
         return;
 
     // 왼손잡이 설정에서는 오른쪽 단추가 주 단추다. Raw Input은 실제 단추를 알려 준다.

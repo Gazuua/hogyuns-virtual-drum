@@ -6,6 +6,7 @@
 #include "LookAndFeel.h"
 #include "MainComponent.h"
 #include "MusicFile.h"
+#include "PlayPage.h"
 #include "PracticePage.h"
 #include "SfzImport.h"
 #include "Text.h"
@@ -989,7 +990,8 @@ public:
         }
 
         // --mousecheck <보고서 파일>: 작은 창을 잠깐 띄워, 화면 쪽이 계산한 실제 화소 좌표(입력 스레드가 마우스 클릭을 받을 때 쓴다)가
-        // Windows가 알려 주는 좌표와 맞는지 본다.
+        // Windows가 알려 주는 좌표와 맞는지 본다. 화면 스레드가 바쁠 때 입력 쪽 클릭 처리가 기다리지 않는지,
+        // 팝업 메뉴나 대화 상자가 떠 있으면 입력 스레드에 클릭을 맡기지 않는지도 본다.
         if (const auto index = args.indexOf ("--mousecheck"); index >= 0)
         {
             runMouseCheck (args[index + 1]);
@@ -1498,12 +1500,14 @@ private:
         checkProbe->setBounds (37, 53, 201, 103);
         checkWindow->setContentOwned (content, true);
         checkWindow->setTopLeftPosition (120, 120);
+        checkWindow->setAlwaysOnTop (true);    // 다른 창이 가리면 WindowFromPoint가 그 창을 찾아 잴 수 없다
         checkWindow->setVisible (true);
 
-        juce::Timer::callAfterDelay (600, [this, path]
+        auto check = std::make_shared<MouseCheck>();
+
+        juce::Timer::callAfterDelay (600, [this, path, check]
         {
-            juce::String report;
-            auto ok = false;
+            auto& report = check->report;
 
             if (auto* peer = checkWindow->getPeer())
             {
@@ -1524,17 +1528,143 @@ private:
                            << "juce    " << fromJuce.toString() << "\n"
                            << "windows " << fromWindows.toString() << "\n";
 
-                    ok = std::abs (fromJuce.getX() - fromWindows.getX()) <= 1.5f && std::abs (fromJuce.getY() - fromWindows.getY()) <= 1.5f
-                      && std::abs (fromJuce.getRight() - fromWindows.getRight()) <= 1.5f && std::abs (fromJuce.getBottom() - fromWindows.getBottom()) <= 1.5f;
+                    check->expect (std::abs (fromJuce.getX() - fromWindows.getX()) <= 1.5f && std::abs (fromJuce.getY() - fromWindows.getY()) <= 1.5f
+                                     && std::abs (fromJuce.getRight() - fromWindows.getRight()) <= 1.5f
+                                     && std::abs (fromJuce.getBottom() - fromWindows.getBottom()) <= 1.5f,
+                                   "physical coordinates match Windows");
+
+                    startBusyMouseCheck (check, fromWindows.getCentre().roundToInt(), peer->getNativeHandle());
                 }
             }
 
-            writeReport (path, report + "result: " + (ok ? "ALL OK" : "FAILED") + "\n");
-            setApplicationReturnValue (ok ? 0 : 1);
-            checkWindow = nullptr;
-            checkProbe = nullptr;
-            quit();
+            if (! check->worker.joinable())
+                check->expect (false, "window found");
+
+            // 화면 스레드가 바쁜 시간(300ms)이 지나 일꾼 스레드가 끝날 때를 넉넉히 기다린다.
+            juce::Timer::callAfterDelay (500, [this, path, check]
+            {
+                finishBusyMouseCheck (*check);
+                checkCoveringWindows (*check);
+
+                // 팝업 메뉴를 닫은 뒤에는 다시 받는다.
+                juce::Timer::callAfterDelay (100, [this, path, check]
+                {
+                    const auto area = PlayPage::visibleScreenArea (*checkProbe);
+                    check->expect (! PlayPage::isCoveredByOtherWindow (*checkProbe, area), "takes clicks again after the menu closed");
+
+                    writeReport (path, check->report + "result: " + (check->ok ? "ALL OK" : "FAILED") + "\n");
+                    setApplicationReturnValue (check->ok ? 0 : 1);
+                    checkWindow = nullptr;
+                    checkProbe = nullptr;
+                    quit();
+                });
+            });
         });
+    }
+
+    /** --mousecheck가 단계 사이에 들고 다니는 것들. */
+    struct MouseCheck
+    {
+        juce::String report;
+        bool ok = true;
+
+        std::thread worker;
+        std::atomic<bool> workerDone { false };
+        double newPathMs = -1.0, oldPathMs = -1.0;
+        int handlerCalls = 0;
+        bool oldPathFoundWindow = false;
+
+        void expect (bool condition, const juce::String& what)
+        {
+            ok = ok && condition;
+            report << (condition ? "ok      " : "FAILED  ") << what << "\n";
+        }
+    };
+
+    static constexpr int busyMouseCheckMs = 300;
+
+    /** 화면 스레드를 잠깐 붙잡아 둔 동안 다른 스레드에서 입력 스레드의 클릭 처리(processRawMouse)와
+        예전에 쓰던 WindowFromPoint에 걸리는 시간을 잰다. point는 검사 창 안의 한 점(모니터의 실제 화소). */
+    void startBusyMouseCheck (const std::shared_ptr<MouseCheck>& check, juce::Point<int> point, void* window)
+    {
+        check->worker = std::thread ([check, point, window]
+        {
+            std::this_thread::sleep_for (std::chrono::milliseconds (50));    // 화면 스레드가 바빠질 때까지
+
+            hvd::RawKeyboard probe;    // 스레드는 띄우지 않는다. 창을 정해 두지 않았으므로 맨 앞 창 확인은 지나간다
+            probe.setMouseHandlerForTesting ([check] (hvd::RawKeyboard::MouseButton, int, int) { ++check->handlerCalls; });
+
+            constexpr unsigned leftButtonDown = 0x0001;    // RI_MOUSE_LEFT_BUTTON_DOWN
+            const auto start = juce::Time::getMillisecondCounterHiRes();
+            probe.processRawMouse (leftButtonDown, point.x, point.y);
+            check->newPathMs = juce::Time::getMillisecondCounterHiRes() - start;
+
+            check->oldPathMs = hvd::RawKeyboard::windowFromPointMs (point.x, point.y, window, check->oldPathFoundWindow);
+            check->workerDone.store (true);
+        });
+
+        juce::Thread::sleep (busyMouseCheckMs);    // 화면 스레드가 그림을 그리거나 킷을 읽는 중인 것처럼
+    }
+
+    static void finishBusyMouseCheck (MouseCheck& check)
+    {
+        if (! check.worker.joinable())
+            return;
+
+        // 다른 프로그램의 창이 답하지 않아 아직 끝나지 않았으면 기다리지 않는다 (그 창 때문에 화면 스레드가 묶이지 않게).
+        if (! check.workerDone.load())
+        {
+            check.worker.detach();
+            check.expect (false, "timing thread finished");
+            return;
+        }
+
+        check.worker.join();
+        check.report << "while the UI thread was busy for " << busyMouseCheckMs << " ms:\n"
+                     << "  click handling on the input side " << juce::String (check.newPathMs, 3) << " ms\n"
+                     << "  WindowFromPoint (the old check) " << juce::String (check.oldPathMs, 1) << " ms"
+                     << (check.oldPathFoundWindow ? "" : " (another window was on top at that point)") << "\n";
+
+        check.expect (check.handlerCalls == 1 && check.newPathMs >= 0.0 && check.newPathMs < 5.0,
+                      "input side does not wait for the UI thread");
+    }
+
+    /** 다른 창이 연주 자리를 가리거나 입력을 붙잡고 있으면 입력 스레드에 클릭을 맡기지 않는다. */
+    void checkCoveringWindows (MouseCheck& check)
+    {
+        const auto area = PlayPage::visibleScreenArea (*checkProbe);
+        const auto covered = [this, &area] { return PlayPage::isCoveredByOtherWindow (*checkProbe, area); };
+
+        check.expect (! area.isEmpty() && ! covered(), "takes clicks when nothing covers the window");
+
+        // 클릭을 받지 않는 창(툴팁 같은 것)이 겹친 것은 괜찮다. 클릭을 받는 창이 겹치면 받지 않는다.
+        juce::Component overlay;
+        overlay.setBounds (area.reduced (20));
+        overlay.addToDesktop (juce::ComponentPeer::windowIsTemporary | juce::ComponentPeer::windowIgnoresMouseClicks);
+        overlay.setVisible (true);
+        check.expect (! covered(), "a window that ignores clicks (tooltip) does not count");
+
+        overlay.removeFromDesktop();
+        overlay.addToDesktop (juce::ComponentPeer::windowIsTemporary);
+        overlay.setVisible (true);
+        check.expect (covered(), "a window over the drums blocks the input side");
+
+        overlay.setTopLeftPosition (area.getRight() + 40, area.getY());
+        check.expect (! covered(), "a window beside the drums does not");
+        overlay.removeFromDesktop();
+
+        // 대화 상자와 팝업 메뉴는 모달이다. 떠 있는 동안은 그 밖을 눌러도 화면이 클릭을 받지 않는다.
+        juce::Component dialog;
+        dialog.enterModalState (false);
+        check.expect (covered(), "a modal dialog blocks the input side");
+        dialog.exitModalState (0);
+        check.expect (! covered(), "and stops blocking when it closes");
+
+        juce::PopupMenu menu;
+        menu.addItem (1, "mouse check");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (area.withSizeKeepingCentre (2, 2)));
+        check.expect (covered(), "an open popup menu blocks the input side");
+        juce::PopupMenu::dismissAllActiveMenus();
     }
 
     void saveScreenshot (const juce::String& path, int page, bool gameDemo, int afterMs, std::vector<hvd::KeyCode> pressKeys, bool footswitch)

@@ -61,4 +61,16 @@ struct MouseTargets
     bool operator== (const MouseTargets&) const = default;
 };
 
+/** 입력 스레드가 rawMs에 친 클릭이 화면 스레드가 받은 클릭과 같은 클릭인지 (시각은 모두 ms).
+    receivedMs는 화면 스레드가 받은 시각, pressedMs는 그 클릭이 생긴 시각의 어림이다 (메시지 시각, 약 16ms 단위).
+    입력 스레드가 먼저 받으므로 보통은 받은 시각 바로 앞에 기록이 있다. 화면 스레드가 바빴으면 한참 늦게 받으므로
+    생긴 시각으로도 맞춰 본다. */
+inline bool isSameClick (double rawMs, double receivedMs, double pressedMs) noexcept
+{
+    if (rawMs <= receivedMs + 5.0 && rawMs >= receivedMs - 500.0)
+        return true;
+
+    return rawMs <= pressedMs + 40.0 && rawMs >= pressedMs - 40.0;
+}
+
 } // namespace hvd

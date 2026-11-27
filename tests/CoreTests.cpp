@@ -1455,6 +1455,15 @@ void testMouseTargets()
     CHECK (copy == targets);
     copy.targets[1].chokes.push_back (2);
     CHECK (! (copy == targets));
+
+    // 입력 스레드의 기록과 화면 스레드가 받은 클릭 맞춰 보기 (ms)
+    CHECK (hvd::isSameClick (1000.0, 1003.0, 1003.0));      // 보통: 기록이 조금 앞선다
+    CHECK (hvd::isSameClick (1000.0, 1300.0, 1290.0));      // 화면이 조금 바빴다
+    CHECK (hvd::isSameClick (1000.0, 2500.0, 990.0));       // 화면이 1.5초 바빴다: 누른 때로 맞춘다
+    CHECK (hvd::isSameClick (1000.0, 2500.0, 1015.0));      // 누른 때는 16ms 단위라 조금 어긋난다
+    CHECK (! hvd::isSameClick (1000.0, 2500.0, 1100.0));    // 바쁜 동안 따로 누른 클릭
+    CHECK (! hvd::isSameClick (1200.0, 1003.0, 1003.0));    // 받은 뒤에 친 다른 클릭
+    CHECK (! hvd::isSameClick (400.0, 1003.0, 1003.0));     // 오래전 기록
 }
 
 void testChordAccent()

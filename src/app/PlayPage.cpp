@@ -345,7 +345,9 @@ void PlayPage::rebuild()
 
 void PlayPage::handleClick (bool inSet, int spot, bool right)
 {
-    const UiClick click { inSet, spot, right, juce::Time::getMillisecondCounterHiRes() };
+    // 화면 스레드가 바빴으면 클릭을 늦게 받는다. 누른 때는 지금 처리하는 마우스 메시지가 생긴 시각으로 어림한다.
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    const UiClick click { inSet, spot, right, now, now - hvd::RawKeyboard::currentMessageAgeMs() };
 
     if (! session.isMouseTakenByInput())
     {
@@ -403,7 +405,7 @@ void PlayPage::reconcileClicks()
     {
         const auto match = std::find_if (rawClicks.begin(), rawClicks.end(), [&click] (const Session::RawClick& candidate)
         {
-            return candidate.right == click->right && candidate.timeMs <= click->timeMs + 5.0 && candidate.timeMs >= click->timeMs - 500.0;
+            return candidate.right == click->right && hvd::isSameClick (candidate.timeMs, click->timeMs, click->pressedMs);
         });
 
         if (match != rawClicks.end())
@@ -424,9 +426,10 @@ void PlayPage::reconcileClicks()
         }
     }
 
-    // 화면 쪽이 받지 못한 클릭(자리 가장자리)의 기록은 1초 뒤에 버린다.
+    // 화면 쪽이 받지 못한 클릭(자리 가장자리, 다른 프로그램의 창)의 기록은 10초 뒤에 버린다. 화면 스레드가 오래 바빴으면
+    // 밀린 클릭이 그 뒤의 tick보다 늦게 오므로 넉넉히 둔다. 오래된 기록은 시각이 맞지 않아 다른 클릭과 짝이 되지 않는다.
     rawClicks.erase (std::remove_if (rawClicks.begin(), rawClicks.end(),
-                                     [now] (const Session::RawClick& old) { return old.timeMs < now - 1000.0; }),
+                                     [now] (const Session::RawClick& old) { return old.timeMs < now - 10000.0; }),
                      rawClicks.end());
 
     if (failedClicks >= 3)
@@ -443,12 +446,55 @@ void PlayPage::reconcileClicks()
     }
 }
 
+bool PlayPage::isCoveredByOtherWindow (const juce::Component& owner, juce::Rectangle<int> area)
+{
+    // 모달 창(대화 상자, 팝업 메뉴)이 떠 있으면 그 창 밖을 눌러도 화면은 클릭을 받지 않는다.
+    if (juce::ModalComponentManager::getInstance()->getNumModalComponents() > 0)
+        return true;
+
+    const auto* own = owner.getTopLevelComponent();
+    const auto& desktop = juce::Desktop::getInstance();
+
+    for (int i = 0; i < desktop.getNumComponents(); ++i)
+    {
+        const auto* other = desktop.getComponent (i);
+
+        if (other == nullptr || other == own || ! other->isVisible())
+            continue;
+
+        // 툴팁처럼 클릭을 받지 않는 창은 클릭이 아래로 지나간다.
+        if (const auto* peer = other->getPeer(); peer != nullptr && (peer->getStyleFlags() & juce::ComponentPeer::windowIgnoresMouseClicks) != 0)
+            continue;
+
+        if (other->getScreenBounds().intersects (area))
+            return true;
+    }
+
+    return false;
+}
+
+juce::Rectangle<int> PlayPage::visibleScreenArea (const juce::Component& component)
+{
+    auto area = component.getScreenBounds();
+
+    for (const auto* parent = component.getParentComponent(); parent != nullptr; parent = parent->getParentComponent())
+        area = area.getIntersection (parent->getScreenBounds());
+
+    return area;
+}
+
 void PlayPage::publishMouseTargets()
 {
     std::shared_ptr<hvd::MouseTargets> targets;
+    const juce::Component& shown = kitView.isVisible() ? static_cast<const juce::Component&> (kitView) : padGrid;
 
-    // 이 화면이 보이고 배치를 고치는 중이 아닐 때만 입력 스레드가 클릭을 받는다.
-    if (isShowing() && ! kitView.isEditing() && (kitView.isVisible() || padGrid.isVisible()) && ! session.hasGivenUpMouseTakeover())
+    // 이 화면이 보이고 배치를 고치는 중이 아닐 때만 입력 스레드가 클릭을 받는다. 창이 최소화되면 isShowing()이 false다.
+    // 우리 팝업이나 대화 상자가 떠 있으면 그 창의 클릭이므로 받지 않는다. 입력 스레드는 창 위에 무엇이 있는지 묻지 않는다.
+    // 부품에서 창 밖으로 나간 부분은 자른다.
+    const auto visible = visibleScreenArea (shown);
+
+    if (isShowing() && ! kitView.isEditing() && (kitView.isVisible() || padGrid.isVisible()) && ! session.hasGivenUpMouseTakeover()
+        && ! visible.isEmpty() && ! isCoveredByOtherWindow (shown, visible))
     {
         targets = std::make_shared<hvd::MouseTargets>();
         const auto& displays = juce::Desktop::getInstance().getDisplays();
@@ -465,8 +511,7 @@ void PlayPage::publishMouseTargets()
                                                                                       : std::vector<std::uint16_t>();
         };
 
-        const juce::Component& shown = kitView.isVisible() ? static_cast<const juce::Component&> (kitView) : padGrid;
-        const auto frame = toPhysical (shown, shown.getLocalBounds().toFloat());
+        const auto frame = displays.logicalToPhysical (visible.toFloat());
         targets->left = frame.getX();
         targets->top = frame.getY();
         targets->right = frame.getRight();
