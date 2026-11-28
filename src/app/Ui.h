@@ -324,13 +324,6 @@ private:
     bool open = false;
 };
 
-inline bool isCymbalPad (const juce::String& padId)
-{
-    const auto id = padId.toLowerCase();
-    return id.startsWith ("hihat") || id.startsWith ("hat") || id.startsWith ("ride") || id.startsWith ("crash")
-        || id.startsWith ("china") || id.startsWith ("splash") || id.startsWith ("cymbal");
-}
-
 /** 소리 파일로 읽을 수 있는 확장자인지. */
 inline bool isAudioFile (const juce::File& file)
 {

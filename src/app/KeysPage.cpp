@@ -1,5 +1,6 @@
 #include "KeysPage.h"
 
+#include "Json.h"
 
 namespace
 {
@@ -62,9 +63,14 @@ int indexOfChoice (const Choice (&choices)[N], const juce::String& value)
     return 0;
 }
 
-double numberOr (const juce::var& value, double fallback)
+/** 키 하나로 패드 하나를 세기 1로 치는 새 줄. */
+juce::var makeHitBinding (hvd::KeyCode key, const juce::String& pad)
 {
-    return (value.isDouble() || value.isInt() || value.isInt64()) ? static_cast<double> (value) : fallback;
+    auto* binding = new juce::DynamicObject();
+    binding->setProperty ("key", fromUtf8 (hvd::keyName (key)));
+    binding->setProperty ("pad", pad);
+    binding->setProperty ("velocity", 1.0);
+    return juce::var (binding);
 }
 
 /** 장치의 보고 간격을 화면에 보여 줄 글로. */
@@ -152,47 +158,46 @@ KeysPage::KeysPage (Session& sessionToUse)
 
     ui::setupCombo (*this, padCombo, [this]
     {
-        auto* binding = currentBinding();
-
-        if (updating || binding == nullptr)
-            return;
-
-        auto pads = padsOf (juce::var (binding));
+        const auto index = currentBindingIndex();
         const auto chosen = comboPadId (padCombo);
 
-        if (chosen.isEmpty())
+        if (updating || index < 0 || chosen.isEmpty())
             return;
 
+        // 첫 패드를 고른 것으로 바꾼다. 함께 칠 패드에 있던 것이면 그 자리에서 뺀다.
+        auto& keymap = session.getKeymapDocument();
+        auto pads = keymap.getBindingPads (index);
         pads.removeString (chosen);
         pads.set (0, chosen);
-        setPads (*binding, pads);
+        keymap.setBindingPads (index, pads);
         commit();
     });
 
     ui::setupCombo (*this, rateCombo, [this]
     {
-        if (auto* binding = currentBinding(); ! updating && binding != nullptr)
+        if (const auto index = currentBindingIndex(); ! updating && index >= 0)
         {
-            binding->setProperty ("rate", rates[juce::jmax (0, rateCombo.getSelectedItemIndex())].value);
-            binding->removeProperty ("intervalMs");
+            auto& keymap = session.getKeymapDocument();
+            keymap.setBindingProperty (index, "rate", rates[juce::jmax (0, rateCombo.getSelectedItemIndex())].value);
+            keymap.setBindingProperty (index, "intervalMs", {});
             commit();
         }
     });
 
     ui::setupCombo (*this, divisionCombo, [this]
     {
-        if (auto* binding = currentBinding(); ! updating && binding != nullptr)
+        if (const auto index = currentBindingIndex(); ! updating && index >= 0)
         {
-            binding->setProperty ("division", divisionCombo.getSelectedId());
+            session.getKeymapDocument().setBindingProperty (index, "division", divisionCombo.getSelectedId());
             commit();
         }
     });
 
     const auto pedalChanged = [this]
     {
-        auto* binding = currentBinding();
+        const auto index = currentBindingIndex();
 
-        if (updating || binding == nullptr)
+        if (updating || index < 0)
             return;
 
         // 화면에서는 누르는 동안, 떼고 있는 동안 각각 한 쌍만 다룬다.
@@ -206,26 +211,22 @@ KeysPage::KeysPage (Session& sessionToUse)
             return swap;
         };
 
-        binding->setProperty ("swap", juce::var (pairOf (heldSwap).get()));
+        // 고르지 않은 칸은 그 항목을 지운다 (빈 값).
+        const auto padOrNone = [this] (const juce::ComboBox& combo)
+        {
+            const auto id = comboPadId (combo);
+            return id.isNotEmpty() ? juce::var (id) : juce::var();
+        };
 
-        if (const auto released = pairOf (releasedSwap); released->getProperties().size() > 0)
-            binding->setProperty ("releasedSwap", juce::var (released.get()));
-        else
-            binding->removeProperty ("releasedSwap");
-
+        auto& keymap = session.getKeymapDocument();
+        const auto released = pairOf (releasedSwap);
         const auto press = comboPadId (pressPadCombo);
-        setPads (*binding, press.isNotEmpty() ? juce::StringArray (press) : juce::StringArray());
 
-        if (const auto release = comboPadId (releasePadCombo); release.isNotEmpty())
-            binding->setProperty ("releasePad", release);
-        else
-            binding->removeProperty ("releasePad");
-
-        if (const auto splash = comboPadId (splashPadCombo); splash.isNotEmpty())
-            binding->setProperty ("splash", splash);
-        else
-            binding->removeProperty ("splash");
-
+        keymap.setBindingProperty (index, "swap", juce::var (pairOf (heldSwap).get()));
+        keymap.setBindingProperty (index, "releasedSwap", released->getProperties().size() > 0 ? juce::var (released.get()) : juce::var());
+        keymap.setBindingPads (index, press.isNotEmpty() ? juce::StringArray (press) : juce::StringArray());
+        keymap.setBindingProperty (index, "releasePad", padOrNone (releasePadCombo));
+        keymap.setBindingProperty (index, "splash", padOrNone (splashPadCombo));
         commit();
     };
 
@@ -253,13 +254,10 @@ KeysPage::KeysPage (Session& sessionToUse)
     {
         slider.onValueChange = [this, &slider, name, integer]
         {
-            if (auto* binding = currentBinding(); ! updating && binding != nullptr)
+            if (const auto index = currentBindingIndex(); ! updating && index >= 0)
             {
-                if (integer)
-                    binding->setProperty (name, juce::roundToInt (slider.getValue()));
-                else
-                    binding->setProperty (name, slider.getValue());
-
+                session.getKeymapDocument().setBindingProperty (index, name, integer ? juce::var (juce::roundToInt (slider.getValue()))
+                                                                                     : juce::var (slider.getValue()));
                 session.markKeymapEdited();    // 마우스를 놓은 뒤에 저장한다
             }
         };
@@ -272,16 +270,17 @@ KeysPage::KeysPage (Session& sessionToUse)
 
     const auto stepsChanged = [this]
     {
-        auto* binding = currentBinding();
+        const auto index = currentBindingIndex();
 
-        if (updating || binding == nullptr)
+        if (updating || index < 0)
             return;
 
+        auto& keymap = session.getKeymapDocument();
         const auto steps = stepsEditor.getText().retainCharacters ("Xxo.");
 
-        if (steps.isNotEmpty() && steps != binding->getProperty ("steps").toString())
+        if (steps.isNotEmpty() && steps != keymap.getBinding (index)["steps"].toString())
         {
-            binding->setProperty ("steps", steps);
+            keymap.setBindingProperty (index, "steps", steps);
             commit();
         }
     };
@@ -556,50 +555,17 @@ juce::String KeysPage::padName (const juce::String& padId) const
     return padId;
 }
 
-juce::StringArray KeysPage::padsOf (const juce::var& binding) const
+juce::String KeysPage::describe (int index) const
 {
-    juce::StringArray pads;
-
-    if (const auto pad = binding["pad"].toString(); pad.isNotEmpty())
-        pads.add (pad);
-
-    if (const auto* list = binding["pads"].getArray())
-        for (const auto& pad : *list)
-            if (pad.toString().isNotEmpty())
-                pads.addIfNotAlreadyThere (pad.toString());
-
-    return pads;
-}
-
-void KeysPage::setPads (juce::DynamicObject& binding, const juce::StringArray& pads) const
-{
-    binding.removeProperty ("pad");
-    binding.removeProperty ("pads");
-
-    if (pads.size() == 1)
-    {
-        binding.setProperty ("pad", pads[0]);
-    }
-    else if (pads.size() > 1)
-    {
-        juce::Array<juce::var> list;
-
-        for (const auto& pad : pads)
-            list.add (pad);
-
-        binding.setProperty ("pads", list);
-    }
-}
-
-juce::String KeysPage::describe (const juce::var& binding) const
-{
+    const auto& keymap = session.getKeymapDocument();
+    const auto binding = keymap.getBinding (index);
     const auto action = binding["action"].toString();
 
     if (action.isEmpty() || action == "hit")
     {
         juce::StringArray names;
 
-        for (const auto& pad : padsOf (binding))
+        for (const auto& pad : keymap.getBindingPads (index))
             names.add (padName (pad));
 
         auto text = names.joinIntoString ("+");
@@ -612,7 +578,7 @@ juce::String KeysPage::describe (const juce::var& binding) const
         else if (stroke == "drag")     text << ko (" 드래그");
         else if (stroke == "pattern")  text << ko (" 패턴");
         else if (stroke == "downUp")   text << ko (" 뗌");
-        else if (numberOr (binding["velocity"], 1.0) < 0.6)    text << ko (" 약");    // 약하게 치는 키
+        else if (json::numberOr (binding["velocity"], 1.0) < 0.6)    text << ko (" 약");    // 약하게 치는 키
 
         return text.isEmpty() ? ko ("(패드 없음)") : text;
     }
@@ -623,7 +589,7 @@ juce::String KeysPage::describe (const juce::var& binding) const
     if (action == "pedal")
     {
         // 누를 때 소리를 내는 페달은 그 패드 이름으로 보인다 (하이햇 페달 등).
-        const auto pads = padsOf (binding);
+        const auto pads = keymap.getBindingPads (index);
         return pads.isEmpty() ? ko ("페달") : padName (pads[0]);
     }
 
@@ -656,11 +622,6 @@ int KeysPage::currentBindingIndex() const
 
     const auto& list = bindingsByKey[selectedKey];
     return juce::isPositiveAndBelow (selectedSlot, static_cast<int> (list.size())) ? list[static_cast<std::size_t> (selectedSlot)] : -1;
-}
-
-juce::DynamicObject* KeysPage::currentBinding() const
-{
-    return session.getKeymapDocument().getBinding (currentBindingIndex()).getDynamicObject();
 }
 
 //==============================================================================
@@ -698,17 +659,16 @@ void KeysPage::rebuild()
             if (list.empty())
                 continue;
 
-            const auto first = document.getBinding (list.front());
-            const auto action = first["action"].toString();
-            const auto pads = padsOf (first);
+            const auto action = document.getBinding (list.front())["action"].toString();
+            const auto pads = document.getBindingPads (list.front());
 
-            caps[code].text = describe (first);
+            caps[code].text = describe (list.front());
             caps[code].count = static_cast<int> (list.size());
 
             juce::StringArray all;
 
             for (const auto index : list)
-                all.add (describe (document.getBinding (index)));
+                all.add (describe (index));
 
             caps[code].tip = all.joinIntoString (", ");
             caps[code].colour = ((action.isEmpty() || action == "hit") && ! pads.isEmpty()) ? ui::padColour (pads[0]) : ui::theme().otherPad;
@@ -776,11 +736,13 @@ void KeysPage::showBinding()
     for (auto& row : rows)
         row.shown = false;
 
-    if (const auto* object = currentBinding())
+    const auto& keymap = session.getKeymapDocument();
+
+    if (const auto line = currentBindingIndex(); keymap.getBinding (line).isObject())
     {
-        const juce::var binding (const_cast<juce::DynamicObject*> (object));
+        const auto binding = keymap.getBinding (line);
         const auto action = binding["action"].toString().isEmpty() ? juce::String ("hit") : binding["action"].toString();
-        const auto pads = padsOf (binding);
+        const auto pads = keymap.getBindingPads (line);
 
         actionCombo.setSelectedItemIndex (indexOfChoice (actions, action), juce::dontSendNotification);
         rows[0].shown = true;
@@ -799,7 +761,7 @@ void KeysPage::showBinding()
             rows[2].caption.setText (ko ("함께 칠 패드"), juce::dontSendNotification);
             padsButton.setButtonText (extra.isEmpty() ? ko ("없음") : extra.joinIntoString (", "));
 
-            velocitySlider.setValue (numberOr (binding["velocity"], 1.0), juce::dontSendNotification);
+            velocitySlider.setValue (json::numberOr (binding["velocity"], 1.0), juce::dontSendNotification);
             strokeCombo.setSelectedItemIndex (indexOfChoice (strokes, stroke), juce::dontSendNotification);
 
             for (const auto index : { 1, 2, 3, 4 })
@@ -809,19 +771,19 @@ void KeysPage::showBinding()
             {
                 const auto rate = binding["rate"].toString();
                 rateCombo.setSelectedItemIndex (indexOfChoice (rates, rate.isEmpty() ? juce::String ("1/16") : rate), juce::dontSendNotification);
-                accentSlider.setValue (juce::jmax (0.0, numberOr (binding["accentEvery"], 0.0)), juce::dontSendNotification);
-                softSlider.setValue (numberOr (binding["softVelocity"], 0.8), juce::dontSendNotification);
+                accentSlider.setValue (juce::jmax (0.0, json::numberOr (binding["accentEvery"], 0.0)), juce::dontSendNotification);
+                softSlider.setValue (json::numberOr (binding["softVelocity"], 0.8), juce::dontSendNotification);
                 rows[5].shown = rows[6].shown = rows[7].shown = true;
             }
             else if (stroke == "double" || stroke == "flam" || stroke == "drag")
             {
-                gapSlider.setValue (numberOr (binding["gapMs"], stroke == "double" ? 85.0 : 28.0), juce::dontSendNotification);
+                gapSlider.setValue (json::numberOr (binding["gapMs"], hvd::defaultGapMs (stroke.toStdString())), juce::dontSendNotification);
                 rows[8].shown = true;
             }
             else if (stroke == "pattern")
             {
                 stepsEditor.setText (binding["steps"].toString(), false);
-                divisionCombo.setSelectedId (juce::roundToInt (numberOr (binding["division"], 4.0)), juce::dontSendNotification);
+                divisionCombo.setSelectedId (juce::roundToInt (json::numberOr (binding["division"], 4.0)), juce::dontSendNotification);
                 rows[9].shown = rows[10].shown = true;
             }
         }
@@ -886,11 +848,8 @@ void KeysPage::addBinding()
     if (selectedKey == hvd::invalidKey || padIds.isEmpty())
         return;
 
-    auto* binding = new juce::DynamicObject();
-    binding->setProperty ("key", fromUtf8 (hvd::keyName (selectedKey)));
-    binding->setProperty ("pad", comboPadId (quickPadCombo).isNotEmpty() ? comboPadId (quickPadCombo) : padIds[0]);
-    binding->setProperty ("velocity", 1.0);
-    session.getKeymapDocument().addBinding (juce::var (binding));
+    const auto quickPad = comboPadId (quickPadCombo);
+    session.getKeymapDocument().addBinding (makeHitBinding (selectedKey, quickPad.isNotEmpty() ? quickPad : padIds[0]));
 
     selectedSlot = static_cast<int> (bindingsByKey[selectedKey].size());    // 새 동작은 이 키의 마지막에 온다
     commit();
@@ -1044,11 +1003,7 @@ void KeysPage::startQuickAssign()
         if (key == 0x01)    // Esc: 그만둔다
             return;
 
-        auto* binding = new juce::DynamicObject();
-        binding->setProperty ("key", fromUtf8 (hvd::keyName (key)));
-        binding->setProperty ("pad", pad);
-        binding->setProperty ("velocity", 1.0);
-        session.getKeymapDocument().addBinding (juce::var (binding));
+        session.getKeymapDocument().addBinding (makeHitBinding (key, pad));
 
         selectedKey = key;
         keyboard.setSelected (key);
@@ -1059,13 +1014,15 @@ void KeysPage::startQuickAssign()
 
 void KeysPage::showPadsMenu()
 {
-    auto* binding = currentBinding();
+    const auto index = currentBindingIndex();
 
-    if (binding == nullptr)
+    if (index < 0)
         return;
 
-    const auto pads = padsOf (juce::var (binding));
-    const auto hit = binding->getProperty ("action").toString().isEmpty() || binding->getProperty ("action").toString() == "hit";
+    const auto& keymap = session.getKeymapDocument();
+    const auto pads = keymap.getBindingPads (index);
+    const auto action = keymap.getBinding (index)["action"].toString();
+    const auto hit = action.isEmpty() || action == "hit";
 
     juce::PopupMenu menu;
 
@@ -1079,12 +1036,13 @@ void KeysPage::showPadsMenu()
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&padsButton),
                         [this] (int result)
                         {
-                            auto* target = currentBinding();
+                            const auto target = currentBindingIndex();
 
-                            if (result <= 0 || target == nullptr)
+                            if (result <= 0 || target < 0)
                                 return;
 
-                            auto chosen = padsOf (juce::var (target));
+                            auto& document = session.getKeymapDocument();
+                            auto chosen = document.getBindingPads (target);
                             const auto id = padIds[result - 1];
 
                             if (chosen.contains (id))
@@ -1092,116 +1050,28 @@ void KeysPage::showPadsMenu()
                             else
                                 chosen.add (id);
 
-                            setPads (*target, chosen);
+                            document.setBindingPads (target, chosen);
                             commit();
                         });
 }
 
 void KeysPage::actionChanged()
 {
-    auto* binding = currentBinding();
-
-    if (binding == nullptr)
-        return;
-
-    const juce::String action (actions[juce::jmax (0, actionCombo.getSelectedItemIndex())].value);
-    const juce::var asVar (binding);
-
-    if (action == "hit")
-        binding->removeProperty ("action");
-    else
-        binding->setProperty ("action", action);
-
-    // 새 동작에서 쓰지 않는 항목은 지운다.
-    if (action != "hit")
-        for (const auto* name : { "velocity", "stroke", "rate", "intervalMs", "gap", "gapMs", "secondVelocity", "graceVelocity",
-                                  "softVelocity", "ramp", "swellMs", "swellStart", "jitter", "velocityJitter", "accentEvery", "followDivisor",
-                                  "steps", "division" })
-            binding->removeProperty (name);
-
-    if (action != "pedal")
-        for (const auto* name : { "swap", "releasedSwap", "releasePad", "releaseVelocity", "splash", "splashMs" })
-            binding->removeProperty (name);
-
-    if (action != "hit" && action != "choke")
-        setPads (*binding, juce::StringArray());
-
-    if (action == "hit")
+    // 지울 항목과 처음 채울 값은 문서가 정한다 (KeymapDocument::setBindingAction).
+    if (const auto index = currentBindingIndex(); index >= 0)
     {
-        if (padsOf (asVar).isEmpty() && ! padIds.isEmpty())
-            setPads (*binding, juce::StringArray (padIds[0]));
-
-        if (! binding->hasProperty ("velocity"))
-            binding->setProperty ("velocity", 1.0);
+        session.getKeymapDocument().setBindingAction (index, actions[juce::jmax (0, actionCombo.getSelectedItemIndex())].value, padIds);
+        commit();
     }
-    else if (action == "choke" && padsOf (asVar).size() <= 1)
-    {
-        // 처음에는 심벌을 모두 고른다. 손으로 심벌을 잡아 멈추는 동작이기 때문이다.
-        juce::StringArray cymbals;
-
-        for (const auto& id : padIds)
-            if (ui::isCymbalPad (id) && ! id.startsWith ("hihat"))
-                cymbals.add (id);
-
-        if (! cymbals.isEmpty())
-            setPads (*binding, cymbals);
-    }
-    else if (action == "pedal" && ! binding->hasProperty ("swap"))
-    {
-        // 처음에는 하이햇 페달로 둔다: 누르는 동안 닫힌 하이햇을 열린 하이햇으로 바꾼다.
-        auto* swap = new juce::DynamicObject();
-
-        if (padIds.contains ("hihat_closed") && padIds.contains ("hihat_open"))
-            swap->setProperty ("hihat_closed", "hihat_open");
-        else if (padIds.size() >= 2)
-            swap->setProperty (padIds[0], padIds[1]);
-
-        binding->setProperty ("swap", juce::var (swap));
-
-        if (padIds.contains ("hihat_pedal"))
-            binding->setProperty ("releasePad", "hihat_pedal");
-    }
-
-    commit();
 }
 
 void KeysPage::strokeChanged()
 {
-    auto* binding = currentBinding();
-
-    if (binding == nullptr)
-        return;
-
-    const juce::String stroke (strokes[juce::jmax (0, strokeCombo.getSelectedItemIndex())].value);
-
-    if (stroke == "single")
-        binding->removeProperty ("stroke");
-    else
-        binding->setProperty ("stroke", stroke);
-
-    // 방식마다 쓰는 항목이 다르므로 다른 방식의 값은 지운다.
-    if (stroke != "repeat")
-        for (const auto* name : { "rate", "intervalMs", "accentEvery", "softVelocity", "ramp", "followDivisor" })
-            binding->removeProperty (name);
-
-    if (stroke != "double" && stroke != "flam" && stroke != "drag")
-        for (const auto* name : { "gap", "gapMs", "secondVelocity", "graceVelocity" })
-            binding->removeProperty (name);
-
-    if (stroke != "pattern")
-        for (const auto* name : { "steps", "division" })
-            binding->removeProperty (name);
-
-    if (stroke == "repeat" && ! binding->hasProperty ("rate"))
-        binding->setProperty ("rate", "1/16");
-
-    if (stroke == "pattern" && ! binding->hasProperty ("steps"))
+    if (const auto index = currentBindingIndex(); index >= 0)
     {
-        binding->setProperty ("steps", "X.x.");
-        binding->setProperty ("division", 4);
+        session.getKeymapDocument().setBindingStroke (index, strokes[juce::jmax (0, strokeCombo.getSelectedItemIndex())].value);
+        commit();
     }
-
-    commit();
 }
 
 //==============================================================================

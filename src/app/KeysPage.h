@@ -68,11 +68,10 @@ private:
     void commit();
 
     int currentBindingIndex() const;
-    juce::DynamicObject* currentBinding() const;
-    juce::StringArray padsOf (const juce::var& binding) const;
-    void setPads (juce::DynamicObject& binding, const juce::StringArray& pads) const;
     juce::String padName (const juce::String& padId) const;
-    juce::String describe (const juce::var& binding) const;
+
+    /** 키 배열 줄 하나를 키 캡에 적을 짧은 글로 ("스네어 플램", "멈춤"). */
+    juce::String describe (int index) const;
 
     void addBinding();
     void removeBinding();
