@@ -248,6 +248,18 @@ KitLoadResult loadKit (const juce::File& kitFile)
         if (pad.layers.empty())
             result.warnings.add ("pad has no playable samples: " + juce::String (pad.id));
 
+        // 레이어의 크기: 번갈아 쓰는 샘플들의 크기(dB) 평균
+        for (auto& layer : pad.layers)
+        {
+            auto sum = 0.0f;
+
+            for (const auto index : layer.samples)
+                sum += kit->samples[index]->loudness;
+
+            layer.loudness = sum / static_cast<float> (layer.samples.size());
+            layer.measured = layer.loudness > -90.0f;
+        }
+
         kit->pads.push_back (std::move (pad));
     }
 

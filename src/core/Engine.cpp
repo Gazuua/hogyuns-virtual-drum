@@ -4,6 +4,8 @@
 #include <cmath>
 #include <utility>
 
+#include "Loudness.h"
+
 namespace hvd
 {
 
@@ -746,6 +748,10 @@ bool Engine::playPad (std::uint16_t padIndex, float velocity, int offset, float 
 
     const auto nominal = std::max (layer->nominal, 0.01f);
     auto gain = params.volume * gainScale * std::pow (velocity / nominal, params.velocityCurve);
+
+    // 레이어를 바꾸는 세기에서 녹음된 크기 차이만큼 소리가 뛰지 않게 잇는다.
+    if (pad.layers.size() > 1 && smoothLayerSteps.load (std::memory_order_relaxed))
+        gain *= std::pow (10.0f, layerStepCorrectionDb (pad, static_cast<std::size_t> (layer - pad.layers.data()), velocity, params.velocityCurve) / 20.0f);
     auto step = sample.sampleRate / sampleRate * static_cast<double> (params.pitchRatio);
 
     // 휴머나이즈: 칠 때마다 음량과 음높이를 조금씩 다르게 한다.

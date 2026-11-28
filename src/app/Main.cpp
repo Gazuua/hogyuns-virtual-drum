@@ -4,6 +4,7 @@
 #include "KeymapLoader.h"
 #include "KitLoader.h"
 #include "LookAndFeel.h"
+#include "LoudnessTool.h"
 #include "MouseRouter.h"
 #include "MainComponent.h"
 #include "MusicFile.h"
@@ -1103,6 +1104,43 @@ public:
         if (const auto index = args.indexOf ("--keymap"); index >= 0 && args[index + 1].isNotEmpty())
             keymapFile = resolvePath (args[index + 1]);
 
+        // --loudness <보고서> [--kit <킷 폴더>] [--keymap <파일>] [--match <킷 폴더> | --targets] [--pads <id,id>] [--apply] [--layers] [--no-smooth]:
+        // 패드마다 실제로 치는 세기로 쳐서 크기를 재고, 음량을 맞춘다 (LoudnessTool.h). 주지 않으면 지금 고른 킷과 키 배열.
+        if (const auto index = args.indexOf ("--loudness"); index >= 0)
+        {
+            const auto root = findDataRoot();
+            juce::var settings;
+            juce::JSON::parse (Session::getSettingsFile().loadFileAsString(), settings);
+
+            const auto valueOf = [&args] (const char* name) { const auto at = args.indexOf (name); return at >= 0 ? args[at + 1] : juce::String(); };
+            const auto kitFileOf = [&root] (const juce::String& name)
+            {
+                const auto folder = juce::File::isAbsolutePath (name) ? juce::File (name) : root.getChildFile ("kits").getChildFile (name);
+                return folder.getChildFile ("kit.json");
+            };
+
+            LoudnessOptions options;
+            options.kitFile = kitFileOf (valueOf ("--kit").isNotEmpty() ? valueOf ("--kit") : settings.getProperty ("kit", "default").toString());
+            options.keymapFile = keymapFile != juce::File() ? keymapFile
+                                                            : root.getChildFile ("keymaps").getChildFile (settings.getProperty ("keymap", "default").toString() + ".json");
+            options.referenceKitFile = valueOf ("--match").isNotEmpty() ? kitFileOf (valueOf ("--match")) : juce::File();
+            options.useTargets = args.contains ("--targets");
+            options.pads = juce::StringArray::fromTokens (valueOf ("--pads"), ",", {});
+            options.pads.trim();
+            options.pads.removeEmptyStrings();
+            options.apply = args.contains ("--apply");
+            options.showLayers = args.contains ("--layers");
+            options.smoothLayers = ! args.contains ("--no-smooth");
+            options.backupsRoot = root.getChildFile ("backups");
+            options.dataRoot = root;
+
+            auto ok = false;
+            writeReport (args[index + 1], runLoudnessTool (options, ok));
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
+
         // --coretests <보고서 파일>: 코어 자동 테스트만 돌리고 끝낸다.
         if (const auto index = args.indexOf ("--coretests"); index >= 0)
         {
@@ -1439,6 +1477,21 @@ private:
                          << ", total " << juce::String (stats.totalSeconds, 1) << " s, "
                          << juce::String (static_cast<double> (stats.memoryBytes) / 1.0e6, 1) << " MB in memory\n"
                          << "leading silence trimmed: " << juce::String (stats.averageTrimMs, 2) << " ms on average\n";
+
+            // 세기 레이어의 경계를 잇는 데 쓸 크기를 샘플을 읽을 때 재 둔다.
+            auto layers = 0, measured = 0;
+
+            for (const auto& pad : kit->pads)
+                for (const auto& layer : pad.layers)
+                    measured += (++layers, layer.measured ? 1 : 0);
+
+            test->report << "layers with a loudness: " << measured << " of " << layers << "\n";
+
+            if (measured != layers)
+            {
+                test->ok = false;
+                test->report << "FAILED: some layers have no loudness\n";
+            }
         }
         else
         {

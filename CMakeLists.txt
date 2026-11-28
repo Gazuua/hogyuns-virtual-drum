@@ -26,6 +26,7 @@ add_library(hvd_core STATIC
     src/core/Engine.cpp
     src/core/InputTiming.cpp
     src/core/KeyCode.cpp
+    src/core/Loudness.cpp
     src/core/Mapping.cpp
     src/core/PadKinds.cpp
     src/core/Patterns.cpp
@@ -117,6 +118,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/KitView.cpp
     src/app/LookAndFeel.cpp
     src/app/LoopTrainer.cpp
+    src/app/LoudnessTool.cpp
     src/app/Main.cpp
     src/app/MainComponent.cpp
     src/app/MasterGainSlider.cpp

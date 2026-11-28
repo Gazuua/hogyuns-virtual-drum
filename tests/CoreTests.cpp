@@ -18,6 +18,7 @@
 #include "core/RhythmGame.h"
 #include "core/InputTiming.h"
 #include "core/KeyCode.h"
+#include "core/Loudness.h"
 #include "core/Mapping.h"
 #include "core/MetronomeTiming.h"
 #include "core/MouseTargets.h"
@@ -3160,6 +3161,101 @@ MatchResult matchLane (const std::vector<hvd::ChartNote>& truth, const std::vect
     return result;
 }
 
+void testLoudness()
+{
+    // BS.1770: 양쪽에 같은 997Hz 사인(진폭 1)은 약 0 LUFS, 진폭이 절반이면 6dB 작다. 모노 샘플은 양쪽에 낸 것으로 본다.
+    for (const auto rate : { 48000.0, 44100.0 })
+    {
+        std::vector<float> sine (static_cast<std::size_t> (rate)), half (sine.size());
+
+        for (std::size_t i = 0; i < sine.size(); ++i)
+        {
+            sine[i] = static_cast<float> (std::sin (2.0 * 3.141592653589793 * 997.0 * static_cast<double> (i) / rate));
+            half[i] = 0.5f * sine[i];
+        }
+
+        CHECK (isNear (hvd::momentaryMaxLoudness (sine.data(), sine.data(), sine.size(), rate), 0.0f, 0.15f));
+        CHECK (isNear (hvd::momentaryMaxLoudness (sine.data(), nullptr, sine.size(), rate), 0.0f, 0.15f));
+        CHECK (isNear (hvd::momentaryMaxLoudness (half.data(), half.data(), half.size(), rate), -6.02f, 0.15f));
+
+        // 400ms보다 짧은 소리는 창의 나머지를 조용한 것으로 본다: 0.1초짜리는 0.4초짜리보다 6dB 작다
+        const auto tenth = static_cast<std::size_t> (rate / 10.0);
+        CHECK (isNear (hvd::momentaryMaxLoudness (sine.data(), sine.data(), tenth, rate), -6.02f, 0.2f));
+    }
+
+    const std::vector<float> silence (4800, 0.0f);
+    CHECK (hvd::momentaryMaxLoudness (silence.data(), nullptr, silence.size(), 48000.0) <= -99.0f);
+}
+
+void testLayerSteps()
+{
+    // 세기 0.67에서 녹음 크기가 12dB 뛰는 두 레이어. 보정이 없으면 0.67을 넘을 때 8.5dB 뛴다.
+    hvd::Pad pad;
+    pad.layers.resize (2);
+    pad.layers[0].upTo = 0.67f;
+    pad.layers[0].nominal = 0.67f;
+    pad.layers[0].loudness = -30.0f;
+    pad.layers[1].upTo = 1.0f;
+    pad.layers[1].nominal = 1.0f;
+    pad.layers[1].loudness = -18.0f;
+    pad.layers[0].measured = pad.layers[1].measured = true;
+
+    const auto level = [&pad] (float velocity, bool corrected)
+    {
+        const std::size_t k = velocity <= 0.67f ? 0 : 1;
+        const auto& layer = pad.layers[k];
+        return layer.loudness + 20.0f * std::log10 (velocity / layer.nominal)
+             + (corrected ? hvd::layerStepCorrectionDb (pad, k, velocity, 1.0f) : 0.0f);
+    };
+
+    CHECK (isNear (level (0.6701f, false) - level (0.67f, false), 8.52f, 0.05f));
+    CHECK (std::abs (level (0.6701f, true) - level (0.67f, true)) < 0.05f);           // 이어진다
+    CHECK (isNear (hvd::layerStepCorrectionDb (pad, 1, 1.0f, 1.0f), 0.0f));           // 키보드로 치는 1.0은 그대로
+    CHECK (isNear (hvd::layerStepCorrectionDb (pad, 1, 0.9f, 1.0f), 0.0f));           // 마우스 0.9도 (맨 위 가운데 0.82보다 세다)
+    CHECK (isNear (hvd::layerStepCorrectionDb (pad, 0, 0.3f, 1.0f), 0.0f));           // 맨 아래 가운데(0.335)보다 약하면 그대로
+    CHECK (isNear (hvd::layerStepCorrectionDb (pad, 0, 0.335f, 1.0f), 0.0f, 1.0e-3f)); // 가운데는 그대로
+
+    // 세질수록 커지기만 한다
+    auto increasing = true;
+
+    for (auto velocity = 0.3f; velocity < 1.0f; velocity += 0.01f)
+        increasing = increasing && level (velocity + 0.01f, true) > level (velocity, true);
+
+    CHECK (increasing);
+
+    // 재지 않은 레이어가 끼거나 위 레이어가 오히려 작으면 손대지 않는다
+    pad.layers[1].measured = false;
+    CHECK (isNear (hvd::layerStepCorrectionDb (pad, 0, 0.6f, 1.0f), 0.0f));
+    pad.layers[1].measured = true;
+    pad.layers[1].loudness = -40.0f;
+    CHECK (isNear (hvd::layerStepCorrectionDb (pad, 0, 0.6f, 1.0f), 0.0f));
+    pad.layers[1].loudness = -18.0f;
+
+    // 엔진: 0.1과 0.4로 녹음된 두 레이어. 켜 두면 0.67과 0.671의 크기가 같고, 끄면 2.7배 뛴다.
+    hvd::Kit kit;
+    kit.samples.push_back (makeConstantSample (0.1f, 1000));
+    kit.samples.push_back (makeConstantSample (0.4f, 1000));
+    kit.pads.push_back (pad);
+    kit.pads[0].layers[0].samples = { 0 };
+    kit.pads[0].layers[1].samples = { 1 };
+    kit.pads[0].layers[0].loudness = 20.0f * std::log10 (0.1f);
+    kit.pads[0].layers[1].loudness = 20.0f * std::log10 (0.4f);
+
+    const auto outputAt = [&kit] (float velocity, bool smooth)
+    {
+        hvd::Engine engine;
+        engine.prepare (48000.0);
+        engine.setSmoothLayerSteps (smooth);
+        setKit (engine, kit);
+        hit (engine, 0, velocity);
+        return render (engine, 16).left[8];
+    };
+
+    CHECK (isNear (outputAt (0.671f, false) / outputAt (0.67f, false), 0.4f * 0.671f / 0.1f, 0.01f));
+    CHECK (isNear (outputAt (0.671f, true) / outputAt (0.67f, true), 1.0f, 0.02f));
+    CHECK (isNear (outputAt (1.0f, true), outputAt (1.0f, false)));
+}
+
 void testSpeedTrainer()
 {
     // 시작: 지금 속도가 느리면 거기서(5% 단위로), 100%면 70%에서
@@ -3552,6 +3648,8 @@ int hvd::runCoreTests (std::string& log)
         testMetronomeTiming,
         testPracticeStats,
         testSpeedTrainer,
+        testLoudness,
+        testLayerSteps,
         testTranscriber,
         testTranscriberStereo,
         testTranscriberMix,

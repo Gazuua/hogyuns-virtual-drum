@@ -7,6 +7,8 @@
 #include <mutex>
 #include <thread>
 
+#include "core/Loudness.h"
+
 namespace
 {
 
@@ -179,7 +181,10 @@ void decodeInParallel (const juce::Array<juce::File>& files, const std::vector<i
             auto sample = std::make_shared<hvd::Sample>();
 
             if (decodeFile (formats, files.getReference (static_cast<int> (index)), *sample, results[index].trimmedFrames, results[index].error))
+            {
+                sample->loudness = hvd::sampleLoudness (*sample);    // 세기 레이어의 경계를 잇는 데 쓴다
                 results[index].sample = std::move (sample);
+            }
         }
     };
 

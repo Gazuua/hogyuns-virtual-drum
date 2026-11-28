@@ -124,6 +124,9 @@ public:
     bool isMetronomeOn() const noexcept                   { return metronomeOn.load (std::memory_order_relaxed); }
     void setMetronomeGain (float gain) noexcept           { metronomeGain.store (gain, std::memory_order_relaxed); }
 
+    /** 세기 레이어의 경계에서 크기가 튀지 않게 잇는다 (layerStepCorrectionDb). 기본은 켜 둠. */
+    void setSmoothLayerSteps (bool shouldSmooth) noexcept { smoothLayerSteps.store (shouldSmooth, std::memory_order_relaxed); }
+
     /** 메트로놈이 지금까지 친 박의 수. 화면의 박 표시에 쓴다. */
     std::uint32_t getBeatCount() const noexcept           { return beatCount.load (std::memory_order_relaxed); }
 
@@ -285,6 +288,7 @@ private:
     std::atomic<float> tempo { 120.0f };
     std::atomic<int> beatsPerBar { 4 };
     std::atomic<bool> metronomeOn { false };
+    std::atomic<bool> smoothLayerSteps { true };
     std::atomic<float> metronomeGain { 0.35f };
     std::atomic<std::uint32_t> beatCount { 0 };
     std::atomic<std::uint64_t> lastBeatTime { 0 };

@@ -18,6 +18,7 @@ struct Sample
     std::vector<float> left;
     std::vector<float> right;      // 모노 샘플이면 비워 두고 left를 양쪽에 쓴다
     double sampleRate = 48000.0;
+    float loudness = -100.0f;      // K 가중 순간 크기의 최댓값(LUFS). 디코드할 때 잰다 (Loudness.h)
 
     std::size_t frames() const noexcept    { return left.size(); }
 };
@@ -28,6 +29,8 @@ struct Layer
     float upTo = 1.0f;                     // 세기가 이 값 이하이면 이 레이어를 쓴다
     float nominal = 1.0f;                  // 이 세기로 치면 샘플을 원래 크기로 낸다
     std::vector<std::uint32_t> samples;    // Kit::samples의 번호. 칠 때마다 번갈아 쓴다
+    float loudness = 0.0f;                 // 샘플들의 크기(LUFS) 평균. 경계에서 크기를 잇는 데 쓴다 (layerStepCorrectionDb)
+    bool measured = false;                 // loudness를 쟀는지
 };
 
 /** 패드 음량(배율)의 한도. 킷 화면과 믹서의 슬라이더, 킷 불러오기가 모두 이 값을 쓴다.
