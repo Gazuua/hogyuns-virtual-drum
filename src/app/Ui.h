@@ -324,49 +324,6 @@ private:
     bool open = false;
 };
 
-//==============================================================================
-/** "조절 값은 소리에 바로, 파일에는 마우스를 놓은 뒤에" 저장을 맡는다.
-    값을 바꿀 때마다 mark()를 부르면, 마우스 단추가 모두 떼어진 뒤에 save가 한 번 불린다.
-    화면이 가려져도 돈다 (값 상자에 적고 바로 탭을 바꿔도 저장된다). */
-class DeferredSave final : private juce::Timer
-{
-public:
-    explicit DeferredSave (std::function<void()> saveFunction = {}) : save (std::move (saveFunction)) {}
-    ~DeferredSave() override    { stopTimer(); }
-
-    std::function<void()> save;
-
-    void mark()
-    {
-        pending = true;
-
-        if (! isTimerRunning())
-            startTimerHz (20);
-    }
-
-    bool isPending() const noexcept    { return pending; }
-
-    /** 기다리지 않고 바로 저장한다 (기다리는 것이 있을 때만). */
-    void flush()
-    {
-        stopTimer();
-
-        if (std::exchange (pending, false) && save)
-            save();
-    }
-
-private:
-    void timerCallback() override
-    {
-        if (! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
-            flush();
-    }
-
-    bool pending = false;
-
-    JUCE_DECLARE_NON_COPYABLE (DeferredSave)
-};
-
 inline bool isCymbalPad (const juce::String& padId)
 {
     const auto id = padId.toLowerCase();

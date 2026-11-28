@@ -98,7 +98,6 @@ private:
     hvd::KeyCode selectedKey = hvd::invalidKey;
     int selectedSlot = 0;
     bool updating = false;
-    bool valuesDirty = false;
     std::uint32_t seenKeyPressCount = 0;
     int tickCount = 0;
 

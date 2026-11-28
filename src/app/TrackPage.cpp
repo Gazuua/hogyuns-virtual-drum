@@ -154,12 +154,7 @@ TrackPage::TrackPage (Session& sessionToUse)
     // 반주 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다.
     ui::setupLabel (*this, gainCaption, ko ("반주 음량"), ui::Text::caption);
     ui::setupSlider (*this, gainSlider, 0.0, 1.5, 0.01, 0.7);
-    gainSaver.save = [this] { session.setTrackGain (static_cast<float> (gainSlider.getValue())); };
-    gainSlider.onValueChange = [this]
-    {
-        session.getTrack().setGain (static_cast<float> (gainSlider.getValue()));
-        gainSaver.mark();
-    };
+    gainSlider.onValueChange = [this] { session.setTrackGain (static_cast<float> (gainSlider.getValue())); };
 
     ui::setupLabel (*this, speedCaption, ko ("속도"), ui::Text::caption);
     ui::setupSlider (*this, speedSlider, 50.0, 150.0, 5.0, 100.0, "%", 0);
@@ -253,7 +248,6 @@ TrackPage::TrackPage (Session& sessionToUse)
 TrackPage::~TrackPage()
 {
     session.removeChangeListener (this);
-    gainSaver.flush();
 }
 
 void TrackPage::paint (juce::Graphics& g)

@@ -16,7 +16,6 @@ public:
     explicit KitPage (Session& sessionToUse);
     ~KitPage() override;
 
-    void tick() override;
     void resized() override;
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;
@@ -62,7 +61,6 @@ private:
     Session& session;
     DocumentBar documents;
     int selectedPad = 0;
-    bool valuesDirty = false;
     bool updating = false;
     bool filesShown = false;        // 샘플 파일 목록을 펼쳤는지
     bool hasSamples = false;        // 고른 패드에 샘플이 있는지

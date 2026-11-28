@@ -169,8 +169,8 @@ Session::~Session()
 //==============================================================================
 void Session::savePendingEdits()
 {
-    if (std::exchange (kitEdited, false))
-        saveKit (false);
+    if (kitEdited && juce::Time::getMillisecondCounter() - kitEditedMs >= kitSaveDelayMs)
+        saveKit (false);    // kitEdited를 지운다
 
     if (std::exchange (keymapEdited, false))
         saveKeymap();
@@ -213,7 +213,7 @@ void Session::poll()
     if (takes.isPlaying() && ! takes.pump())
         sendChangeMessage();    // 다시 재생이 끝났다
 
-    // 고친 문서와 설정은 마우스를 놓은 뒤에 저장한다. 밖에서 고친 파일을 살피기 전에 한다.
+    // 고친 문서와 설정은 마우스를 놓은 뒤에 저장한다 (킷은 잠깐 더 기다린다). 밖에서 고친 파일을 살피기 전에 한다.
     if ((kitEdited || keymapEdited || appSettings.isPending()) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
         savePendingEdits();
 
@@ -1002,12 +1002,10 @@ hvd::ReportInterval Session::getReportInterval (bool ofPedal) const
 }
 
 //==============================================================================
-void Session::setMasterGain (float gain, bool save)
+void Session::setMasterGain (float gain)
 {
     audio.setMasterGain (juce::jlimit (0.0f, AudioHost::maxMasterGain, gain));
-
-    if (save)
-        rememberMasterGain();
+    markSettingEdited ("masterGain", audio.getMasterGain());
 }
 
 juce::String Session::loadTrack (const juce::File& file)
@@ -1070,7 +1068,7 @@ void Session::unloadTrack()
 void Session::setTrackGain (float gain)
 {
     track.setGain (juce::jlimit (0.0f, 1.5f, gain));
-    setSetting ("trackGain", track.getGain());
+    markSettingEdited ("trackGain", track.getGain());
 }
 
 //==============================================================================

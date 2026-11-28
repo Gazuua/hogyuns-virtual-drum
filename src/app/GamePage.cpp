@@ -140,18 +140,11 @@ GamePage::GamePage (Session& sessionToUse)
         levelButtons[static_cast<std::size_t> (level)].setTooltip (ko (levelHints[level]));
 
     // 슬라이더 값은 마우스를 놓은 뒤(값 상자에 적었으면 바로) 설정에 적는다.
-    sliderSaver.save = [this]
-    {
-        session.setSetting ("gameSpeed", speedSlider.getValue());
-        session.setSetting ("gameScroll", scrollSlider.getValue());
-        session.setSetting ("gameOffsetMs", offsetSlider.getValue());
-    };
-
     ui::setupLabel (*this, speedLabel, ko ("곡 속도"), ui::Text::caption);
     ui::setupSlider (*this, speedSlider, 50.0, 100.0, 5.0, 100.0, "%", 0);
     speedSlider.setValue (static_cast<double> (session.getSetting ("gameSpeed", 100.0)), juce::dontSendNotification);
     speedSlider.setTooltip (ko ("100% 아래로 친 판은 기록이 남지 않는다"));
-    speedSlider.onValueChange = [this] { sliderSaver.mark(); };
+    speedSlider.onValueChange = [this] { session.markSettingEdited ("gameSpeed", speedSlider.getValue()); };
 
     ui::setupToggle (*this, autoplayToggle, ko ("오토"), [] {});
     autoplayToggle.setTooltip (ko ("프로그램이 채보대로 대신 친다. 기록은 남지 않는다. 연주 도중에도 켜고 끌 수 있다."));
@@ -169,14 +162,14 @@ GamePage::GamePage (Session& sessionToUse)
     scrollSlider.onValueChange = [this]
     {
         highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue()));
-        sliderSaver.mark();
+        session.markSettingEdited ("gameScroll", scrollSlider.getValue());
     };
     highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue()));
 
     ui::setupLabel (*this, offsetLabel, ko ("판정 보정"), ui::Text::caption);
     ui::setupSlider (*this, offsetSlider, -150.0, 150.0, 1.0, 0.0, "ms", 0);
     offsetSlider.setValue (static_cast<double> (session.getSetting ("gameOffsetMs", 0.0)), juce::dontSendNotification);
-    offsetSlider.onValueChange = [this] { sliderSaver.mark(); };
+    offsetSlider.onValueChange = [this] { session.markSettingEdited ("gameOffsetMs", offsetSlider.getValue()); };
     offsetSlider.setTooltip (ko ("늘 늦다고 나오면 올리고, 늘 빠르다고 나오면 내린다. 한 판이 끝난 뒤 \"보정에 반영\"을 눌러도 된다."));
 
     ui::setupLabel (*this, orderLabel, ko ("레인 순서"), ui::Text::caption);
@@ -251,7 +244,6 @@ GamePage::~GamePage()
     session.removeChangeListener (this);
     library.removeChangeListener (this);
     songTable.setModel (nullptr);
-    sliderSaver.flush();
 }
 
 //==============================================================================

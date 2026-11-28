@@ -76,7 +76,6 @@ private:
     bool dragOver = false;    // 소리 파일을 끌고 들어와 있는 동안
     std::array<juce::Rectangle<int>, 4> sections;
     juce::Rectangle<int> dropZone;
-    ui::DeferredSave gainSaver;
 
     // 반주
     juce::Label trackTitle, trackName, timeLabel, gainCaption, speedCaption, loopLabel, dropLabel;

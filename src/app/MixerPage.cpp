@@ -181,7 +181,7 @@ public:
                     return;
 
                 owner.session.setPadValue (pad, field, slider.getValue());
-                owner.kitSaver.mark();
+                owner.session.markKitEdited();
                 updateCaptions();
             };
         };
@@ -289,9 +289,6 @@ MixerPage::MixerPage (Session& sessionToUse)
     viewport.setScrollBarsShown (false, true);
     addAndMakeVisible (viewport);
 
-    // 고친 값은 마우스를 놓은 뒤에 킷 파일에 저장한다.
-    kitSaver.save = [this] { session.saveKit (false); };
-
     ui::setupLabel (*this, masterCaption, ko ("전체 음량"), ui::Text::caption);
     addAndMakeVisible (masterSlider);
     addAndMakeVisible (masterMeter);
@@ -337,7 +334,6 @@ MixerPage::MixerPage (Session& sessionToUse)
 MixerPage::~MixerPage()
 {
     session.removeChangeListener (this);
-    kitSaver.flush();
 
     // 잠깐 꺼 둔 이펙트를 되살린다 (화면이 사라진 뒤에도 꺼진 채로 남지 않게).
     if (fxBypassed)
@@ -534,7 +530,7 @@ void MixerPage::fxChanged()
     fx.reverbDamp = static_cast<float> (reverbDamp.getValue());
 
     session.setFx (fx);
-    kitSaver.mark();
+    session.markKitEdited();
 }
 
 void MixerPage::setFxBypassed (bool shouldBypass)
@@ -559,7 +555,7 @@ void MixerPage::resetFx()
     ui::confirm (this, ko ("이펙트 초기화"), ko ("EQ, 컴프레서, 리버브를 처음 값으로 되돌립니다."), ko ("초기화"), [this]
     {
         session.setFx ({});
-        kitSaver.mark();
+        session.markKitEdited();
 
         if (fxBypassed)
             setFxBypassed (false);

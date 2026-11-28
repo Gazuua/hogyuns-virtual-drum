@@ -160,7 +160,7 @@ KitPage::KitPage (Session& sessionToUse)
 
             // 소리에는 바로 반영하고, 파일에는 마우스를 놓은 뒤에 저장한다.
             session.setPadValue (selectedPad, field.name, field.slider.getValue());
-            valuesDirty = true;
+            session.markKitEdited();
         };
     }
 
@@ -542,16 +542,6 @@ void KitPage::showPad()
         button->setEnabled (hasPad);
 
     layoutEditor();
-}
-
-void KitPage::tick()
-{
-    // 조절 값을 바꿨으면 마우스를 놓은 뒤에 한 번만 저장한다.
-    if (valuesDirty && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
-    {
-        valuesDirty = false;
-        session.saveKit (false);
-    }
 }
 
 //==============================================================================

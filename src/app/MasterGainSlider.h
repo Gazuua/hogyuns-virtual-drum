@@ -19,7 +19,6 @@ private:
     void timerCallback() override;
 
     Session& session;
-    ui::DeferredSave saver;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MasterGainSlider)
 };

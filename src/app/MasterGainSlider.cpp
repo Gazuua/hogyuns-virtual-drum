@@ -22,13 +22,7 @@ MasterGainSlider::MasterGainSlider (Session& sessionToUse)
 
     setValue (session.getMasterGain(), juce::dontSendNotification);
 
-    saver.save = [this] { session.rememberMasterGain(); };
-
-    onValueChange = [this]
-    {
-        session.setMasterGain (static_cast<float> (getValue()), false);
-        saver.mark();
-    };
+    onValueChange = [this] { session.setMasterGain (static_cast<float> (getValue())); };
 
     // 다른 슬라이더나 키로 바꾼 값을 따라간다.
     startTimerHz (10);
@@ -37,7 +31,6 @@ MasterGainSlider::MasterGainSlider (Session& sessionToUse)
 MasterGainSlider::~MasterGainSlider()
 {
     stopTimer();
-    saver.flush();
 }
 
 void MasterGainSlider::setValueBoxShown (bool shouldShow)

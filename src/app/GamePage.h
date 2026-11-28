@@ -82,7 +82,6 @@ private:
     juce::ComboBox orderCombo;
     juce::TableListBox songTable;
     std::unique_ptr<juce::FileChooser> chooser;
-    ui::DeferredSave sliderSaver;       // 곡 속도, 노트 속도, 판정 보정
     bool useSeparator = false;          // 드럼을 분리해서 받아 적기
     bool settingsOpen = false;
     int missingCharts = 0;              // 목록에서 채보 없는 곡 수

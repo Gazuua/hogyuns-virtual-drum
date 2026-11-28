@@ -33,7 +33,7 @@ private:
     void rebuild();
     void setShowingSet (bool shouldShowSet);
 
-    /** 배치 편집을 켜고 끈다. 켜면 툴바가 편집 막대로 바뀌고, 끄면 옮긴 것을 바로 저장한다. */
+    /** 배치 편집을 켜고 끈다. 켜면 툴바가 편집 막대로 바뀐다. 옮긴 것은 Session이 마우스를 놓은 뒤에 저장한다. */
     void setEditing (bool shouldEdit);
     void updateToolbar();
     void updateTimingLabel();
@@ -60,7 +60,6 @@ private:
     PadGrid padGrid;
     KitView kitView;
     bool showingSet = true;
-    bool layoutDirty = false;
 
     // 툴바: [타일 | 드럼 세트] [이름 · 키] ... [배치 편집] [소리 끄기]
     juce::TextButton tilesButton, setButton, editButton, silenceButton;

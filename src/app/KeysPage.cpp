@@ -260,7 +260,7 @@ KeysPage::KeysPage (Session& sessionToUse)
                 else
                     binding->setProperty (name, slider.getValue());
 
-                valuesDirty = true;    // 마우스를 놓은 뒤에 저장한다
+                session.markKeymapEdited();    // 마우스를 놓은 뒤에 저장한다
             }
         };
     };
@@ -875,8 +875,8 @@ void KeysPage::showBinding()
 
 void KeysPage::commit()
 {
-    valuesDirty = false;
-    session.saveKeymap();
+    // 화면은 고친 문서로 바로 다시 그리고, 파일은 Session이 마우스를 놓은 뒤에 저장해 적용한다 (그때 한 번 더 그린다).
+    session.markKeymapEdited();
     rebuild();
 }
 
@@ -1238,8 +1238,4 @@ void KeysPage::tick()
         if (followButton.getToggleState() && ! session.isKeyCaptureArmed() && session.getLastKey() != selectedKey)
             selectKey (session.getLastKey());
     }
-
-    // 슬라이더로 바꾼 값은 마우스를 놓은 뒤에 저장한다.
-    if (valuesDirty && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
-        commit();
 }

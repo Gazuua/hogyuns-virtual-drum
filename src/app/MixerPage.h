@@ -54,7 +54,6 @@ private:
     std::vector<std::unique_ptr<Strip>> strips;    // 악기별로 묶은 순서
     juce::Viewport viewport;
     std::unique_ptr<StripHolder> holder;
-    ui::DeferredSave kitSaver;
     bool updating = false;
     bool fxBypassed = false;    // 이펙트를 잠깐 끈 동안. 값은 그대로 두고 엔진에만 끈 값을 넘긴다 (저장하지 않는다)
     int tickCount = 0;

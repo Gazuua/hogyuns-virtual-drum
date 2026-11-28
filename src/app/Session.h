@@ -119,9 +119,10 @@ public:
     /** 고친 킷 문서를 저장한다. 샘플 구성이 바뀌었으면 reload를 true로 준다. */
     bool saveKit (bool reload);
 
-    /** 킷 문서를 고쳤다 (소리에는 이미 반영됨). poll()이 마우스를 놓은 뒤에 saveKit (false)로 저장한다.
-        슬라이더를 끄는 동안 파일을 거듭 쓰지 않으려는 것이다. 다른 화면으로 넘어가도 저장은 밀리지 않는다. */
-    void markKitEdited() noexcept                            { kitEdited = true; }
+    /** 킷 문서를 고쳤다 (소리에는 이미 반영됨). poll()이 마우스를 놓고 잠깐(kitSaveDelayMs) 더 고치지 않으면 saveKit (false)로
+        저장한다. 슬라이더를 끌거나 배치를 휠로 바꾸는 동안 큰 킷 파일을 거듭 쓰지 않으려는 것이다.
+        다른 화면으로 넘어가도 저장은 밀리지 않고, 끝낼 때 남은 것도 저장한다. */
+    void markKitEdited() noexcept                            { kitEdited = true; kitEditedMs = juce::Time::getMillisecondCounter(); }
 
     /** 패드를 한 번 친다. source는 연주 로그에 남길 출처다 (연주 화면에서 마우스로 친 것은 mouse). */
     void previewPad (int pad, float velocity, hvd::HitSource source = hvd::HitSource::screen, bool followPedals = true);
@@ -244,10 +245,8 @@ public:
 
     //==============================================================================
     // 전체 음량 (드럼과 메트로놈에 곱하는 배율. 0 ~ AudioHost::maxMasterGain)
-    /** 소리에는 바로 반영한다. save가 true이면 settings.json에도 적는다.
-        슬라이더는 끄는 동안 false로 부르고, 마우스를 놓은 뒤에 rememberMasterGain()을 부른다. */
-    void setMasterGain (float gain, bool save = true);
-    void rememberMasterGain()                                { setSetting ("masterGain", audio.getMasterGain()); }
+    /** 소리에는 바로 반영하고, settings.json에는 마우스를 놓은 뒤에 적는다 (markSettingEdited). */
+    void setMasterGain (float gain);
     float getMasterGain() const noexcept                     { return audio.getMasterGain(); }
 
     /** 마지막 poll() 사이에 내보낸 소리의 최대 크기(0 ~ 1). 레벨 미터와 상태 표시가 함께 쓴다. */
@@ -259,6 +258,8 @@ public:
     juce::String loadTrack (const juce::File& file);
     void unloadTrack();
     juce::File getTrackFile() const                          { return trackFile; }
+
+    /** 반주 음량 (0 ~ 1.5). 소리에는 바로 반영하고, settings.json에는 마우스를 놓은 뒤에 적는다. */
     void setTrackGain (float gain);
 
     //==============================================================================
@@ -383,7 +384,9 @@ private:
     int pollCount = 0;
 
     // 마우스를 놓은 뒤에 저장할 것 (화면 스레드)
+    static constexpr juce::uint32 kitSaveDelayMs = 300;
     bool kitEdited = false, keymapEdited = false;
+    juce::uint32 kitEditedMs = 0;    // 킷을 마지막으로 고친 때 (juce::Time::getMillisecondCounter)
 
     // 키 입력 (입력 스레드와 주고받는 값은 atomic)
     std::array<std::atomic<bool>, hvd::numKeyCodes> held {};

@@ -61,7 +61,7 @@ PlayPage::PlayPage (Session& sessionToUse)
         const auto& item = kitView.getItems()[static_cast<std::size_t> (index)];
         kitlayout::write (session.getKitDocument(), item.id, item.fixed ? kitlayout::fixedViewKey : kitlayout::viewKey,
                           { item.x, item.y, item.size });
-        layoutDirty = true;
+        session.markKitEdited();
     };
 
     ui::setupButton (*this, tilesButton, ko ("타일"), [this] { setShowingSet (false); });
@@ -137,14 +137,6 @@ void PlayPage::setEditing (bool shouldEdit)
         return;
 
     kitView.setEditing (shouldEdit);
-
-    // 편집을 끝내면 옮긴 것을 바로 저장한다 (다른 화면으로 넘어가면 tick이 불리지 않는다).
-    if (! shouldEdit && layoutDirty)
-    {
-        layoutDirty = false;
-        session.saveKit (false);
-    }
-
     updateToolbar();
 }
 
@@ -569,7 +561,6 @@ void PlayPage::confirmResetLayout()
 
 void PlayPage::resetLayout()
 {
-    layoutDirty = false;
     kitlayout::clearAll (session.getKitDocument());
     session.saveKit (false);
     rebuild();
@@ -669,11 +660,4 @@ void PlayPage::tick()
 
     if (++tickCount % 6 == 0)
         updateTimingLabel();
-
-    // 배치를 고쳤으면 마우스를 놓은 뒤에 저장한다.
-    if (layoutDirty && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown() && tickCount % 30 == 0)
-    {
-        layoutDirty = false;
-        session.saveKit (false);
-    }
 }
