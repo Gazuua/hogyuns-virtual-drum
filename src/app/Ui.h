@@ -188,6 +188,18 @@ inline void chooseFile (std::unique_ptr<juce::FileChooser>& holder, const juce::
     });
 }
 
+/** chooseFile과 같고, 고른 파일을 모두 넘긴다 (여럿 고르기, 저장 창). */
+inline void chooseFiles (std::unique_ptr<juce::FileChooser>& holder, const juce::String& title, const juce::File& start,
+                         const juce::String& patterns, int flags, std::function<void (const juce::Array<juce::File>&)> onChosen)
+{
+    holder = std::make_unique<juce::FileChooser> (title, start, patterns);
+    holder->launchAsync (flags, [onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+    {
+        if (const auto files = chooser.getResults(); ! files.isEmpty() && files.getFirst() != juce::File() && onChosen != nullptr)
+            onChosen (files);
+    });
+}
+
 //==============================================================================
 /** 글자 없이 작은 그림만 있는 조용한 버튼 (새로 고침, 폴더 열기). 무엇인지는 툴팁으로 알린다. */
 class IconButton final : public juce::Button

@@ -80,12 +80,3 @@ private:
 };
 
 //==============================================================================
-namespace ui
-{
-
-/** 확인을 받는다. 버튼은 동작 이름(예: "삭제")과 "취소". 동작 버튼을 누르면 onConfirm이 불린다.
-    (Ui.h의 confirm은 "예/아니오"라 따로 둔다. Ui.h를 고칠 때 합친다.) */
-void confirmAction (juce::Component* parent, const juce::String& title, const juce::String& message,
-                    const juce::String& actionText, std::function<void()> onConfirm);
-
-} // namespace ui

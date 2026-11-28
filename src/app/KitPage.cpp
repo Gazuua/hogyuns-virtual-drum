@@ -1,6 +1,5 @@
 #include "KitPage.h"
 
-#include "PageTools.h"
 #include "SfzImport.h"
 
 namespace
@@ -595,7 +594,7 @@ void KitPage::chooseSamples (bool append)
 {
     const juce::File startFolder (session.getSetting ("sampleFolder", session.getKitFile().getParentDirectory().getFullPathName()).toString());
 
-    ui::chooseFile (chooser, append ? ko ("더할 샘플 고르기") : ko ("바꿀 샘플 고르기"), startFolder, ui::audioFilePatterns(),
+    ui::chooseFiles (chooser, append ? ko ("더할 샘플 고르기") : ko ("바꿀 샘플 고르기"), startFolder, ui::audioFilePatterns(),
                     juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
                         | juce::FileBrowserComponent::canSelectMultipleItems,
                     [this, append] (const juce::Array<juce::File>& files)
@@ -681,18 +680,19 @@ void KitPage::removePad()
     if (id.isEmpty())
         return;
 
-    ui::confirmAction (this, ko ("패드 삭제"),
-                       padTitle.getText() + ko (" 패드를 킷에서 지울까요? 샘플 파일은 지우지 않습니다."), ko ("삭제"),
-                       [this, id]
-                       {
-                           session.getKitDocument().removePad (id);
-                           session.saveKit (true);
-                       });
+    ui::confirm (this, ko ("패드 삭제"),
+                 padTitle.getText() + ko (" 패드를 킷에서 지울까요? 샘플 파일은 지우지 않습니다."), ko ("삭제"),
+                 [this, id]
+                 {
+                     session.getKitDocument().removePad (id);
+                     session.saveKit (true);
+                 },
+                 true);
 }
 
 void KitPage::importKit()
 {
-    ui::chooseFile (chooser, ko ("가져올 킷(ZIP) 고르기"), juce::File(), "*.zip",
+    ui::chooseFiles (chooser, ko ("가져올 킷(ZIP) 고르기"), juce::File(), "*.zip",
                     juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                     [this] (const juce::Array<juce::File>& files)
                     {
@@ -704,7 +704,7 @@ void KitPage::importKit()
 void KitPage::importSfzKit()
 {
     const juce::File startFolder (session.getSetting ("sfzFolder", juce::String()).toString());
-    ui::chooseFile (chooser, ko ("가져올 SFZ 파일 고르기"), startFolder, "*.sfz",
+    ui::chooseFiles (chooser, ko ("가져올 SFZ 파일 고르기"), startFolder, "*.sfz",
                     juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                     [this] (const juce::Array<juce::File>& files)
                     {
@@ -737,7 +737,7 @@ void KitPage::exportKit()
     const auto suggested = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
                                .getChildFile (session.getKitFolderName() + ".zip");
 
-    ui::chooseFile (chooser, ko ("킷을 ZIP으로 내보내기"), suggested, "*.zip",
+    ui::chooseFiles (chooser, ko ("킷을 ZIP으로 내보내기"), suggested, "*.zip",
                     juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                         | juce::FileBrowserComponent::warnAboutOverwriting,
                     [this] (const juce::Array<juce::File>& files)

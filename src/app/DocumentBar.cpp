@@ -161,24 +161,3 @@ void DocumentBar::showMenu()
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&moreButton));
 }
 
-//==============================================================================
-namespace ui
-{
-
-void confirmAction (juce::Component* parent, const juce::String& title, const juce::String& message,
-                    const juce::String& actionText, std::function<void()> onConfirm)
-{
-    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::QuestionIcon, parent);
-    window->addButton (actionText, 1, juce::KeyPress (juce::KeyPress::returnKey));
-    window->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
-    window->enterModalState (true,
-                             juce::ModalCallbackFunction::create ([onConfirm = std::move (onConfirm)] (int result)
-                             {
-                                 if (result == 1 && onConfirm != nullptr)
-                                     onConfirm();
-                             }),
-                             true);
-}
-
-} // namespace ui
