@@ -6,6 +6,52 @@ namespace
 {
 
 constexpr int listWidth = 250;
+constexpr int captionHeight = 20;       // 조절 항목의 이름 줄
+constexpr int valueBoxWidth = 72;       // 슬라이더 값 상자 ("가운데", "+1.5 반음")
+
+int textWidth (const juce::Label& label)
+{
+    return juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText());
+}
+
+/** 팬 값(-1 ~ 1)을 "가운데", "L30", "R30" 꼴로. */
+juce::String panText (double value)
+{
+    const auto percent = juce::roundToInt (value * 100.0);
+
+    if (percent == 0)
+        return ko ("가운데");
+
+    return (percent < 0 ? "L" : "R") + juce::String (std::abs (percent));
+}
+
+double panValue (const juce::String& text)
+{
+    const auto trimmed = text.trim().toUpperCase();
+    const auto number = trimmed.retainCharacters ("0123456789.-").getDoubleValue();
+
+    if (trimmed.startsWith ("L"))
+        return -std::abs (number) / 100.0;
+
+    if (trimmed.startsWith ("R"))
+        return std::abs (number) / 100.0;
+
+    return std::abs (number) > 1.0 ? number / 100.0 : number;    // 숫자만 적으면 -1 ~ 1, 넘으면 퍼센트로 본다
+}
+
+/** 피치 값을 "0 반음", "+1.5 반음", "-2 반음" 꼴로. */
+juce::String pitchText (double value)
+{
+    auto text = juce::String (value, 1);
+
+    if (text.endsWith (".0"))
+        text = text.dropLastCharacters (2);
+
+    if (text == "-0")
+        text = "0";
+
+    return (value > 0.05 ? "+" : "") + text + ko (" 반음");
+}
 
 } // namespace
 
@@ -21,23 +67,64 @@ KitPage::KitPage (Session& sessionToUse)
     ui::setupLabel (*this, kitInfo, {}, ui::Text::caption);
     kitInfo.setJustificationType (juce::Justification::centredRight);
 
+    //==============================================================================
+    // 패드 목록
     padList.setRowHeight (28);
     ui::noFocus (padList);
     addAndMakeVisible (padList);
 
-    ui::setupButton (*this, addPadButton, ko ("패드 추가"), [this] { addPad(); });
-    ui::setupButton (*this, removePadButton, ko ("패드 삭제"), [this] { removePad(); });
+    ui::setupButton (*this, addPadButton, ko ("추가"), [this] { addPad(); });
+    ui::setupButton (*this, removePadButton, ko ("삭제"), [this] { removePad(); });
+    addPadButton.setTooltip (ko ("새 패드"));
+    removePadButton.setTooltip (ko ("고른 패드를 킷에서 지웁니다"));
 
+    //==============================================================================
+    // 제목 줄: [킥] [이름 바꾸기]  ……  들어 보기 [약][중][강]
     ui::setupLabel (*this, padTitle, {}, ui::Text::section);
+    padTitle.addMouseListener (this, false);    // 두 번 누르면 이름 바꾸기
     ui::setupButton (*this, renamePadButton, ko ("이름 바꾸기"), [this] { renamePad(); });
-    ui::setupButton (*this, softButton, ko ("약하게"), [this] { session.previewPad (selectedPad, 0.3f); });
-    ui::setupButton (*this, mediumButton, ko ("중간"), [this] { session.previewPad (selectedPad, 0.65f); });
-    ui::setupButton (*this, hardButton, ko ("세게"), [this] { session.previewPad (selectedPad, 1.0f); });
 
+    ui::setupLabel (*this, previewCaption, ko ("들어 보기"), ui::Text::caption);
+    previewCaption.setJustificationType (juce::Justification::centredRight);
+    ui::setupButton (*this, softButton, ko ("약"), [this] { session.previewPad (selectedPad, 0.3f); });
+    ui::setupButton (*this, mediumButton, ko ("중"), [this] { session.previewPad (selectedPad, 0.65f); });
+    ui::setupButton (*this, hardButton, ko ("강"), [this] { session.previewPad (selectedPad, 1.0f); });
+    softButton.setTooltip (ko ("약하게"));
+    mediumButton.setTooltip (ko ("중간"));
+    hardButton.setTooltip (ko ("세게"));
+    softButton.setConnectedEdges (juce::Button::ConnectedOnRight);
+    mediumButton.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    hardButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+
+    //==============================================================================
+    // 모아 둔 소리 가운데 하나를 고른다. 화살표 버튼으로 차례로 넘기며 들어 볼 수 있다.
+    ui::setupLabel (*this, soundCaption, ko ("소리"), ui::Text::caption);
+    ui::setupCombo (*this, soundCombo, [this]
+    {
+        if (! updating && soundCombo.getSelectedItemIndex() >= 0)
+            chooseSound (soundCombo.getSelectedItemIndex());
+    });
+    ui::setupButton (*this, previousSoundButton, "<", [this] { chooseSound (session.getKitDocument().getPadSoundIndex (selectedPadId()) - 1); });
+    ui::setupButton (*this, nextSoundButton, ">", [this] { chooseSound (session.getKitDocument().getPadSoundIndex (selectedPadId()) + 1); });
+    previousSoundButton.setTooltip (ko ("앞 소리"));
+    nextSoundButton.setTooltip (ko ("다음 소리"));
+    ui::setupLabel (*this, soundCount, {}, ui::Text::caption);
+    soundCount.setJustificationType (juce::Justification::centred);
+    soundCount.setTooltip (ko ("모아 둔 소리 가운데 몇 번째인지"));
+
+    familyButton.setButtonText (ko ("같은 악기 함께"));
+    familyButton.setTooltip (ko ("같은 악기의 패드도 함께 바꾸기 (하이햇, 스네어 등)"));
+    familyButton.setToggleState (true, juce::dontSendNotification);
+    ui::noFocus (familyButton);
+    addAndMakeVisible (familyButton);
+
+    //==============================================================================
+    // 조절 항목. 두 개씩 한 줄: 음량 · 팬 / 피치 · 시작 / 세기 곡선 · 리버브
     struct FieldSpec
     {
         const char* name;
         const char* caption;
+        const char* tip;
         double minimum, maximum, step, defaultValue;
         const char* suffix;
         int decimals;
@@ -46,12 +133,12 @@ KitPage::KitPage (Session& sessionToUse)
 
     // 음량은 0 ~ 10배. 1.0을 가운데에 두어, 왼쪽 절반이 0 ~ 1, 오른쪽 절반이 1 ~ 10이다.
     const FieldSpec specs[] = {
-        { "volume", "음량 (0 ~ 10배)", 0.0, static_cast<double> (hvd::maxPadVolume), 0.01, 1.0, "", 2, 1.0 },
-        { "pan", "팬 (− 왼쪽, + 오른쪽)", -1.0, 1.0, 0.01, 0.0, "", 2, 0.0 },
-        { "pitch", "피치 (반음)", -12.0, 12.0, 0.1, 0.0, "", 1, 0.0 },
-        { "reverbSend", "리버브로 보내는 양", 0.0, 1.0, 0.01, 1.0, "", 2, 0.0 },
-        { "startMs", "시작 지점 (앞부분 건너뛰기)", 0.0, 200.0, 0.5, 0.0, " ms", 1, 0.0 },
-        { "velocityCurve", "세기 곡선 (클수록 약한 타가 더 작게)", 0.2, 2.5, 0.05, 1.0, "", 2, 0.0 },
+        { "volume", "음량", "0 ~ 10배", 0.0, static_cast<double> (hvd::maxPadVolume), 0.01, 1.0, "", 2, 1.0 },
+        { "pan", "팬", "왼쪽 L, 오른쪽 R", -1.0, 1.0, 0.01, 0.0, "", 2, 0.0 },
+        { "pitch", "피치", "반음 단위", -12.0, 12.0, 0.1, 0.0, "", 1, 0.0 },
+        { "startMs", "시작", "앞부분을 건너뛴다", 0.0, 200.0, 0.5, 0.0, " ms", 1, 0.0 },
+        { "velocityCurve", "세기 곡선", "클수록 약한 타가 더 작게", 0.2, 2.5, 0.05, 1.0, "", 2, 0.0 },
+        { "reverbSend", "리버브", "리버브로 보내는 양", 0.0, 1.0, 0.01, 1.0, "", 2, 0.0 },
     };
 
     for (std::size_t i = 0; i < fields.size(); ++i)
@@ -62,6 +149,9 @@ KitPage::KitPage (Session& sessionToUse)
         field.name = spec.name;
         ui::setupLabel (*this, field.caption, ko (spec.caption), ui::Text::caption);
         ui::setupSlider (*this, field.slider, spec.minimum, spec.maximum, spec.step, spec.defaultValue, ko (spec.suffix), spec.decimals);
+        field.slider.setTextBoxStyle (juce::Slider::TextBoxRight, false, valueBoxWidth, 22);
+        field.caption.setTooltip (ko (spec.tip));
+        field.slider.setTooltip (ko (spec.tip));
 
         if (spec.midPoint != 0.0)
             field.slider.setSkewFactorFromMidPoint (spec.midPoint);
@@ -77,37 +167,45 @@ KitPage::KitPage (Session& sessionToUse)
         };
     }
 
-    // 모아 둔 소리 가운데 하나를 고른다. 화살표 버튼으로 차례로 넘기며 들어 볼 수 있다.
-    ui::setupLabel (*this, soundCaption, {}, ui::Text::caption);
-    ui::setupCombo (*this, soundCombo, [this]
+    // 값 상자에 단위를 붙인다: 음량 ×1.00, 팬 가운데 / L30 / R30, 피치 +1.5 반음
+    auto& volume = fields[0].slider;
+    volume.textFromValueFunction = [] (double value) { return ko ("×") + juce::String (value, 2); };
+    volume.valueFromTextFunction = [] (const juce::String& text) { return text.retainCharacters ("0123456789.").getDoubleValue(); };
+    fields[1].slider.textFromValueFunction = panText;
+    fields[1].slider.valueFromTextFunction = panValue;
+    fields[2].slider.textFromValueFunction = pitchText;
+
+    for (auto& field : fields)
+        field.slider.updateText();
+
+    //==============================================================================
+    // 샘플: 한 줄 요약과 [파일 보기]. 펼치면 세기 구간마다 한 줄과 바꾸기·더하기 버튼
+    ui::setupLabel (*this, samplesCaption, ko ("샘플"), ui::Text::caption);
+    samplesCaption.setTooltip (ko ("세기 구간마다 한 줄, 같은 줄은 번갈아 냄"));
+    ui::setupLabel (*this, samplesSummary, {}, ui::Text::body);
+    ui::setupButton (*this, filesButton, ko ("파일 보기"), [this]
     {
-        if (! updating && soundCombo.getSelectedItemIndex() >= 0)
-            chooseSound (soundCombo.getSelectedItemIndex());
+        filesShown = ! filesShown;
+        filesButton.setButtonText (filesShown ? ko ("접기") : ko ("파일 보기"));
+        layoutEditor();
     });
-    ui::setupButton (*this, previousSoundButton, "<", [this] { chooseSound (session.getKitDocument().getPadSoundIndex (selectedPadId()) - 1); });
-    ui::setupButton (*this, nextSoundButton, ">", [this] { chooseSound (session.getKitDocument().getPadSoundIndex (selectedPadId()) + 1); });
-    previousSoundButton.setTooltip (ko ("앞 소리"));
-    nextSoundButton.setTooltip (ko ("다음 소리"));
 
-    familyButton.setButtonText (ko ("같은 악기의 패드도 함께 바꾸기 (하이햇, 스네어 등)"));
-    familyButton.setToggleState (true, juce::dontSendNotification);
-    ui::noFocus (familyButton);
-    addAndMakeVisible (familyButton);
-
-    ui::setupLabel (*this, samplesCaption, ko ("샘플 (세기 구간마다 한 줄, 같은 줄은 번갈아 냄)"), ui::Text::caption);
     ui::setupLabel (*this, samplesText, {}, ui::Text::detail);
     samplesText.setJustificationType (juce::Justification::topLeft);
 
-    ui::setupButton (*this, replaceButton, ko ("샘플 바꾸기…"), [this] { chooseSamples (false); });
-    ui::setupButton (*this, appendButton, ko ("샘플 더하기…"), [this] { chooseSamples (true); });
-    ui::setupLabel (*this, hintLabel,
-                    ko ("소리 파일을 끌어다 놓으면 바꿉니다. Ctrl을 누른 채 놓으면 더합니다."), ui::Text::caption);
+    ui::setupButton (*this, replaceButton, ko ("샘플 바꾸기"), [this] { chooseSamples (false); });
+    ui::setupButton (*this, appendButton, ko ("샘플 더하기"), [this] { chooseSamples (true); });
+    replaceButton.setTooltip (ko ("소리 파일을 끌어 놓아도 바뀝니다"));
+    appendButton.setTooltip (ko ("Ctrl을 누른 채 끌어 놓아도 더해집니다"));
 
-    // 버튼 종류: 지우는 일은 위험 표시
+    // 버튼 종류: 드문 일은 조용하게, 지우는 일은 위험 표시
+    ui::setButtonKind (renamePadButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (filesButton, ui::ButtonKind::quiet);
     ui::setButtonKind (removePadButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
     rebuild();
+
 }
 
 DocumentBar::Source KitPage::makeDocumentSource()
@@ -144,6 +242,30 @@ void KitPage::paint (juce::Graphics& g)
     ui::fillPanel (g, editorPanel);
 }
 
+void KitPage::paintOverChildren (juce::Graphics& g)
+{
+    // 소리 파일을 끌고 들어오면 편집 칸에 점선 테두리와 놓는 법을 띄운다.
+    if (! fileDragOver || editorPanel.isEmpty())
+        return;
+
+    const auto& t = ui::theme();
+    const auto area = editorPanel.toFloat();
+
+    g.setColour (t.surface.withAlpha (0.9f));
+    g.fillRoundedRectangle (area, t.panelRadius);
+
+    juce::Path outline, dashed;
+    outline.addRoundedRectangle (area.reduced (6.0f), t.panelRadius);
+    const float dashes[] = { 8.0f, 6.0f };
+    juce::PathStrokeType (2.0f).createDashedStroke (dashed, outline, dashes, 2);
+    g.setColour (t.accent);
+    g.fillPath (dashed);
+
+    g.setColour (t.text);
+    g.setFont (juce::FontOptions (ui::type::section, juce::Font::bold));
+    g.drawText (ko ("놓으면 바꾸기  ·  Ctrl 더하기"), editorPanel, juce::Justification::centred, true);
+}
+
 void KitPage::resized()
 {
     auto area = getLocalBounds();
@@ -166,56 +288,97 @@ void KitPage::resized()
 
     area.removeFromLeft (ui::space::medium);
     editorPanel = area;
-    auto editor = area.reduced (ui::space::large, ui::space::medium + 2);
+    editorArea = area.reduced (ui::space::large);
 
+    layoutEditor();
+}
+
+void KitPage::layoutEditor()
+{
+    auto editor = editorArea;
+
+    //==============================================================================
+    // 제목 줄
     auto title = editor.removeFromTop (ui::space::control);
-    hardButton.setBounds (title.removeFromRight (60));
-    title.removeFromRight (ui::space::tight);
-    mediumButton.setBounds (title.removeFromRight (60));
-    title.removeFromRight (ui::space::tight);
-    softButton.setBounds (title.removeFromRight (60));
+    constexpr int previewWidth = 44;
+    hardButton.setBounds (title.removeFromRight (previewWidth));
+    mediumButton.setBounds (title.removeFromRight (previewWidth));
+    softButton.setBounds (title.removeFromRight (previewWidth));
+    title.removeFromRight (ui::space::small);
+    previewCaption.setBounds (title.removeFromRight (textWidth (previewCaption) + 4));
     title.removeFromRight (ui::space::large);
-    renamePadButton.setBounds (title.removeFromRight (100));
-    padTitle.setBounds (title);
 
-    editor.removeFromTop (ui::space::medium);
+    padTitle.setBounds (title.removeFromLeft (juce::jmin (title.getWidth() - 96, textWidth (padTitle) + ui::space::small)));
+    renamePadButton.setBounds (title.removeFromLeft (92));
 
-    // 조절 항목은 두 줄씩 나란히 놓는다.
+    editor.removeFromTop (ui::space::large);
+
+    //==============================================================================
+    // 소리: [<] [모아 둔 소리] [>] 1/15  ☑ 같은 악기 함께
+    soundCaption.setBounds (editor.removeFromTop (captionHeight));
+    auto sound = editor.removeFromTop (ui::space::control);
+    constexpr int arrowWidth = 32, countWidth = 56, familyWidth = 150;
+    const auto comboWidth = juce::jlimit (120, 420, sound.getWidth() - 2 * (arrowWidth + ui::space::tight)
+                                                         - ui::space::small - countWidth - ui::space::large - familyWidth);
+    previousSoundButton.setBounds (sound.removeFromLeft (arrowWidth));
+    sound.removeFromLeft (ui::space::tight);
+    soundCombo.setBounds (sound.removeFromLeft (comboWidth));
+    sound.removeFromLeft (ui::space::tight);
+    nextSoundButton.setBounds (sound.removeFromLeft (arrowWidth));
+    sound.removeFromLeft (ui::space::small);
+    soundCount.setBounds (sound.removeFromLeft (countWidth));
+    sound.removeFromLeft (ui::space::large);
+    familyButton.setBounds (sound.removeFromLeft (juce::jmin (familyWidth, sound.getWidth())));
+
+    editor.removeFromTop (ui::space::large);
+
+    //==============================================================================
+    // 조절 항목: 두 개씩 한 줄. 음량 · 팬 다음에 묶음 사이를 띄운다.
     for (std::size_t i = 0; i < fields.size(); i += 2)
     {
-        auto row = editor.removeFromTop (50);
-        auto leftHalf = row.removeFromLeft (row.getWidth() / 2).withTrimmedRight (12);
-        auto rightHalf = row.withTrimmedLeft (12);
+        auto row = editor.removeFromTop (captionHeight + ui::space::control);
+        auto leftHalf = row.removeFromLeft ((row.getWidth() - ui::space::xlarge) / 2);
+        auto rightHalf = row.withTrimmedLeft (ui::space::xlarge);
 
-        fields[i].caption.setBounds (leftHalf.removeFromTop (20));
-        fields[i].slider.setBounds (leftHalf.removeFromTop (26));
-        fields[i + 1].caption.setBounds (rightHalf.removeFromTop (20));
-        fields[i + 1].slider.setBounds (rightHalf.removeFromTop (26));
+        fields[i].caption.setBounds (leftHalf.removeFromTop (captionHeight));
+        fields[i].slider.setBounds (leftHalf);
+        fields[i + 1].caption.setBounds (rightHalf.removeFromTop (captionHeight));
+        fields[i + 1].slider.setBounds (rightHalf);
+
+        editor.removeFromTop (i == 0 || i + 2 >= fields.size() ? ui::space::large : ui::space::small);
     }
 
-    auto soundRow = editor.removeFromTop (50);
-    soundCaption.setBounds (soundRow.removeFromTop (20));
-    auto soundControls = soundRow.removeFromTop (26);
-    soundCombo.setBounds (soundControls.removeFromLeft (juce::jmin (340, soundControls.getWidth() / 2)));
-    soundControls.removeFromLeft (6);
-    previousSoundButton.setBounds (soundControls.removeFromLeft (34));
-    soundControls.removeFromLeft (4);
-    nextSoundButton.setBounds (soundControls.removeFromLeft (34));
-    soundControls.removeFromLeft (16);
-    familyButton.setBounds (soundControls);
+    //==============================================================================
+    // 샘플: 요약 한 줄. 펼쳤거나 샘플이 없으면 아래에 목록과 버튼
+    samplesCaption.setBounds (editor.removeFromTop (captionHeight));
+    auto summary = editor.removeFromTop (ui::space::control);
+    samplesSummary.setBounds (summary.removeFromLeft (juce::jmin (summary.getWidth() - 96, textWidth (samplesSummary) + ui::space::large)));
+    filesButton.setBounds (summary.removeFromLeft (88));
+    filesButton.setVisible (hasSamples);
 
-    editor.removeFromTop (8);
-    samplesCaption.setBounds (editor.removeFromTop (20));
+    const auto showList = hasSamples && filesShown;
+    const auto showButtons = showList || ! hasSamples;
+    samplesText.setVisible (showList);
+    replaceButton.setVisible (showButtons);
+    appendButton.setVisible (showButtons);
 
-    hintLabel.setBounds (editor.removeFromBottom (22));
-    editor.removeFromBottom (6);
-    auto buttons = editor.removeFromBottom (28);
-    replaceButton.setBounds (buttons.removeFromLeft (120));
-    buttons.removeFromLeft (6);
-    appendButton.setBounds (buttons.removeFromLeft (120));
-    editor.removeFromBottom (6);
+    if (showList)
+    {
+        const auto lines = juce::StringArray::fromLines (samplesText.getText()).size();
+        const auto lineHeight = juce::roundToInt (samplesText.getFont().getHeight());
+        editor.removeFromTop (ui::space::small);
+        samplesText.setBounds (editor.removeFromTop (juce::jmin (lines * lineHeight + 6,
+                                                                 juce::jmax (lineHeight, editor.getHeight() - ui::space::control - ui::space::small))));
+    }
 
-    samplesText.setBounds (editor);
+    if (showButtons)
+    {
+        editor.removeFromTop (ui::space::small);
+        auto buttons = editor.removeFromTop (ui::space::control);
+        replaceButton.setBounds (buttons.removeFromLeft (112));
+        buttons.removeFromLeft (ui::space::tight);
+        appendButton.setBounds (buttons.removeFromLeft (112));
+    }
 }
 
 //==============================================================================
@@ -234,6 +397,7 @@ void KitPage::paintListBoxItem (int row, juce::Graphics& g, int width, int heigh
 
     const auto& pad = kit->pads[static_cast<std::size_t> (row)];
     const auto id = juce::String (pad.id);
+    const auto empty = session.getKitDocument().countSamples (id) == 0;
 
     const auto& t = ui::theme();
 
@@ -246,15 +410,18 @@ void KitPage::paintListBoxItem (int row, juce::Graphics& g, int width, int heigh
     g.setColour (ui::padColour (id).withAlpha (pad.layers.empty() ? 0.35f : 1.0f));
     g.fillEllipse (12.0f, static_cast<float> (height) * 0.5f - 4.0f, 8.0f, 8.0f);
 
+    // 샘플이 없는 패드에만 오른쪽에 "없음"을 붙인다.
+    const auto nameWidth = width - 30 - (empty ? 52 : 12);
     g.setColour (t.text.withAlpha (pad.layers.empty() ? 0.5f : 1.0f));
     g.setFont (juce::FontOptions (ui::type::body));
-    g.drawText (fromUtf8 (pad.name), 30, 0, width - 84, height, juce::Justification::centredLeft, true);
+    g.drawText (fromUtf8 (pad.name), 30, 0, nameWidth, height, juce::Justification::centredLeft, true);
 
-    const auto count = session.getKitDocument().countSamples (id);
-    g.setColour (t.textFaint);
-    g.setFont (juce::FontOptions (ui::type::caption));
-    g.drawText (count > 0 ? juce::String (count) + ko ("개") : ko ("샘플 없음"), width - 82, 0, 70, height,
-                juce::Justification::centredRight, true);
+    if (empty)
+    {
+        g.setColour (t.danger);
+        g.setFont (juce::FontOptions (ui::type::caption));
+        g.drawText (ko ("없음"), width - 52, 0, 40, height, juce::Justification::centredRight, true);
+    }
 }
 
 void KitPage::selectedRowsChanged (int lastRowSelected)
@@ -273,6 +440,12 @@ void KitPage::listBoxItemClicked (int row, const juce::MouseEvent& event)
         session.previewPad (row, 0.8f);
 }
 
+void KitPage::mouseDoubleClick (const juce::MouseEvent& event)
+{
+    if (event.eventComponent == &padTitle)
+        renamePad();
+}
+
 juce::String KitPage::selectedPadId() const
 {
     return session.getPadId (selectedPad);
@@ -286,7 +459,7 @@ void KitPage::rebuild()
 
     const auto& stats = session.getKitStats();
     const auto& document = session.getKitDocument();
-    // 킷의 이름은 창 아래의 상태 줄에 나오므로 여기에는 적지 않는다 (윗줄에 버튼이 많아 자리가 좁다).
+    // 킷의 이름은 창 아래의 상태 줄에 나오므로 여기에는 적지 않는다.
     juce::String info;
     info << ko ("샘플 ") << stats.numSamples << ko ("개")
          << "  ·  " << juce::roundToInt (static_cast<double> (stats.memoryBytes) / 1.0e6) << " MB";
@@ -311,10 +484,12 @@ void KitPage::showPad()
     const auto id = selectedPadId();
     const auto hasPad = id.isNotEmpty();
     const auto* kit = session.getKit();
+    const auto& document = session.getKitDocument();
 
-    padTitle.setText (hasPad && kit != nullptr ? fromUtf8 (kit->pads[static_cast<std::size_t> (selectedPad)].name) + "   (" + id + ")"
-                                               : ko ("패드가 없습니다"),
+    // 제목은 이름만. 내부 id는 툴팁으로 본다.
+    padTitle.setText (hasPad && kit != nullptr ? fromUtf8 (kit->pads[static_cast<std::size_t> (selectedPad)].name) : ko ("패드 없음"),
                       juce::dontSendNotification);
+    padTitle.setTooltip (hasPad ? id : juce::String());
 
     for (auto& field : fields)
     {
@@ -325,41 +500,51 @@ void KitPage::showPad()
     }
 
     // 모아 둔 소리
-    const auto sounds = session.getKitDocument().getPadSounds (id);
-    const auto soundIndex = session.getKitDocument().getPadSoundIndex (id);
+    const auto sounds = document.getPadSounds (id);
+    const auto soundIndex = document.getPadSoundIndex (id);
 
     soundCombo.clear (juce::dontSendNotification);
 
     for (int i = 0; i < sounds.size(); ++i)
         soundCombo.addItem (sounds.getReference (i).name.isNotEmpty() ? sounds.getReference (i).name : sounds.getReference (i).id, i + 1);
 
-    soundCombo.setTextWhenNothingSelected (sounds.isEmpty() ? ko ("모아 둔 소리가 없습니다") : ko ("직접 고른 샘플"));
+    soundCombo.setTextWhenNothingSelected (sounds.isEmpty() ? ko ("모아 둔 소리 없음") : ko ("직접 고른 샘플"));
     soundCombo.setSelectedItemIndex (soundIndex, juce::dontSendNotification);
     soundCombo.setEnabled (! sounds.isEmpty());
     previousSoundButton.setEnabled (sounds.size() > 1);
     nextSoundButton.setEnabled (sounds.size() > 1);
     familyButton.setEnabled (! sounds.isEmpty());
 
-    auto caption = ko ("소리");
+    soundCount.setText (sounds.isEmpty() ? juce::String()
+                                         : (soundIndex >= 0 ? juce::String (soundIndex + 1) : juce::String ("-")) + "/" + juce::String (sounds.size()),
+                        juce::dontSendNotification);
 
-    if (! sounds.isEmpty())
-        caption << "  (" << ko ("모아 둔 것 ") << sounds.size() << ko ("개 중 ")
-                << (soundIndex >= 0 ? juce::String (soundIndex + 1) + ko ("번째") : ko ("직접 고른 샘플")) << ")";
-
-    soundCaption.setText (caption, juce::dontSendNotification);
-
-    // 레이어마다 한 줄. 파일 이름이 많으면 앞의 몇 개만 적는다.
+    // 샘플: 요약 한 줄 ("세기 6단 · 파일 18개"), 펼치면 세기 구간마다 한 줄. 파일 이름이 많으면 앞의 몇 개만 적는다.
     juce::StringArray lines;
 
-    for (const auto& line : session.getKitDocument().describeSamples (id))
+    for (const auto& line : document.describeSamples (id))
         lines.add (line.length() > 150 ? line.substring (0, 150) + " …" : line);
 
-    samplesText.setText (lines.isEmpty() ? ko ("샘플이 없습니다. 아래 버튼으로 고르거나 파일을 끌어다 놓으세요.")
-                                        : lines.joinIntoString ("\n"),
-                         juce::dontSendNotification);
+    const auto files = document.countSamples (id);
+    hasSamples = files > 0;
+
+    juce::String summary;
+
+    if (! hasSamples)
+        summary = ko ("없음");
+    else if (lines.size() > 1)
+        summary << ko ("세기 ") << lines.size() << ko ("단  ·  파일 ") << files << ko ("개");
+    else
+        summary << ko ("파일 ") << files << ko ("개");
+
+    samplesSummary.setText (summary, juce::dontSendNotification);
+    samplesSummary.setColour (juce::Label::textColourId, hasSamples ? ui::theme().text : ui::theme().danger);
+    samplesText.setText (lines.joinIntoString ("\n"), juce::dontSendNotification);
 
     for (auto* button : { &renamePadButton, &softButton, &mediumButton, &hardButton, &replaceButton, &appendButton, &removePadButton })
         button->setEnabled (hasPad);
+
+    layoutEditor();
 }
 
 void KitPage::tick()
@@ -382,8 +567,23 @@ bool KitPage::isInterestedInFileDrag (const juce::StringArray& files)
     return false;
 }
 
+void KitPage::fileDragEnter (const juce::StringArray&, int, int)
+{
+    fileDragOver = true;
+    repaint();
+}
+
+void KitPage::fileDragExit (const juce::StringArray&)
+{
+    fileDragOver = false;
+    repaint();
+}
+
 void KitPage::filesDropped (const juce::StringArray& files, int, int)
 {
+    fileDragOver = false;
+    repaint();
+
     juce::Array<juce::File> audioFiles;
 
     for (const auto& path : files)
@@ -490,13 +690,13 @@ void KitPage::removePad()
     if (id.isEmpty())
         return;
 
-    ui::confirm (this, ko ("패드 삭제"),
-                 ko ("이 패드를 킷에서 지울까요? 샘플 파일은 지우지 않습니다.\n\n") + padTitle.getText(),
-                 [this, id]
-                 {
-                     session.getKitDocument().removePad (id);
-                     session.saveKit (true);
-                 });
+    ui::confirmAction (this, ko ("패드 삭제"),
+                       padTitle.getText() + ko (" 패드를 킷에서 지울까요? 샘플 파일은 지우지 않습니다."), ko ("삭제"),
+                       [this, id]
+                       {
+                           session.getKitDocument().removePad (id);
+                           session.saveKit (true);
+                       });
 }
 
 void KitPage::importKit()
