@@ -14,12 +14,13 @@
 #include "Documents.h"
 #include "PlayLog.h"
 #include "RawKeyboard.h"
+#include "TakeRecorder.h"
 #include "core/Engine.h"
 #include "core/InputTiming.h"
 #include "core/Mapping.h"
+#include "core/MetronomeTiming.h"
 #include "core/MouseTargets.h"
 #include "core/Performer.h"
-#include "core/Replay.h"
 #include "core/SpscQueue.h"
 #include "core/TrackPlayer.h"
 
@@ -265,46 +266,33 @@ public:
     juce::File getRecordingsFolder() const                   { return dataRoot.getChildFile ("recordings"); }
 
     //==============================================================================
-    // 연주 기록과 다시 재생
-    struct TakeHit
-    {
-        double seconds = 0.0;
-        juce::String padId;
-        float velocity = 1.0f;
-    };
+    // 연주 기록과 다시 재생 (TakeRecorder)
+    using TakeHit = TakeRecorder::Hit;
 
     void startTake();
     void stopTake();
-    bool isTakeRecording() const noexcept                    { return takeRecording; }
-    bool hasTake() const noexcept                            { return ! take.empty(); }
-    int getTakeHitCount() const noexcept                     { return static_cast<int> (take.size()); }
-    double getTakeLength() const noexcept                    { return takeLength; }
+    bool isTakeRecording() const noexcept                    { return takes.isRecording(); }
+    bool hasTake() const noexcept                            { return takes.hasTake(); }
+    int getTakeHitCount() const noexcept                     { return takes.getHitCount(); }
+    double getTakeLength() const noexcept                    { return takes.getLength(); }
 
     void playTake();
     void stopTakePlayback();
-    bool isTakePlaying() const noexcept                      { return replay.isActive(); }
-    double getTakePlaybackSeconds() const noexcept           { return replay.getElapsedSeconds (engine.getClock()); }
+    bool isTakePlaying() const noexcept                      { return takes.isPlaying(); }
+    double getTakePlaybackSeconds() const noexcept           { return takes.getPlaybackSeconds(); }
 
     juce::String exportTakeAsMidi (const juce::File& file) const;
     juce::String importTakeFromMidi (const juce::File& file);
 
     //==============================================================================
     // 타이밍: 메트로놈이 켜져 있을 때 타격이 16분음표 격자에서 얼마나 벗어났는지
-    struct Timing
-    {
-        static constexpr int historySize = 32;
-
-        std::array<float, historySize> offsetsMs {};    // 음수는 빠름, 양수는 늦음
-        int count = 0;                                  // 지금까지 잰 타격 수
-        float lastMs = 0.0f;
-        float averageAbsMs = 0.0f;
-    };
+    using Timing = hvd::MetronomeTiming;
 
     /** 엔진이 낸 타격마다 불린다 (화면 스레드, poll() 안에서). 리듬 게임이 판정에 쓴다. */
     std::function<void (const hvd::HitEvent&)> onHit;
 
     const Timing& getTiming() const noexcept                 { return timing; }
-    void resetTiming()                                       { timing = {}; }
+    void resetTiming()                                       { timing.reset(); }
 
     //==============================================================================
     // 연주 로그: 켜져 있는 동안 친 것(타격, 키)과 그때의 상황(곡의 위치, 템포, 킷 등)을 파일에 적어 둔다.
@@ -435,14 +423,7 @@ private:
     std::vector<std::unique_ptr<const hvd::TrackData>> ownedTracks;
     juce::File trackFile;
 
-    // 연주 기록
-    std::vector<TakeHit> take;
-    bool takeRecording = false;
-    std::uint64_t takeStartClock = 0;
-    double takeLength = 0.0;
-    double takeTrackPosition = -1.0;    // 기록을 시작할 때 반주가 재생 중이었으면 그 위치
-    hvd::ReplayPlayer replay;
-
+    TakeRecorder takes { engine, track };
     Timing timing;
     float outputPeak = 0.0f;
     juce::var settings;

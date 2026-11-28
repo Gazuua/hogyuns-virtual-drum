@@ -14,7 +14,6 @@ namespace
 {
 
 constexpr double maxTrackSeconds = 20.0 * 60.0;
-constexpr double replayLookAheadSeconds = 0.25;
 
 using json::numberOr;
 
@@ -273,13 +272,8 @@ void Session::poll()
         callback (static_cast<hvd::KeyCode> (key));
     }
 
-    if (replay.isActive())
-    {
-        const auto lookAhead = static_cast<std::uint32_t> (engine.getSampleRate() * replayLookAheadSeconds);
-
-        if (! replay.pump (engine, engine.getClock(), lookAhead))
-            sendChangeMessage();    // 다시 재생이 끝났다
-    }
+    if (takes.isPlaying() && ! takes.pump())
+        sendChangeMessage();    // 다시 재생이 끝났다
 
     // 고친 문서와 설정은 마우스를 놓은 뒤에 저장한다. 밖에서 고친 파일을 살피기 전에 한다.
     if ((kitEdited || keymapEdited || settingsEdited) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
@@ -307,7 +301,7 @@ void Session::releaseRetired()
 void Session::drainHitEvents()
 {
     const auto sampleRate = engine.getSampleRate();
-    const auto measuring = engine.isMetronomeOn() && ! replay.isActive();
+    const auto measuring = engine.isMetronomeOn() && ! takes.isPlaying();
     const auto logging = playLog.isActive();
     const auto sync = logging ? audio.getTrackSync() : AudioHost::TrackSync();
     hvd::HitEvent event;
@@ -323,35 +317,13 @@ void Session::drainHitEvents()
         if (onHit != nullptr)
             onHit (event);
 
-        if (takeRecording && ! replay.isActive() && event.time >= takeStartClock)
-            take.push_back ({ static_cast<double> (event.time - takeStartClock) / sampleRate,
-                              juce::String (shownKit->pads[event.pad].id),
-                              event.velocity });
+        takes.add (event, *shownKit);
 
         if (measuring)
         {
             // 가장 가까운 16분음표 자리에서 얼마나 벗어났는지 잰다.
             const auto grid = sampleRate * 60.0 / static_cast<double> (engine.getTempo()) / 4.0;
-            auto offset = std::fmod (static_cast<double> (event.time) - static_cast<double> (engine.getLastBeatTime()), grid);
-
-            if (offset < 0.0)
-                offset += grid;
-
-            if (offset > grid * 0.5)
-                offset -= grid;
-
-            const auto ms = static_cast<float> (offset / sampleRate * 1000.0);
-            timing.offsetsMs[static_cast<std::size_t> (timing.count % Timing::historySize)] = ms;
-            timing.lastMs = ms;
-            ++timing.count;
-
-            const auto used = std::min (timing.count, Timing::historySize);
-            auto sum = 0.0f;
-
-            for (int i = 0; i < used; ++i)
-                sum += std::abs (timing.offsetsMs[static_cast<std::size_t> (i)]);
-
-            timing.averageAbsMs = sum / static_cast<float> (used);
+            timing.add (static_cast<float> (hvd::gridOffsetMs (event.time, engine.getLastBeatTime(), grid, sampleRate)));
         }
     }
 }
@@ -1184,23 +1156,17 @@ void Session::stopRecording()
 //==============================================================================
 void Session::startTake()
 {
-    stopTakePlayback();
-    take.clear();
-    takeLength = 0.0;
-    takeStartClock = engine.getClock();
-    takeTrackPosition = track.isPlaying() ? track.getPosition() : -1.0;
-    takeRecording = true;
+    takes.start();
     sendChangeMessage();
 }
 
 void Session::stopTake()
 {
-    if (! takeRecording)
+    if (! takes.isRecording())
         return;
 
-    drainHitEvents();
-    takeRecording = false;
-    takeLength = static_cast<double> (engine.getClock() - takeStartClock) / engine.getSampleRate();
+    drainHitEvents();    // 그때까지 친 것을 마저 담는다
+    takes.stop();
     sendChangeMessage();
 }
 
@@ -1208,82 +1174,22 @@ void Session::playTake()
 {
     stopTake();
 
-    if (take.empty() || shownKit == nullptr)
-        return;
-
-    std::vector<hvd::ReplayEvent> events;
-    events.reserve (take.size());
-
-    for (const auto& hit : take)
-        if (const auto pad = shownKit->findPad (hit.padId.toStdString()); pad >= 0)
-            events.push_back ({ hit.seconds, static_cast<std::uint16_t> (pad), hit.velocity });
-
-    // 기록할 때 반주가 나오고 있었으면 같은 자리에서 함께 재생한다.
-    if (takeTrackPosition >= 0.0 && track.getLength() > 0.0)
-    {
-        track.seek (takeTrackPosition);
-        track.setPlaying (true);
-    }
-
-    replay.start (std::move (events), engine.getClock(), engine.getSampleRate());
-    sendChangeMessage();
+    if (shownKit != nullptr && takes.play (*shownKit))
+        sendChangeMessage();
 }
 
 void Session::stopTakePlayback()
 {
-    if (! replay.isActive())
-        return;
-
-    replay.stop();
-    allSoundOff();    // 엔진에 미리 넘겨 둔 타격도 지운다
-
-    if (takeTrackPosition >= 0.0)
-        track.setPlaying (false);
-
-    sendChangeMessage();
+    if (takes.stopPlayback())
+        sendChangeMessage();
 }
 
 juce::String Session::exportTakeAsMidi (const juce::File& file) const
 {
-    if (take.empty() || shownKit == nullptr)
+    if (shownKit == nullptr)
         return ko ("기록한 연주가 없습니다");
 
-    constexpr int ticksPerQuarter = 480;
-    const auto tempo = static_cast<double> (engine.getTempo());
-    const auto ticksPerSecond = tempo / 60.0 * ticksPerQuarter;
-
-    juce::MidiMessageSequence sequence;
-    sequence.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60000000.0 / tempo)), 0.0);
-
-    for (const auto& hit : take)
-    {
-        const auto pad = shownKit->findPad (hit.padId.toStdString());
-        const auto note = pad >= 0 ? shownKit->pads[static_cast<std::size_t> (pad)].midiNote : -1;
-
-        if (note < 0)
-            continue;
-
-        const auto tick = hit.seconds * ticksPerSecond;
-        const auto velocity = static_cast<juce::uint8> (juce::jlimit (1, 127, juce::roundToInt (hit.velocity * 127.0f)));
-
-        // 드럼은 10번 채널에 적는 것이 관례다.
-        sequence.addEvent (juce::MidiMessage::noteOn (10, note, velocity), tick);
-        sequence.addEvent (juce::MidiMessage::noteOff (10, note), tick + 60.0);
-    }
-
-    sequence.updateMatchedPairs();
-
-    juce::MidiFile midi;
-    midi.setTicksPerQuarterNote (ticksPerQuarter);
-    midi.addTrack (sequence);
-
-    file.deleteFile();
-    juce::FileOutputStream stream (file);
-
-    if (! stream.openedOk() || ! midi.writeTo (stream))
-        return ko ("파일을 쓰지 못했습니다: ") + file.getFullPathName();
-
-    return {};
+    return takes.exportMidi (file, *shownKit, engine.getTempo());
 }
 
 juce::String Session::importTakeFromMidi (const juce::File& file)
@@ -1291,53 +1197,14 @@ juce::String Session::importTakeFromMidi (const juce::File& file)
     if (shownKit == nullptr)
         return ko ("킷이 없습니다");
 
-    juce::FileInputStream stream (file);
-    juce::MidiFile midi;
+    const auto padOfNote = [this] (int note) { return midiPads[static_cast<std::size_t> (note & 127)].load (std::memory_order_relaxed); };
+    auto imported = false;
+    const auto message = takes.importMidi (file, padOfNote, *shownKit, imported);
 
-    if (! stream.openedOk() || ! midi.readFrom (stream))
-        return ko ("MIDI 파일을 읽지 못했습니다: ") + file.getFileName();
+    if (imported)
+        sendChangeMessage();
 
-    midi.convertTimestampTicksToSeconds();
-
-    std::vector<TakeHit> hits;
-    auto skipped = 0;
-
-    for (int trackIndex = 0; trackIndex < midi.getNumTracks(); ++trackIndex)
-    {
-        const auto* sequence = midi.getTrack (trackIndex);
-
-        for (int i = 0; i < sequence->getNumEvents(); ++i)
-        {
-            const auto& message = sequence->getEventPointer (i)->message;
-
-            if (! message.isNoteOn())
-                continue;
-
-            const auto pad = midiPads[static_cast<std::size_t> (message.getNoteNumber() & 127)].load (std::memory_order_relaxed);
-
-            if (pad < 0)
-            {
-                ++skipped;
-                continue;
-            }
-
-            hits.push_back ({ message.getTimeStamp(), getPadId (pad), message.getFloatVelocity() });
-        }
-    }
-
-    if (hits.empty())
-        return ko ("이 킷의 패드에 해당하는 노트가 없습니다");
-
-    std::stable_sort (hits.begin(), hits.end(), [] (const TakeHit& a, const TakeHit& b) { return a.seconds < b.seconds; });
-
-    stopTakePlayback();
-    takeRecording = false;
-    take = std::move (hits);
-    takeLength = take.back().seconds + 1.0;
-    takeTrackPosition = -1.0;
-    sendChangeMessage();
-
-    return skipped > 0 ? ko ("맞는 패드가 없어 건너뛴 노트: ") + juce::String (skipped) : juce::String();
+    return message;
 }
 
 //==============================================================================
