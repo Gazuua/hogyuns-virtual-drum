@@ -70,7 +70,6 @@ struct Theme
         juce::Colour light, vignette;           // 가운데 조명, 가장자리 그늘
         juce::Colour nameText, nameHalo;        // 바닥 위에 적는 이름
         juce::Colour keycap, keycapEdge, keycapText;
-        juce::Colour editOverlay, editText;     // 배치 편집 안내
     } stage;
 
     //==============================================================================

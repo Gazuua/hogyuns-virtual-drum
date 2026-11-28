@@ -22,26 +22,6 @@ juce::String strokeTag (const hvd::Stroke& stroke)
     return {};
 }
 
-/** 되돌리기 어려운 일을 하기 전에 묻는다. 버튼은 동작 이름과 "취소"이고, 엔터로는 실행하지 않는다. */
-void confirmDanger (juce::Component* parent, const juce::String& title, const juce::String& message, const juce::String& action,
-                    std::function<void()> onConfirm)
-{
-    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::WarningIcon, parent);
-    window->addButton (action, 1);
-    window->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
-    if (auto* button = window->getButton (action))
-        ui::setButtonKind (*button, ui::ButtonKind::danger);
-
-    window->enterModalState (true,
-                             juce::ModalCallbackFunction::create ([onConfirm = std::move (onConfirm)] (int result)
-                             {
-                                 if (result == 1)
-                                     onConfirm();
-                             }),
-                             true);
-}
-
 } // namespace
 
 PlayPage::PlayPage (Session& sessionToUse)
@@ -550,13 +530,14 @@ void PlayPage::publishMouseTargets()
 
 void PlayPage::confirmResetLayout()
 {
-    confirmDanger (this, ko ("기본 배치로"),
-                   ko ("모든 패드를 처음 자리로 옮깁니다.\n지금 배치는 킷 화면의 되돌리기로 되살릴 수 있습니다."),
-                   ko ("기본 배치로"), [safe = juce::Component::SafePointer<PlayPage> (this)]
-                   {
-                       if (safe != nullptr)
-                           safe->resetLayout();
-                   });
+    ui::confirm (this, ko ("기본 배치로"),
+                 ko ("모든 패드를 처음 자리로 옮깁니다.\n지금 배치는 킷 화면의 되돌리기로 되살릴 수 있습니다."),
+                 ko ("기본 배치로"), [safe = juce::Component::SafePointer<PlayPage> (this)]
+                 {
+                     if (safe != nullptr)
+                         safe->resetLayout();
+                 },
+                 true);
 }
 
 void PlayPage::resetLayout()
@@ -571,13 +552,9 @@ void PlayPage::updateTimingLabel()
     const auto& timing = session.getTiming();
     juce::String text;
 
+    // 박에 맞았는지는 반주 화면의 박자 연습, 연습 기록과 같은 기준(ui::timing::onBeatMs)으로 본다.
     if (session.getEngine().isMetronomeOn() && timing.count > 0)
-    {
-        const auto ms = juce::roundToInt (timing.lastMs);
-        text << ko ("박자: ") << (ms > 0 ? "+" : "") << ms << " ms "
-             << (std::abs (ms) <= 8 ? ko ("(정확)") : (ms < 0 ? ko ("(빠름)") : ko ("(늦음)")))
-             << "  ·  " << ko ("평균 오차 ") << juce::roundToInt (timing.averageAbsMs) << " ms";
-    }
+        text << ko ("박자: ") << ui::formatHitTiming (timing.lastMs) << ui::separator() << ko ("평균 오차 ") << ui::formatMs (timing.averageAbsMs);
 
     if (text != timingLabel.getText())
         timingLabel.setText (text, juce::dontSendNotification);

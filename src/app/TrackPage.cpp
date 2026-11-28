@@ -5,13 +5,6 @@ namespace
 
 constexpr float timingRangeMs = 60.0f;
 
-/** Session::Timing의 고리 버퍼에서 age번째로 최근 값 (0이 가장 최근). */
-float recentOffset (const Session::Timing& timing, int age)
-{
-    constexpr auto size = Session::Timing::historySize;
-    return timing.offsetsMs[static_cast<std::size_t> (((timing.count - 1 - age) % size + size) % size)];
-}
-
 } // namespace
 
 //==============================================================================
@@ -77,7 +70,7 @@ void TrackBar::mouseDown (const juce::MouseEvent& event)    { seekTo (event); }
 void TrackBar::mouseDrag (const juce::MouseEvent& event)    { seekTo (event); }
 
 //==============================================================================
-void TimingView::setTiming (const Session::Timing& newTiming)
+void TimingView::setTiming (const hvd::MetronomeTiming& newTiming)
 {
     if (newTiming.count == shownCount)
         return;
@@ -115,12 +108,10 @@ void TimingView::paint (juce::Graphics& g)
                 juce::Justification::centredLeft, true);
 
     // 최근 타격일수록 아래쪽에, 진하게 그린다.
-    const auto used = juce::jmin (timing.count, Session::Timing::historySize);
-
-    for (int age = used - 1; age >= 0; --age)
+    for (int age = timing.stored() - 1; age >= 0; --age)
     {
-        const auto ms = recentOffset (timing, age);
-        const auto freshness = 1.0f - static_cast<float> (age) / static_cast<float> (Session::Timing::historySize);
+        const auto ms = timing.recent (age);
+        const auto freshness = 1.0f - static_cast<float> (age) / static_cast<float> (hvd::MetronomeTiming::historySize);
         const auto y = bounds.getY() + 22.0f + (bounds.getHeight() - 34.0f) * freshness;
 
         g.setColour ((std::abs (ms) <= onBeat ? t.good : t.warning).withAlpha (0.25f + 0.75f * freshness));
@@ -599,11 +590,11 @@ void TrackPage::tick()
     else
     {
         // 최근 타격 가운데 박에 맞은 비율 (연습 기록의 "박에 맞음"과 같은 기준)
-        const auto used = juce::jmin (timing.count, Session::Timing::historySize);
+        const auto used = timing.stored();
         auto within = 0;
 
         for (int age = 0; age < used; ++age)
-            within += std::abs (recentOffset (timing, age)) <= ui::timing::onBeatMs ? 1 : 0;
+            within += std::abs (timing.recent (age)) <= ui::timing::onBeatMs ? 1 : 0;
 
         timingText << ko ("마지막 ") << ui::formatSignedMs (timing.lastMs)
                    << ui::separator() << ko ("평균 오차 ") << ui::formatMs (timing.averageAbsMs)

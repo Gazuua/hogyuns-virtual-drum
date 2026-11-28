@@ -1,6 +1,7 @@
 #include "GamePage.h"
 
 #include "core/PadKinds.h"
+#include "core/Patterns.h"
 
 namespace
 {
@@ -860,53 +861,11 @@ juce::String GamePage::startSong (int songIndex, bool autoplay)
 
 void GamePage::startDemo (bool autoplay)
 {
-    // 템포 110, 여덟 마디: 하이햇 8분음표, 킥 1박과 3박, 스네어 2박과 4박, 넷째와 여덟째 마디 끝에 탐 필인.
+    // 템포 110, 여덟 마디 8비트 록 (곡 없이 메트로놈처럼 진행)
+    constexpr double tempo = 110.0;
     GameRunner::Setup setup;
-    constexpr double beat = 60.0 / 110.0;
-
-    for (int i = 0; i <= 34; ++i)
-        setup.beats.push_back (beat * i);
-
-    const auto add = [&setup] (double seconds, hvd::Lane lane, float velocity, double beatPosition)
-    {
-        hvd::ChartNote note;
-        note.seconds = seconds;
-        note.lane = lane;
-        note.velocity = velocity;
-        note.beat = beatPosition;
-        setup.notes.push_back (note);
-    };
-
-    for (int bar = 0; bar < 8; ++bar)
-    {
-        const auto fill = bar == 3 || bar == 7;
-
-        for (int eighth = 0; eighth < 8; ++eighth)
-        {
-            const auto position = bar * 4.0 + eighth * 0.5;
-            const auto time = position * beat;
-
-            if (fill && eighth >= 4)
-            {
-                const hvd::Lane toms[] = { hvd::Lane::tomHigh, hvd::Lane::tomHigh, hvd::Lane::tomMid, hvd::Lane::tomFloor };
-                add (time, toms[eighth - 4], 0.9f, position);
-                continue;
-            }
-
-            if (eighth == 0 && bar % 4 == 0)
-                add (time, hvd::Lane::crash, 0.95f, position);
-            else
-                add (time, bar >= 4 ? hvd::Lane::ride : hvd::Lane::hihat, eighth % 2 == 0 ? 0.85f : 0.6f, position);
-
-            if (eighth == 0 || eighth == 4 || (eighth == 3 && bar % 2 == 1))
-                add (time, hvd::Lane::kick, 0.9f, position);
-
-            if (eighth == 2 || eighth == 6)
-                add (time, hvd::Lane::snare, 0.9f, position);
-        }
-    }
-
-    setup.duration = 34.0 * beat;
+    setup.notes = hvd::makePracticePattern (tempo, setup.beats);
+    setup.duration = 34.0 * 60.0 / tempo;
     setup.speed = 1.0;
     setup.autoplay = autoplay;
     setup.offsetMs = offsetSlider.getValue();

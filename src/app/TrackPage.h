@@ -32,11 +32,11 @@ private:
 class TimingView final : public juce::Component
 {
 public:
-    void setTiming (const Session::Timing& newTiming);
+    void setTiming (const hvd::MetronomeTiming& newTiming);
     void paint (juce::Graphics&) override;
 
 private:
-    Session::Timing timing;
+    hvd::MetronomeTiming timing;
     int shownCount = -1;
 };
 

@@ -24,7 +24,7 @@ inline double gridOffsetMs (std::uint64_t time, std::uint64_t lastBeat, double g
 }
 
 /** 메트로놈에 맞춰 친 타격이 격자에서 벗어난 정도의 최근 기록. 화면 스레드에서만 쓴다.
-    값은 고리 버퍼에 쌓인다. 필드는 예전 Session::Timing과 같은 이름이다. */
+    값은 고리 버퍼에 쌓인다. 읽을 때는 stored()와 recent()를 쓴다. */
 struct MetronomeTiming
 {
     static constexpr int historySize = 32;

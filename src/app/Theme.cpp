@@ -13,8 +13,6 @@ juce::Colour rgb (juce::uint32 value)    { return juce::Colour (0xff000000u | va
 void setCommonStage (Theme& t)
 {
     t.stage.rugShadow = juce::Colours::black.withAlpha (t.dark ? 0.40f : 0.18f);
-    t.stage.editOverlay = t.surface.withAlpha (0.92f);
-    t.stage.editText = t.text;
 }
 
 /** A: 남색 기 도는 거의 검정, 푸른 보라 액센트, 밑줄 탭. */

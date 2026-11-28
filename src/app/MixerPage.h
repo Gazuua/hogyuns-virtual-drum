@@ -46,9 +46,6 @@ private:
     void setFxBypassed (bool shouldBypass);
     void resetFx();
 
-    /** 킷 파일에 적힌 이펙트 값. 이펙트를 꺼 둔 동안에도 슬라이더는 이 값을 보인다. */
-    hvd::FxSettings fxFromDocument() const;
-
     Session& session;
     juce::StringArray stripIds;
     std::vector<std::unique_ptr<Strip>> strips;    // 악기별로 묶은 순서

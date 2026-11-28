@@ -270,8 +270,6 @@ public:
 
     //==============================================================================
     // 연주 기록과 다시 재생 (TakeRecorder)
-    using TakeHit = TakeRecorder::Hit;
-
     void startTake();
     void stopTake();
     bool isTakeRecording() const noexcept                    { return takes.isRecording(); }
@@ -289,12 +287,10 @@ public:
 
     //==============================================================================
     // 타이밍: 메트로놈이 켜져 있을 때 타격이 16분음표 격자에서 얼마나 벗어났는지
-    using Timing = hvd::MetronomeTiming;
-
     /** 엔진이 낸 타격마다 불린다 (화면 스레드, poll() 안에서). 리듬 게임이 판정에 쓴다. */
     std::function<void (const hvd::HitEvent&)> onHit;
 
-    const Timing& getTiming() const noexcept                 { return timing; }
+    const hvd::MetronomeTiming& getTiming() const noexcept   { return timing; }
     void resetTiming()                                       { timing.reset(); }
 
     //==============================================================================
@@ -417,7 +413,7 @@ private:
     juce::File trackFile;
 
     TakeRecorder takes { engine, track };
-    Timing timing;
+    hvd::MetronomeTiming timing;
     float outputPeak = 0.0f;
     AppSettings appSettings;
 

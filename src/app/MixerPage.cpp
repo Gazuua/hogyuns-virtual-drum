@@ -337,7 +337,7 @@ MixerPage::~MixerPage()
 
     // 잠깐 꺼 둔 이펙트를 되살린다 (화면이 사라진 뒤에도 꺼진 채로 남지 않게).
     if (fxBypassed)
-        session.getEngine().setFxSettings (fxFromDocument());
+        session.getEngine().setFxSettings (session.getKitDocument().getFx());
 }
 
 void MixerPage::paint (juce::Graphics& g)
@@ -474,31 +474,11 @@ void MixerPage::rebuild()
     showFx();
 }
 
-hvd::FxSettings MixerPage::fxFromDocument() const
-{
-    // Session이 킷 파일을 읽을 때와 같은 이름과 범위
-    const auto stored = session.getKitDocument().getProperty ("fx");
-    const auto number = [&stored] (const char* name, double minimum, double maximum, double fallback)
-    {
-        const auto& value = stored[name];
-        return static_cast<float> (juce::jlimit (minimum, maximum, value.isDouble() || value.isInt() || value.isInt64() ? static_cast<double> (value) : fallback));
-    };
-
-    hvd::FxSettings fx;
-    fx.eqLowDb = number ("eqLow", -18.0, 18.0, 0.0);
-    fx.eqMidDb = number ("eqMid", -18.0, 18.0, 0.0);
-    fx.eqHighDb = number ("eqHigh", -18.0, 18.0, 0.0);
-    fx.compAmount = number ("comp", 0.0, 1.0, 0.0);
-    fx.reverbLevel = number ("reverb", 0.0, 1.0, 0.0);
-    fx.reverbSize = number ("reverbSize", 0.0, 1.0, 0.5);
-    fx.reverbDamp = number ("reverbDamp", 0.0, 1.0, 0.5);
-    return fx;
-}
-
 void MixerPage::showFx()
 {
     const juce::ScopedValueSetter<bool> guard (updating, true);
-    const auto fx = fxBypassed ? fxFromDocument() : session.getFx();
+    // 이펙트를 꺼 둔 동안에도 슬라이더는 킷 파일에 적힌 값을 보인다.
+    const auto fx = fxBypassed ? session.getKitDocument().getFx() : session.getFx();
 
     const auto set = [] (juce::Slider& slider, double value)
     {
@@ -537,7 +517,7 @@ void MixerPage::setFxBypassed (bool shouldBypass)
 {
     fxBypassed = shouldBypass;
     fxToggle.setToggleState (! fxBypassed, juce::dontSendNotification);
-    session.getEngine().setFxSettings (fxBypassed ? hvd::FxSettings {} : fxFromDocument());
+    session.getEngine().setFxSettings (fxBypassed ? hvd::FxSettings {} : session.getKitDocument().getFx());
 
     // 꺼 둔 동안에는 값을 고칠 수 없게 흐리게 둔다.
     for (auto* component : std::initializer_list<juce::Component*> { &eqTitle, &compTitle, &reverbTitle, &eqLow, &eqMid, &eqHigh, &comp,

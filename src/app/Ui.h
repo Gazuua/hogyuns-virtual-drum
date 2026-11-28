@@ -357,12 +357,13 @@ inline void promptForText (juce::Component* parent, const juce::String& title, c
 }
 
 /** 할 일을 물어본다. 버튼은 동작 이름(confirmText, 예: "삭제")과 "취소"다. 동작 버튼을 누르면 onConfirm이 불린다.
-    dangerous이면 동작 버튼을 위험 모양(빨간 글자)으로 그린다. */
+    dangerous이면(되돌리기 어려운 일) 경고 그림을 붙이고, 동작 버튼을 위험 모양(빨간 글자)으로 그리고, 엔터로는 실행하지 않는다. */
 inline void confirm (juce::Component* parent, const juce::String& title, const juce::String& message,
                      const juce::String& confirmText, std::function<void()> onConfirm, bool dangerous = false)
 {
-    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::QuestionIcon, parent);
-    window->addButton (confirmText, 1, juce::KeyPress (juce::KeyPress::returnKey));
+    auto* window = new juce::AlertWindow (title, message, dangerous ? juce::MessageBoxIconType::WarningIcon
+                                                                    : juce::MessageBoxIconType::QuestionIcon, parent);
+    window->addButton (confirmText, 1, dangerous ? juce::KeyPress() : juce::KeyPress (juce::KeyPress::returnKey));
     window->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
     if (dangerous)
@@ -374,22 +375,6 @@ inline void confirm (juce::Component* parent, const juce::String& title, const j
                              {
                                  if (result == 1)
                                      onConfirm();
-                             }),
-                             true);
-}
-
-/** 예/아니오를 물어본다. 예를 누르면 onYes가 불린다. 새로 쓰는 곳은 버튼 문구를 받는 confirm을 쓴다. */
-inline void confirm (juce::Component* parent, const juce::String& title, const juce::String& message, std::function<void()> onYes)
-{
-    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::QuestionIcon, parent);
-    window->addButton (ko ("예"), 1, juce::KeyPress (juce::KeyPress::returnKey));
-    window->addButton (ko ("아니오"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
-
-    window->enterModalState (true,
-                             juce::ModalCallbackFunction::create ([onYes = std::move (onYes)] (int result)
-                             {
-                                 if (result == 1)
-                                     onYes();
                              }),
                              true);
 }
