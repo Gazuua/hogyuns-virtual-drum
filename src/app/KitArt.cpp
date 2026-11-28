@@ -452,30 +452,47 @@ void drawZonePad (juce::Graphics& g, Point centre, float radius, juce::Colour co
     g.restoreState();
 }
 
-/** 키 이름을 자판의 키처럼 그린다. 가운데가 centre인 한 줄. */
+namespace
+{
+
+// 키 캡의 글자 크기는 캡 높이의 0.68배. 글자가 11px 아래로 내려가지 않게 캡의 높이에 하한을 둔다.
+constexpr float capFontRatio = 0.68f;
+constexpr float capGap = 3.0f;
+
+float capWidth (const juce::String& key, float height)
+{
+    return juce::jmax (height, static_cast<float> (key.length()) * height * capFontRatio * 0.62f + height * 0.55f);
+}
+
+} // namespace
+
+juce::Rectangle<float> keyCapsBounds (const juce::StringArray& keys, Point centre, float height)
+{
+    if (keys.isEmpty())
+        return {};
+
+    height = juce::jmax (height, 11.0f / capFontRatio);
+    auto total = -capGap;
+
+    for (const auto& key : keys)
+        total += capWidth (key, height) + capGap;
+
+    return juce::Rectangle<float> (total, height).withCentre (centre);
+}
+
 void drawKeyCaps (juce::Graphics& g, const juce::StringArray& keys, Point centre, float height)
 {
     if (keys.isEmpty())
         return;
 
-    // 글자가 11px 아래로 내려가지 않게 캡의 높이에 하한을 둔다.
-    height = juce::jmax (height, 11.0f / 0.68f);
-    const auto fontSize = height * 0.68f;
-    std::vector<float> widths;
-    auto total = 0.0f;
-
-    for (const auto& key : keys)
-    {
-        widths.push_back (juce::jmax (height, static_cast<float> (key.length()) * fontSize * 0.62f + height * 0.55f));
-        total += widths.back() + 3.0f;
-    }
-
-    auto x = centre.x - (total - 3.0f) * 0.5f;
+    height = juce::jmax (height, 11.0f / capFontRatio);
+    const auto fontSize = height * capFontRatio;
+    auto x = keyCapsBounds (keys, centre, height).getX();
     g.setFont (juce::FontOptions (fontSize, juce::Font::bold));
 
     for (int i = 0; i < keys.size(); ++i)
     {
-        const auto cap = juce::Rectangle<float> (x, centre.y - height * 0.5f, widths[static_cast<std::size_t> (i)], height);
+        const auto cap = juce::Rectangle<float> (x, centre.y - height * 0.5f, capWidth (keys[i], height), height);
 
         const auto& stage = ui::theme().stage;
         g.setColour (stage.keycap);
@@ -485,8 +502,16 @@ void drawKeyCaps (juce::Graphics& g, const juce::StringArray& keys, Point centre
         g.setColour (stage.keycapText);
         g.drawText (keys[i], cap, juce::Justification::centred, false);
 
-        x += cap.getWidth() + 3.0f;
+        x += cap.getWidth() + capGap;
     }
+}
+
+juce::Rectangle<float> nameBounds (const juce::String& text, juce::Rectangle<float> area, float fontSize)
+{
+    // drawName처럼 한 줄에 맞추되(가로로 줄여도 칸을 넘지 않는다), 테두리 1px을 더한다.
+    const juce::Font font (juce::FontOptions (juce::jmax (11.0f, fontSize), juce::Font::bold));
+    const auto width = juce::jmin (area.getWidth(), juce::GlyphArrangement::getStringWidth (font, text)) + 2.0f;
+    return juce::Rectangle<float> (width, font.getHeight() + 2.0f).withCentre (area.getCentre());
 }
 
 /** 어두운 테두리를 두른 글자. 밝은 헤드와 황동 위에서도 읽힌다. */

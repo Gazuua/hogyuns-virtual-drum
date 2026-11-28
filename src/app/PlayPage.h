@@ -32,8 +32,12 @@ private:
 
     void rebuild();
     void setShowingSet (bool shouldShowSet);
-    void updateLastKeyLabel();
+
+    /** 배치 편집을 켜고 끈다. 켜면 툴바가 편집 막대로 바뀌고, 끄면 옮긴 것을 바로 저장한다. */
+    void setEditing (bool shouldEdit);
+    void updateToolbar();
     void updateTimingLabel();
+    void confirmResetLayout();
     void resetLayout();
     void publishMouseTargets();
 
@@ -58,11 +62,17 @@ private:
     bool showingSet = true;
     bool layoutDirty = false;
 
-    juce::TextButton tilesButton, setButton, editButton, resetButton, labelsButton, silenceButton;
-    juce::Label functionKeyLabel, lastKeyLabel, timingLabel;
+    // 툴바: [타일 | 드럼 세트] [이름 · 키] ... [배치 편집] [소리 끄기]
+    juce::TextButton tilesButton, setButton, editButton, silenceButton;
+    juce::ToggleButton labelsToggle;
+
+    // 배치 편집 중의 툴바: 배치 편집 · 끌기 이동 · 휠 크기 ... [기본 배치로] [완료]
+    juce::Label editTitle, editHint;
+    juce::TextButton resetButton, doneButton;
+
+    juce::Label timingLabel;    // 그림 아래 줄 오른쪽. 메트로놈을 켜면 박자를 보인다
 
     std::vector<std::uint32_t> seenHitCounts, seenChokeCounts;
-    std::uint32_t seenKeyPressCount = 0;
     std::vector<int> actingPads;    // 그림의 자리마다 지금 치면 울리는 패드 (tick마다 다시 채운다)
     std::vector<int> shownAs;       // 패드마다 그림에서 대신 번쩍일 패드 (킷 파일의 "showAs"). 그대로면 자기 번호
     std::vector<std::vector<std::uint16_t>> chokeSets;    // 패드마다 오른쪽 단추로 잡으면 함께 멈출 패드들

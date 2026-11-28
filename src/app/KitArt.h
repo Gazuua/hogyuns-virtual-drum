@@ -83,7 +83,13 @@ void drawStick (juce::Graphics&, Point tip, Point hand, float length, float thic
 /** 키 이름을 자판의 키처럼 그린다. 가운데가 centre인 한 줄. */
 void drawKeyCaps (juce::Graphics&, const juce::StringArray& keys, Point centre, float height);
 
-/** 어두운 테두리를 두른 글자. 밝은 헤드와 황동 위에서도 읽힌다. */
+/** drawKeyCaps가 그리는 키 캡 줄의 테두리. 키가 없으면 빈 네모. */
+juce::Rectangle<float> keyCapsBounds (const juce::StringArray& keys, Point centre, float height);
+
+/** 어두운 테두리를 두른 글자. 밝은 헤드와 황동 위에서도 읽힌다. area 안에 한 줄로 맞춘다. */
 void drawName (juce::Graphics&, const juce::String& text, juce::Rectangle<float> area, float fontSize, juce::Colour colour, juce::Colour halo);
+
+/** drawName의 글자가 실제로 차지하는 곳 (이름끼리 겹치는지 볼 때). */
+juce::Rectangle<float> nameBounds (const juce::String& text, juce::Rectangle<float> area, float fontSize);
 
 } // namespace kitart

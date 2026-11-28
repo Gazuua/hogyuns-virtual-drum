@@ -23,20 +23,24 @@ juce::String strokeTag (const hvd::Stroke& stroke)
     return {};
 }
 
-juce::String actionName (hvd::KeyAction::Type type)
+/** 되돌리기 어려운 일을 하기 전에 묻는다. 버튼은 동작 이름과 "취소"이고, 엔터로는 실행하지 않는다. */
+void confirmDanger (juce::Component* parent, const juce::String& title, const juce::String& message, const juce::String& action,
+                    std::function<void()> onConfirm)
 {
-    switch (type)
-    {
-        case hvd::KeyAction::Type::accent:      return ko ("악센트");
-        case hvd::KeyAction::Type::ghost:       return ko ("고스트");
-        case hvd::KeyAction::Type::pedal:       return ko ("페달");
-        case hvd::KeyAction::Type::choke:       return ko ("멈춤");
-        case hvd::KeyAction::Type::tapTempo:    return ko ("탭 템포");
-        case hvd::KeyAction::Type::metronome:   return ko ("메트로놈");
-        case hvd::KeyAction::Type::hit:         break;
-    }
+    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::WarningIcon, parent);
+    window->addButton (action, 1);
+    window->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
-    return {};
+    if (auto* button = window->getButton (action))
+        ui::setButtonKind (*button, ui::ButtonKind::danger);
+
+    window->enterModalState (true,
+                             juce::ModalCallbackFunction::create ([onConfirm = std::move (onConfirm)] (int result)
+                             {
+                                 if (result == 1)
+                                     onConfirm();
+                             }),
+                             true);
 }
 
 /** 패드가 어느 악기의 것인지. 같은 악기의 패드는 오른쪽 단추로 잡을 때 함께 멈춘다 (라이드와 라이드 벨, 스네어와 림샷). */
@@ -78,25 +82,13 @@ PlayPage::PlayPage (Session& sessionToUse)
 
     ui::setupButton (*this, tilesButton, ko ("타일"), [this] { setShowingSet (false); });
     ui::setupButton (*this, setButton, ko ("드럼 세트"), [this] { setShowingSet (true); });
-    ui::setupButton (*this, editButton, ko ("배치 편집"), [this] { kitView.setEditing (editButton.getToggleState()); });
-    ui::setupButton (*this, resetButton, ko ("기본 배치로"), [this] { resetLayout(); });
+    ui::setupButton (*this, editButton, ko ("배치 편집"), [this] { setEditing (true); });
     ui::setupButton (*this, silenceButton, ko ("소리 끄기"), [this] { session.allSoundOff(); });
-
-    ui::setupButton (*this, labelsButton, ko ("이름 · 키 표시"), [this]
-    {
-        kitView.setShowingLabels (labelsButton.getToggleState());
-        session.setSetting ("kitLabels", labelsButton.getToggleState());
-    });
-
-    labelsButton.setClickingTogglesState (true);
-    labelsButton.setToggleState (static_cast<bool> (session.getSetting ("kitLabels", true)), juce::dontSendNotification);
-    kitView.setShowingLabels (labelsButton.getToggleState());
 
     tilesButton.setRadioGroupId (1);
     setButton.setRadioGroupId (1);
     tilesButton.setClickingTogglesState (true);
     setButton.setClickingTogglesState (true);
-    editButton.setClickingTogglesState (true);
 
     // 보기 전환(타일 / 드럼 세트)은 붙은 세그먼트로 그린다.
     ui::setButtonKind (tilesButton, ui::ButtonKind::segment);
@@ -104,13 +96,27 @@ PlayPage::PlayPage (Session& sessionToUse)
     tilesButton.setConnectedEdges (juce::Button::ConnectedOnRight);
     setButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
 
-    ui::setupLabel (*this, functionKeyLabel, {}, ui::Text::hint);
-    ui::setupLabel (*this, lastKeyLabel, ko ("마지막 키: 아직 없음"));
+    // 그림 위에 이름과 키를 적을지: 켜고 끄는 설정이라 체크로 둔다.
+    ui::setupButton (*this, labelsToggle, ko ("이름 · 키"), [this]
+    {
+        kitView.setShowingLabels (labelsToggle.getToggleState());
+        session.setSetting ("kitLabels", labelsToggle.getToggleState());
+    });
+
+    labelsToggle.setToggleState (static_cast<bool> (session.getSetting ("kitLabels", true)), juce::dontSendNotification);
+    kitView.setShowingLabels (labelsToggle.getToggleState());
+
+    // 배치 편집 막대. 기본 배치로는 사용자가 맞춘 배치를 지우므로 위험 버튼으로 두고 확인을 받는다.
+    ui::setupLabel (*this, editTitle, ko ("배치 편집"), ui::Text::heading);
+    editTitle.setColour (juce::Label::textColourId, ui::theme().accent);
+    ui::setupLabel (*this, editHint, ko ("끌기 이동 · 휠 크기"), ui::Text::hint);
+    ui::setupButton (*this, resetButton, ko ("기본 배치로"), [this] { confirmResetLayout(); });
+    ui::setupButton (*this, doneButton, ko ("완료"), [this] { setEditing (false); });
+    ui::setButtonKind (resetButton, ui::ButtonKind::danger);
+    ui::setButtonKind (doneButton, ui::ButtonKind::primary);
+
     ui::setupLabel (*this, timingLabel, {}, ui::Text::hint);
     timingLabel.setJustificationType (juce::Justification::centredRight);
-
-    // 사용자가 맞춘 배치를 지우는 버튼이라 위험 표시를 한다.
-    ui::setButtonKind (resetButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
     setShowingSet (session.getSetting ("padView", "set").toString() != "tiles");
@@ -132,38 +138,74 @@ void PlayPage::setShowingSet (bool shouldShowSet)
     setButton.setToggleState (showingSet, juce::dontSendNotification);
 
     if (! showingSet)
-    {
-        editButton.setToggleState (false, juce::dontSendNotification);
-        kitView.setEditing (false);
-    }
+        setEditing (false);
 
     padGrid.setVisible (! showingSet);
     kitView.setVisible (showingSet);
-    editButton.setVisible (showingSet);
-    resetButton.setVisible (showingSet);
-    labelsButton.setVisible (showingSet);
+    updateToolbar();
+}
+
+void PlayPage::setEditing (bool shouldEdit)
+{
+    shouldEdit = shouldEdit && showingSet;
+
+    if (shouldEdit == kitView.isEditing())
+        return;
+
+    kitView.setEditing (shouldEdit);
+
+    // 편집을 끝내면 옮긴 것을 바로 저장한다 (다른 화면으로 넘어가면 tick이 불리지 않는다).
+    if (! shouldEdit && layoutDirty)
+    {
+        layoutDirty = false;
+        session.saveKit (false);
+    }
+
+    updateToolbar();
+}
+
+void PlayPage::updateToolbar()
+{
+    const auto editing = kitView.isEditing();
+
+    for (auto* component : std::initializer_list<juce::Component*> { &tilesButton, &setButton, &silenceButton })
+        component->setVisible (! editing);
+
+    labelsToggle.setVisible (showingSet && ! editing);
+    editButton.setVisible (showingSet && ! editing);
+
+    for (auto* component : std::initializer_list<juce::Component*> { &editTitle, &editHint, &resetButton, &doneButton })
+        component->setVisible (editing);
 }
 
 void PlayPage::resized()
 {
     auto area = getLocalBounds();
 
-    auto row = area.removeFromTop (ui::space::control);
-    tilesButton.setBounds (row.removeFromLeft (64));
-    setButton.setBounds (row.removeFromLeft (92));
-    row.removeFromLeft (ui::space::large);
-    editButton.setBounds (row.removeFromLeft (92));
-    row.removeFromLeft (ui::space::small);
-    resetButton.setBounds (row.removeFromLeft (100));
-    row.removeFromLeft (ui::space::small);
-    labelsButton.setBounds (row.removeFromLeft (112));
-    silenceButton.setBounds (row.removeFromRight (92));
-    row.removeFromRight (ui::space::medium);
-    timingLabel.setBounds (row);
+    // 툴바 한 줄. 평소의 부품과 편집 막대의 부품이 같은 줄을 나눠 쓰고, 한쪽만 보인다.
+    const auto row = area.removeFromTop (ui::space::control);
 
+    auto normal = row;
+    tilesButton.setBounds (normal.removeFromLeft (64));
+    setButton.setBounds (normal.removeFromLeft (92));
+    normal.removeFromLeft (ui::space::large);
+    labelsToggle.setBounds (normal.removeFromLeft (96));
+    silenceButton.setBounds (normal.removeFromRight (92));
+    normal.removeFromRight (ui::space::small);
+    editButton.setBounds (normal.removeFromRight (92));
+
+    auto edit = row;
+    doneButton.setBounds (edit.removeFromRight (80));
+    edit.removeFromRight (ui::space::small);
+    resetButton.setBounds (edit.removeFromRight (100));
+    edit.removeFromRight (ui::space::large);
+    editTitle.setBounds (edit.removeFromLeft (juce::GlyphArrangement::getStringWidthInt (editTitle.getFont(), editTitle.getText())
+                                              + editTitle.getBorderSize().getLeftAndRight() + ui::space::tight));
+    editHint.setBounds (edit);
+
+    // 그림 아래 줄: 오른쪽에 박자. 그림의 크기가 바뀌지 않도록 줄의 높이는 그대로 둔다.
     auto bottom = area.removeFromBottom (48);
-    functionKeyLabel.setBounds (bottom.removeFromTop (22));
-    lastKeyLabel.setBounds (bottom);
+    timingLabel.setBounds (bottom.removeFromTop (ui::space::control));
 
     area.removeFromTop (ui::space::small);
     area.removeFromBottom (ui::space::small);
@@ -178,7 +220,6 @@ void PlayPage::rebuild()
 
     std::vector<PadGrid::Tile> tiles;
     std::vector<KitView::Item> items;
-    juce::StringArray functionKeys;
 
     shownAs.clear();
     chokeSets.clear();
@@ -305,28 +346,8 @@ void PlayPage::rebuild()
         }
     }
 
-    // 패드를 치지 않는 키들(세기 보조, 페달, 멈춤, 템포)을 한 줄로 보여 준다.
-    if (mapping != nullptr)
-    {
-        for (std::size_t code = 1; code < hvd::numKeyCodes; ++code)
-        {
-            for (const auto& action : mapping->onPress[code])
-            {
-                if (const auto role = actionName (action.type); role.isNotEmpty())
-                {
-                    functionKeys.add (fromUtf8 (hvd::keyLabel (static_cast<hvd::KeyCode> (code))) + " " + role);
-                    break;
-                }
-            }
-        }
-    }
-
     padGrid.setTiles (std::move (tiles));
     kitView.setItems (std::move (items));
-    kitView.setEditing (editButton.getToggleState());
-
-    functionKeyLabel.setText (functionKeys.isEmpty() ? juce::String() : ko ("기능 키:  ") + functionKeys.joinIntoString ("  ·  "),
-                              juce::dontSendNotification);
 
     // 지금까지의 타격 횟수를 본 것으로 쳐서, 다시 읽은 직후에 패드가 켜지지 않게 한다.
     seenHitCounts.assign (kit != nullptr ? kit->pads.size() : 0, 0);
@@ -565,44 +586,23 @@ void PlayPage::publishMouseTargets()
     }
 }
 
+void PlayPage::confirmResetLayout()
+{
+    confirmDanger (this, ko ("기본 배치로"),
+                   ko ("모든 패드를 처음 자리로 옮깁니다.\n지금 배치는 킷 화면의 되돌리기로 되살릴 수 있습니다."),
+                   ko ("기본 배치로"), [safe = juce::Component::SafePointer<PlayPage> (this)]
+                   {
+                       if (safe != nullptr)
+                           safe->resetLayout();
+                   });
+}
+
 void PlayPage::resetLayout()
 {
+    layoutDirty = false;
     kitlayout::clearAll (session.getKitDocument());
     session.saveKit (false);
     rebuild();
-}
-
-void PlayPage::updateLastKeyLabel()
-{
-    const auto key = session.getLastKey();
-    const auto* kit = session.getKit();
-    const auto mapping = session.getMapping();
-    juce::StringArray targets;
-
-    if (mapping != nullptr && kit != nullptr && key < hvd::numKeyCodes)
-    {
-        for (const auto& action : mapping->onPress[key])
-        {
-            if (action.type == hvd::KeyAction::Type::hit || action.type == hvd::KeyAction::Type::choke)
-            {
-                if (action.pad >= kit->pads.size())
-                    continue;
-
-                auto name = fromUtf8 (kit->pads[action.pad].name);
-                name << (action.type == hvd::KeyAction::Type::choke ? ko (" 멈춤") : strokeTag (action.stroke));
-                targets.add (name);
-            }
-            else
-            {
-                targets.add (actionName (action.type));
-            }
-        }
-    }
-
-    juce::String text;
-    text << ko ("마지막 키: ") << fromUtf8 (hvd::keyName (key)) << "  →  "
-         << (targets.isEmpty() ? ko ("지정된 동작 없음") : targets.joinIntoString (", "));
-    lastKeyLabel.setText (text, juce::dontSendNotification);
 }
 
 void PlayPage::updateTimingLabel()
@@ -636,6 +636,9 @@ void PlayPage::pageShown()
 
 void PlayPage::pageHidden()
 {
+    // 배치 편집은 이 화면을 떠나면 끝낸다 (켜 둔 것을 잊고 돌아와 클릭이 안 된다고 느끼지 않게).
+    setEditing (false);
+
     // 다른 화면의 같은 자리를 누를 때 드럼이 울리지 않게 한다.
     publishedTargets = nullptr;
     session.setMouseTargets (nullptr);
@@ -695,12 +698,6 @@ void PlayPage::tick()
 
     if (kitView.fade() && kitView.isVisible())
         kitView.repaint();
-
-    if (const auto count = session.getKeyPressCount(); count != seenKeyPressCount)
-    {
-        seenKeyPressCount = count;
-        updateLastKeyLabel();
-    }
 
     if (++tickCount % 6 == 0)
         updateTimingLabel();

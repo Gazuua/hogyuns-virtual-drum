@@ -78,6 +78,8 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     /** 패드가 어떤 악기 모양으로 그려지는지. */
@@ -96,9 +98,26 @@ private:
         float targetOpenness = 0.0f;
     };
 
+    /** 자리 하나의 이름과 키 캡을 놓을 곳. */
+    struct Label
+    {
+        juce::Rectangle<float> nameArea;      // drawName에 넘기는 칸
+        juce::Rectangle<float> nameBounds;    // 글자가 실제로 차지하는 곳
+        float nameSize = 0.0f;
+        juce::Colour nameColour, nameHalo;
+        juce::Point<float> capsCentre;
+        juce::Rectangle<float> capsBounds;
+        bool nameOutside = false;             // 이름을 악기 밖(위)에 적는다 (작은 심벌, 벨, 작은 패드)
+        bool showName = true;                 // 다른 이름이나 키, 다른 악기와 겹치면 이름을 빼고 키만 보인다
+    };
+
     /** 이 패드의 원래 자리(두 번째 자리가 아닌 것). 없으면 -1. */
     int itemOfPad (int pad) const;
     const juce::String& shownName (int index) const;
+
+    Label layoutLabel (int index) const;
+    void layoutLabels();
+    void setHovered (int index);
 
     juce::Point<float> centreOf (const Item& item) const;
     float radiusOf (const Item& item) const;
@@ -114,10 +133,13 @@ private:
     std::vector<Motion> motions;
     std::vector<int> acting;       // 페달로 바뀌어 대신 치는 패드. 바뀌지 않았으면 -1
     std::vector<int> drawOrder;    // 멀리 있는 것부터
+    std::vector<Label> labels;     // items와 같은 순서
+    bool labelsDirty = true;       // 자리, 크기, 이름이 바뀌면 다시 놓는다
     juce::Image floorImage;        // 바닥은 크기가 바뀔 때만 다시 그린다
     bool editing = false;
     bool showLabels = true;
     int dragged = -1;
+    int hovered = -1;              // 마우스가 올라가 있는 자리. 이름을 뺀 자리는 이때 이름을 보인다
     juce::Point<float> dragOffset;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KitView)
