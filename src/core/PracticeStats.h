@@ -50,7 +50,7 @@ struct PracticeSection
 
 struct PracticeReport
 {
-    static constexpr float tightMs = 30.0f;    // 이 안이면 박에 맞았다고 본다
+    static constexpr float tightMs = 20.0f;    // 이 안이면 박에 맞았다고 본다 (2026-11-28 30에서 좁힘)
 
     int gridPerBeat = 4;                       // 박 하나를 몇 칸으로 봤는지. 셋잇단 느낌의 곡은 3, 아니면 4(16분음표)
     std::vector<float> offsetsMs;              // 타격마다의 차이 (넘겨받은 타격과 같은 순서)

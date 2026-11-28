@@ -233,9 +233,9 @@ def main():
 
     if deviations:
         absolute = sorted(abs(value) for value in deviations)
-        print("채보의 16분음표 격자와의 차이: 가운뎃값 %+.0f ms (음수 = 빠름), 절댓값의 가운뎃값 %.0f ms, 30 ms 안 %d%%" % (
+        print("채보의 16분음표 격자와의 차이: 가운뎃값 %+.0f ms (음수 = 빠름), 절댓값의 가운뎃값 %.0f ms, 20 ms 안 %d%%" % (
             statistics.median(deviations), absolute[len(absolute) // 2],
-            100 * sum(1 for value in absolute if value <= 30.0) // len(absolute)))
+            100 * sum(1 for value in absolute if value <= 20.0) // len(absolute)))
 
     print("채보와 겹치는 정도 (같은 악기, 80 ms 안):")
 

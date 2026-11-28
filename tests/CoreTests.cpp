@@ -3155,7 +3155,7 @@ MatchResult matchLane (const std::vector<hvd::ChartNote>& truth, const std::vect
 
 void testPracticeStats()
 {
-    // 차이들의 통계: 가운뎃값, 10%째와 90%째 값, 30ms 안에 든 비율
+    // 차이들의 통계: 가운뎃값, 10%째와 90%째 값, 20ms 안에 든 비율
     {
         const auto stats = hvd::timingStatsOf ({ 40.0f, -20.0f, 0.0f, 20.0f, -10.0f, 10.0f });
         CHECK (stats.count == 6);

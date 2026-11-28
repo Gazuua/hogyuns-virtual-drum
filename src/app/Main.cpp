@@ -903,7 +903,7 @@ bool checkPracticeLog (const juce::File& folder, const juce::File& song, const h
 
     const auto firstReport = hvd::analysePractice (first.hits, chart);
     const auto secondReport = hvd::analysePractice (second.hits, chart);
-    report << "first take: median " << juce::String (firstReport.all.medianMs, 1) << " ms, within 30 ms " << juce::String (firstReport.all.withinPercent, 0)
+    report << "first take: median " << juce::String (firstReport.all.medianMs, 1) << " ms, within " << juce::String (hvd::PracticeReport::tightMs, 0) << " ms " << juce::String (firstReport.all.withinPercent, 0)
            << "%, sections " << static_cast<int> (firstReport.sections.size()) << "; second take: median " << juce::String (secondReport.all.medianMs, 1)
            << " ms at speed " << juce::String (second.slowestSpeed, 2) << "\n";
 
