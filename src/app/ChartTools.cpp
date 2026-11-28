@@ -5,6 +5,7 @@
 #include "KitLoader.h"
 #include "core/DrumTranscriber.h"
 #include "core/Engine.h"
+#include "core/Patterns.h"
 
 //==============================================================================
 namespace
@@ -28,75 +29,8 @@ juce::String describeChart (const hvd::Chart& chart)
     return text;
 }
 
-struct PatternHit
-{
-    double seconds;
-    const char* pad;
-    float velocity;
-    hvd::Lane lane;
-};
-
-/** 16마디짜리 록 패턴. 앞 여덟 마디는 하이햇, 뒤 여덟 마디는 라이드이고 필인이 두 번 들어 있다. */
-std::vector<PatternHit> makeRockPattern (double tempo)
-{
-    using hvd::Lane;
-
-    std::vector<PatternHit> hits;
-    const auto beat = 60.0 / tempo;
-    const auto at = [beat] (int bar, double beatInBar) { return 1.0 + (bar * 4.0 + beatInBar) * beat; };
-
-    for (int bar = 0; bar < 16; ++bar)
-    {
-        const auto ride = bar >= 8;
-        const auto fill = bar == 7 || bar == 15;
-
-        for (int eighth = 0; eighth < 8; ++eighth)
-        {
-            const auto beatInBar = eighth * 0.5;
-
-            if (fill && eighth >= 4)
-                break;
-
-            const auto time = at (bar, beatInBar);
-            const auto crash = (bar == 0 || bar == 8) && eighth == 0;
-
-            if (crash)
-                hits.push_back ({ time, bar == 0 ? "crash1" : "crash2", 0.95f, Lane::crash });
-            else if (ride)
-                hits.push_back ({ time, "ride", eighth % 2 == 0 ? 0.8f : 0.6f, Lane::ride });
-            else if (eighth == 7 && bar == 3)
-                hits.push_back ({ time, "hihat_open", 0.8f, Lane::hihat });
-            else
-                hits.push_back ({ time, "hihat_closed", eighth % 2 == 0 ? 0.85f : 0.6f, Lane::hihat });
-
-            if (eighth == 0 || eighth == 4 || (eighth == 3 && bar % 2 == 1))
-                hits.push_back ({ time, "kick", 0.9f, Lane::kick });
-
-            if (eighth == 2 || eighth == 6)
-                hits.push_back ({ time, "snare", 0.9f, Lane::snare });
-        }
-
-        if (bar == 7)
-        {
-            const char* const pads[] = { "tom_high", "tom_high", "tom_high", "tom_high", "tom_mid", "tom_mid", "tom_floor", "tom_floor" };
-            const Lane lanes[] = { Lane::tomHigh, Lane::tomHigh, Lane::tomHigh, Lane::tomHigh, Lane::tomMid, Lane::tomMid, Lane::tomFloor, Lane::tomFloor };
-
-            for (int i = 0; i < 8; ++i)
-                hits.push_back ({ at (bar, 2.0 + 0.25 * i), pads[i], 0.9f, lanes[i] });
-        }
-        else if (bar == 15)
-        {
-            const char* const pads[] = { "snare", "snare", "snare", "snare", "tom_mid", "tom_mid", "tom_floor", "tom_floor" };
-            const Lane lanes[] = { Lane::snare, Lane::snare, Lane::snare, Lane::snare, Lane::tomMid, Lane::tomMid, Lane::tomFloor, Lane::tomFloor };
-
-            for (int i = 0; i < 8; ++i)
-                hits.push_back ({ at (bar, 2.0 + 0.25 * i), pads[i], 0.9f, lanes[i] });
-        }
-    }
-
-    std::stable_sort (hits.begin(), hits.end(), [] (const PatternHit& a, const PatternHit& b) { return a.seconds < b.seconds; });
-    return hits;
-}
+using hvd::PatternHit;
+using hvd::makeRockPattern;
 
 struct StereoAudio
 {
@@ -266,7 +200,6 @@ juce::String chartToTab (const hvd::Chart& chart)
     // 줄: 크래시, 라이드, 하이햇, 스네어, 탐 셋, 킥. 칸: 16분음표. 격자 사이의 노트는 '~'로 적는다.
     constexpr hvd::Lane rows[] = { hvd::Lane::crash, hvd::Lane::ride, hvd::Lane::hihat, hvd::Lane::snare,
                                    hvd::Lane::tomHigh, hvd::Lane::tomMid, hvd::Lane::tomFloor, hvd::Lane::kick };
-    const char* const names[] = { "CR", "RD", "HH", "SN", "T1", "T2", "T3", "KK" };
 
     if (chart.beats.size() < 8)
         return "(no beat grid)\n";
@@ -331,7 +264,7 @@ juce::String chartToTab (const hvd::Chart& chart)
             }
 
             if (used)
-                text << names[row] << " " << line << "|\n";
+                text << hvd::laneShortName (rows[row]) << " " << line << "|\n";
         }
     }
 

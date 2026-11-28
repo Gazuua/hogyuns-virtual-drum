@@ -1002,48 +1002,40 @@ void Session::setMasterGain (float gain, bool save)
 
 juce::String Session::loadTrack (const juce::File& file)
 {
-    juce::AudioFormatManager formats;
-    formats.registerBasicFormats();
-
-    auto reader = createMusicReader (formats, file);
-
-    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->lengthInSamples < 4)
-        return ko ("읽을 수 없는 음악 파일입니다: ") + file.getFileName();
-
-    const auto frames = std::min (reader->lengthInSamples, static_cast<juce::int64> (maxTrackSeconds * reader->sampleRate));
-
     auto data = std::make_unique<hvd::TrackData>();
-    data->sampleRate = reader->sampleRate;
-    data->samples.resize (static_cast<std::size_t> (frames) * 2);
 
-    // 한 번에 조금씩 읽어 16비트로 바꿔 담는다. (긴 곡을 실수로 통째로 두면 메모리를 두 배로 쓴다)
-    constexpr int chunk = 65536;
-    juce::AudioBuffer<float> buffer (2, chunk);
-
-    for (juce::int64 position = 0; position < frames; position += chunk)
-    {
-        const auto count = static_cast<int> (std::min<juce::int64> (chunk, frames - position));
-
-        // MP3의 어림한 길이가 실제보다 길면 끝을 지나 읽을 때 실패가 돌아온다. 그때는 읽은 데까지만 쓴다.
-        if (! reader->read (&buffer, 0, count, position, true, true))
+    // 조금씩 읽어 16비트로 바꿔 담는다. (긴 곡을 float로 통째로 두면 메모리를 두 배로 쓴다)
+    const auto error = readMusic (file, maxTrackSeconds,
+        [&] (const MusicInfo& info)
         {
-            if (position < static_cast<juce::int64> (reader->sampleRate))
-                return ko ("음악 파일을 읽다가 실패했습니다: ") + file.getFileName();
-
-            data->samples.resize (static_cast<std::size_t> (position) * 2);
-            break;
-        }
-
-        const auto* left = buffer.getReadPointer (0);
-        const auto* right = buffer.getReadPointer (1);
-        auto* target = data->samples.data() + static_cast<std::size_t> (position) * 2;
-
-        for (int i = 0; i < count; ++i)
+            data->sampleRate = info.sampleRate;
+            data->samples.resize (static_cast<std::size_t> (info.numFrames) * 2);
+            return juce::String();
+        },
+        [&] (const MusicChunk& chunk)
         {
-            target[i * 2] = static_cast<std::int16_t> (juce::jlimit (-32768.0f, 32767.0f, left[i] * 32767.0f));
-            target[i * 2 + 1] = static_cast<std::int16_t> (juce::jlimit (-32768.0f, 32767.0f, right[i] * 32767.0f));
-        }
-    }
+            // MP3의 어림한 길이가 실제보다 길었다. 읽은 데까지만 쓴다.
+            if (chunk.cutShort)
+            {
+                data->samples.resize (static_cast<std::size_t> (chunk.position) * 2);
+                return juce::String();
+            }
+
+            const auto* left = chunk.buffer.getReadPointer (0);
+            const auto* right = chunk.buffer.getReadPointer (1);
+            auto* target = data->samples.data() + static_cast<std::size_t> (chunk.position) * 2;
+
+            for (int i = 0; i < chunk.numFrames; ++i)
+            {
+                target[i * 2] = static_cast<std::int16_t> (juce::jlimit (-32768.0f, 32767.0f, left[i] * 32767.0f));
+                target[i * 2 + 1] = static_cast<std::int16_t> (juce::jlimit (-32768.0f, 32767.0f, right[i] * 32767.0f));
+            }
+
+            return juce::String();
+        });
+
+    if (error.isNotEmpty())
+        return error;
 
     track.setPlaying (false);
     track.setLoop (0.0, 0.0, false);
