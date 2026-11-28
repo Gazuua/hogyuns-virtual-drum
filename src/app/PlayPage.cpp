@@ -693,11 +693,9 @@ void PlayPage::tick()
         }
     }
 
-    if (padGrid.fade() && padGrid.isVisible())
-        padGrid.repaint();
-
-    if (kitView.fade() && kitView.isVisible())
-        kitView.repaint();
+    // 둘 다 움직인 자리만 스스로 다시 그린다 (가려져 있으면 그리지 않는다).
+    padGrid.fade();
+    kitView.fade();
 
     if (++tickCount % 6 == 0)
         updateTimingLabel();

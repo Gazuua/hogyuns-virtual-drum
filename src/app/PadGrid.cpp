@@ -35,12 +35,16 @@ bool PadGrid::fade()
 {
     auto changed = false;
 
-    for (auto& value : brightness)
+    for (std::size_t i = 0; i < brightness.size(); ++i)
     {
+        auto& value = brightness[i];
+
         if (value <= 0.0f)
             continue;
 
+        // 밝기가 바뀐 타일만 다시 그린다 (꺼지는 단계까지).
         value = value < 0.02f ? 0.0f : value * 0.86f;
+        repaint (getTileBounds (static_cast<int> (i)));
         changed = true;
     }
 
@@ -65,6 +69,9 @@ void PadGrid::paint (juce::Graphics& g)
 
     for (int i = 0; i < static_cast<int> (tiles.size()); ++i)
     {
+        if (! g.clipRegionIntersects (getTileBounds (i)))
+            continue;
+
         const auto& tile = tiles[static_cast<std::size_t> (i)];
         const auto level = brightness[static_cast<std::size_t> (i)];
         const auto bounds = getTileBounds (i).toFloat();

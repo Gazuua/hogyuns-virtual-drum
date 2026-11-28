@@ -45,6 +45,8 @@ constexpr Placement placements[] = {
 constexpr float hitAspect = 0.8f;    // 클릭을 받는 타원의 세로 반지름 / 가로 반지름
 constexpr float keyCapHeight = 18.0f;    // 키 캡의 높이. 모든 자리에서 같다 (글자 약 12px)
 constexpr float editBorder = 2.0f;       // 배치 편집 중 그림 테두리의 굵기
+constexpr float labelMargin = 3.0f;      // 이름표를 다시 그릴 때 글자 테두리 둘레로 더 그리는 폭
+constexpr float stickSeconds = 0.13f;    // 친 뒤 스틱이 보이는 시간
 
 /** 악기 몸통을 그리는 층. 0은 그림자, 1은 스탠드이고, 그 위로 발판, 킥, 북, 심벌, 작은 패드 순서다. */
 int bodyLayerOf (KitView::Kind kind)
@@ -65,6 +67,9 @@ KitView::KitView()
 {
     setWantsKeyboardFocus (false);
     setMouseClickGrabsKeyboardFocus (false);
+
+    // 모든 화소를 스스로 칠한다 (모서리 바깥은 창 바탕색으로). 그래서 일부를 다시 그릴 때 뒤의 화면을 그리지 않아도 된다.
+    setOpaque (true);
 }
 
 KitView::Kind KitView::kindOf (const juce::String& padId)
@@ -139,6 +144,7 @@ void KitView::setItems (std::vector<Item> newItems)
     dragged = -1;
     hovered = -1;
     labelsDirty = true;
+    stageDirty = true;
     repaint();
 }
 
@@ -185,8 +191,6 @@ void KitView::flash (int pad, float strength, int spot)
 
 void KitView::damp (int pad)
 {
-    auto changed = false;
-
     for (std::size_t i = 0; i < items.size(); ++i)
     {
         if (items[i].pad != pad && acting[i] != pad)
@@ -196,15 +200,17 @@ void KitView::damp (int pad)
 
         if (motion.age < 4.0f || motion.level > 0.0f)
         {
+            const auto index = static_cast<int> (i);
+            repaintArea (bodyBoundsOf (index));
+
+            if (isStickVisible (index))
+                repaintArea (stickBoundsOf (index));
+
             motion.level = 0.0f;
             motion.strength = 0.0f;
             motion.age = 100.0f;
-            changed = true;
         }
     }
-
-    if (changed)
-        repaint();
 }
 
 std::vector<KitView::HitArea> KitView::getHitAreas() const
@@ -258,10 +264,34 @@ void KitView::setActingPads (const std::vector<int>& pads)
         motions[i].targetOpenness = kinds[i] == Kind::hihat && shown >= 0 ? opennessOf (items[static_cast<std::size_t> (shown)].id) : 0.0f;
     }
 
+    // 하이햇의 모양은 fade()가 열림을 따라가며 다시 그린다. 여기서는 바뀐 이름만.
     if (changed)
+        refreshLabels();
+}
+
+void KitView::refreshLabels()
+{
+    if (! showLabels || labelsDirty || labels.size() != items.size())
     {
-        labelsDirty = true;    // 이름이 바뀐다
+        labelsDirty = true;
         repaint();
+        return;
+    }
+
+    const auto previous = labels;
+    layoutLabels();
+    labelImageDirty = true;
+
+    for (std::size_t i = 0; i < labels.size(); ++i)
+    {
+        if (labels[i].looksSame (previous[i]))
+            continue;
+
+        for (const auto& label : { previous[i], labels[i] })
+        {
+            repaintArea (label.nameBounds.expanded (labelMargin));
+            repaintArea (label.capsBounds.expanded (labelMargin));
+        }
     }
 }
 
@@ -289,35 +319,51 @@ const juce::String& KitView::shownName (int index) const
 
 bool KitView::fade()
 {
-    auto changed = false;
+    auto animating = false;
 
     for (std::size_t i = 0; i < motions.size(); ++i)
     {
         auto& motion = motions[i];
+        const auto index = static_cast<int> (i);
+        auto moving = false;
 
         // 하이햇은 페달에 따라 빠르게 열리고 닫힌다.
         if (const auto gap = motion.targetOpenness - motion.openness; std::abs (gap) > 0.003f)
         {
             motion.openness += gap * 0.45f;
-            changed = true;
+            moving = true;
         }
-        else
+        else if (motion.openness != motion.targetOpenness)
         {
             motion.openness = motion.targetOpenness;
+            moving = true;
         }
 
-        if (motion.age > 4.0f)
-            continue;
+        if (motion.age <= 4.0f)
+        {
+            motion.age += 1.0f / 60.0f;
+            motion.level = motion.level < 0.02f ? 0.0f : motion.level * 0.88f;
 
-        motion.age += 1.0f / 60.0f;
-        motion.level = motion.level < 0.02f ? 0.0f : motion.level * 0.88f;
+            // 심벌은 번쩍임이 사라진 뒤에도 한동안 흔들린다.
+            const auto swinging = kitart::isCymbalKind (kinds[i]) && motion.age < 3.0f;
+            moving = moving || motion.level > 0.0f || swinging || motion.age < 0.35f;
+        }
 
-        // 심벌은 번쩍임이 사라진 뒤에도 한동안 흔들린다.
-        const auto swinging = kitart::isCymbalKind (kinds[i]) && motion.age < 3.0f;
-        changed = changed || motion.level > 0.0f || swinging || motion.age < 0.35f;
+        const auto stick = isStickVisible (index);
+
+        // 움직이는 자리만 다시 그린다. 멈춘 뒤에도 한 번 더 그려 마지막 모습을 남긴다.
+        if (moving || motion.wasMoving)
+            repaintArea (bodyBoundsOf (index));
+
+        if (stick || motion.stickWasVisible)
+            repaintArea (stickBoundsOf (index));
+
+        motion.wasMoving = moving;
+        motion.stickWasVisible = stick;
+        animating = animating || moving || stick;
     }
 
-    return changed;
+    return animating;
 }
 
 void KitView::setEditing (bool shouldEdit)
@@ -331,6 +377,7 @@ void KitView::setEditing (bool shouldEdit)
 void KitView::setShowingLabels (bool shouldShow)
 {
     showLabels = shouldShow;
+    labelsDirty = true;    // 꺼 둔 동안 이름이 바뀌었을 수 있다
     repaint();
 }
 
@@ -375,6 +422,90 @@ void KitView::resized()
 {
     floorImage = {};
     labelsDirty = true;
+    stageDirty = true;
+
+    const auto bounds = getLocalBounds().toFloat();
+    corners.clear();
+    corners.addRectangle (bounds);
+    corners.addRoundedRectangle (bounds, ui::theme().panelRadius);
+    corners.setUsingNonZeroWinding (false);
+}
+
+juce::Rectangle<float> KitView::bodyBoundsOf (int index) const
+{
+    const auto& item = items[static_cast<std::size_t> (index)];
+    const auto kind = kinds[static_cast<std::size_t> (index)];
+    const auto centre = centreOf (item);
+    const auto radius = radiusOf (item);
+
+    // 가운데에서 왼쪽·오른쪽, 위, 아래로 반지름의 몇 배까지 그려지는지 (KitArt의 그리기에서 잰 값에 여유를 둔다).
+    auto side = 1.12f, up = 1.12f, down = 1.12f;
+
+    switch (kind)
+    {
+        case Kind::kick:        side = 1.3f;  up = 1.6f;  down = 1.25f;    break;    // 스퍼, 먼 쪽 테, 페달
+        case Kind::snare:
+        case Kind::tom:
+        case Kind::floorTom:    side = 1.1f;  up = 0.85f; down = kitart::drumLookOf (kind).depth + 0.9f;    break;
+        case Kind::hihat:       up = 1.4f;    down = 1.2f;    break;    // 위 심벌이 올라간다
+        case Kind::crash:
+        case Kind::china:
+        case Kind::ride:        break;
+        case Kind::bell:        side = 1.2f;  up = 1.2f;  down = 1.2f;     break;
+        case Kind::pedal:       side = 0.7f;  up = 1.05f; down = 1.1f;     break;
+        case Kind::zone:        side = 1.1f;  up = 1.0f;  down = 1.2f;     break;
+    }
+
+    return juce::Rectangle<float> (centre.x - side * radius, centre.y - up * radius, 2.0f * side * radius, (up + down) * radius).expanded (2.0f);
+}
+
+KitView::Stick KitView::stickOf (int index, float progress) const
+{
+    // 북은 가운데 조금 아래를, 심벌은 드러머 쪽 가장자리를 친다. 친 뒤에는 손 쪽으로 튀어 오른다.
+    const auto& item = items[static_cast<std::size_t> (index)];
+    const auto width = static_cast<float> (getWidth()), height = static_cast<float> (getHeight());
+    const auto centre = centreOf (item);
+    const auto radius = radiusOf (item);
+    const auto hand = Point (width * (item.x < 0.5f ? 0.40f : 0.60f), height * 1.25f);
+
+    auto toHand = hand - centre;
+    toHand = toHand / juce::jmax (1.0f, toHand.getDistanceFromOrigin());
+    const auto target = centre + toHand * (radius * (kitart::isCymbalKind (kinds[static_cast<std::size_t> (index)]) ? 0.55f : 0.12f));
+
+    return { target + toHand * (height * 0.07f * progress), hand, height * 0.40f, juce::jmax (5.0f, height * 0.016f) };
+}
+
+juce::Rectangle<float> KitView::stickBoundsOf (int index) const
+{
+    const auto kind = kinds[static_cast<std::size_t> (index)];
+
+    if (kind == Kind::kick || kind == Kind::pedal)
+        return {};
+
+    // 스틱은 손 쪽을 향한 한 줄 위에 있다. 처음(progress 0)의 끝에서 마지막(1)의 손잡이 끝까지에,
+    // 굵기와 그림자(굵기의 0.5, 0.8배 비켜 그림)만큼 여유를 둔다.
+    const auto first = stickOf (index, 0.0f);
+    const auto last = stickOf (index, 1.0f);
+    const auto along = (last.hand - last.tip) / juce::jmax (1.0f, last.hand.getDistanceFrom (last.tip));
+    const auto butt = last.tip + along * last.length;
+
+    return juce::Rectangle<float> (first.tip, butt).expanded (first.thickness * 1.5f + 2.0f);
+}
+
+bool KitView::isStickVisible (int index) const
+{
+    const auto& motion = motions[static_cast<std::size_t> (index)];
+    const auto kind = kinds[static_cast<std::size_t> (index)];
+    return motion.age < stickSeconds && motion.strength > 0.0f && kind != Kind::kick && kind != Kind::pedal;
+}
+
+void KitView::repaintArea (juce::Rectangle<float> area)
+{
+    if (area.isEmpty())
+        return;
+
+    const auto pixels = area.getSmallestIntegerContainer().getIntersection (getLocalBounds());
+    repaint (pixels);
 }
 
 //==============================================================================
@@ -544,7 +675,8 @@ KitView::Label KitView::layoutLabel (int index) const
         }
     }
 
-    label.nameBounds = kitart::nameBounds (shownName (index), label.nameArea, label.nameSize);
+    label.name = shownName (index);
+    label.nameBounds = kitart::nameBounds (label.name, label.nameArea, label.nameSize);
     label.capsBounds = kitart::keyCapsBounds (item.keys, label.capsCentre, keyCapHeight);
     return label;
 }
@@ -613,9 +745,88 @@ void KitView::drawLabel (juce::Graphics& g, int index) const
     const auto& label = labels[static_cast<std::size_t> (index)];
 
     if (label.showName)
-        kitart::drawName (g, shownName (index), label.nameArea, label.nameSize, label.nameColour, label.nameHalo);    // 페달로 바뀐 자리는 바뀐 패드의 이름
+        kitart::drawName (g, label.name, label.nameArea, label.nameSize, label.nameColour, label.nameHalo);
 
     kitart::drawKeyCaps (g, item.keys, label.capsCentre, keyCapHeight);
+}
+
+//==============================================================================
+void KitView::prepareImages (float scale)
+{
+    if (scale != imageScale)
+    {
+        imageScale = scale;
+        floorImage = {};
+        stageDirty = true;
+        labelImageDirty = true;
+    }
+
+    if (labelsDirty || labels.size() != items.size())
+    {
+        layoutLabels();
+        labelImageDirty = true;
+    }
+
+    if (stageDirty || stageImage.isNull())
+        renderStage();
+
+    if (showLabels && (labelImageDirty || labelImage.isNull()))
+        renderLabels();
+}
+
+void KitView::renderStage()
+{
+    const auto width = juce::roundToInt (static_cast<float> (getWidth()) * imageScale);
+    const auto height = juce::roundToInt (static_cast<float> (getHeight()) * imageScale);
+    const auto toPixels = juce::AffineTransform::scale (imageScale);
+
+    if (floorImage.getWidth() != width || floorImage.getHeight() != height)
+    {
+        floorImage = juce::Image (juce::Image::RGB, width, height, false);
+        juce::Graphics g (floorImage);
+        g.addTransform (toPixels);
+        kitart::drawFloor (g, getLocalBounds().toFloat());
+    }
+
+    if (stageImage.getWidth() != width || stageImage.getHeight() != height)
+        stageImage = juce::Image (juce::Image::RGB, width, height, false);
+
+    // 바닥 위에, 몸통보다 먼저 그리는 층(그림자, 스탠드)을 모든 악기에 대해 멀리 있는 것부터 그려 둔다.
+    juce::Graphics g (stageImage);
+    g.drawImageAt (floorImage, 0, 0);
+    g.addTransform (toPixels);
+
+    for (int layer = 0; layer <= 1; ++layer)
+        for (const auto index : drawOrder)
+            drawItem (g, index, layer);
+
+    stageDirty = false;
+}
+
+void KitView::renderLabels()
+{
+    const auto width = juce::roundToInt (static_cast<float> (getWidth()) * imageScale);
+    const auto height = juce::roundToInt (static_cast<float> (getHeight()) * imageScale);
+
+    if (labelImage.getWidth() != width || labelImage.getHeight() != height)
+        labelImage = juce::Image (juce::Image::ARGB, width, height, true);
+    else
+        labelImage.clear (labelImage.getBounds());
+
+    juce::Graphics g (labelImage);
+    g.addTransform (juce::AffineTransform::scale (imageScale));
+
+    for (const auto index : drawOrder)
+        drawLabel (g, index);
+
+    labelImageDirty = false;
+}
+
+void KitView::drawImage (juce::Graphics& g, const juce::Image& image) const
+{
+    // 그림은 지금 색의 불투명도로 그려지므로 (앞서 그린 것의 반투명 색이 남아 있을 수 있다) 불투명하게 되돌린다.
+    g.setOpacity (1.0f);
+    g.drawImage (image, getLocalBounds().toFloat());
 }
 
 void KitView::paint (juce::Graphics& g)
@@ -625,65 +836,51 @@ void KitView::paint (juce::Graphics& g)
     if (bounds.isEmpty())
         return;
 
-    juce::Path outline;
-    outline.addRoundedRectangle (bounds.toFloat(), ui::theme().panelRadius);
-    g.reduceClipRegion (outline);
+    // 움직이지 않는 것(바닥, 그림자, 스탠드, 이름표)은 그려 둔 그림을 쓴다. 움직이는 자리만 다시 그리라고 하므로(fade)
+    // 여기서는 다시 그릴 곳에 닿는 악기만 그린다.
+    prepareImages (g.getInternalContext().getPhysicalPixelScaleFactor());
+    drawImage (g, stageImage);
 
-    // 바닥은 크기가 바뀔 때만 다시 그려 둔다.
-    if (floorImage.isNull() || floorImage.getWidth() != bounds.getWidth() || floorImage.getHeight() != bounds.getHeight())
-    {
-        auto& self = const_cast<KitView&> (*this);
-        self.floorImage = juce::Image (juce::Image::RGB, bounds.getWidth(), bounds.getHeight(), false);
-        juce::Graphics floorGraphics (self.floorImage);
-        kitart::drawFloor (floorGraphics, bounds.toFloat());
-    }
+    const auto inClip = [&g] (juce::Rectangle<float> area) { return g.clipRegionIntersects (area.getSmallestIntegerContainer()); };
 
-    g.drawImageAt (floorImage, 0, 0);
-
-    // 층마다 멀리 있는 것부터: 그림자, 스탠드, 발판, 킥, 북, 심벌, 작은 패드
-    for (int layer = 0; layer <= 6; ++layer)
+    // 층마다 멀리 있는 것부터: 발판, 킥, 북, 심벌, 작은 패드 (그림자와 스탠드는 stageImage에 있다)
+    for (int layer = 2; layer <= 6; ++layer)
         for (const auto index : drawOrder)
-            drawItem (g, index, layer);
+            if (bodyLayerOf (kinds[static_cast<std::size_t> (index)]) == layer && inClip (bodyBoundsOf (index)))
+                drawItem (g, index, layer);
 
     if (showLabels)
     {
-        if (labelsDirty || labels.size() != items.size())
-            layoutLabels();
-
-        for (const auto index : drawOrder)
-            drawLabel (g, index);
+        drawImage (g, labelImage);
 
         // 이름을 뺀 자리는 마우스를 올렸을 때 이름을 보인다.
         if (juce::isPositiveAndBelow (hovered, static_cast<int> (labels.size())) && ! labels[static_cast<std::size_t> (hovered)].showName)
         {
             const auto& label = labels[static_cast<std::size_t> (hovered)];
-            kitart::drawName (g, shownName (hovered), label.nameArea, label.nameSize, label.nameColour, label.nameHalo);
+            kitart::drawName (g, label.name, label.nameArea, label.nameSize, label.nameColour, label.nameHalo);
         }
     }
 
     // 방금 친 악기에는 스틱이 잠깐 보였다가 튀어 오르며 사라진다. 발로 치는 것(킥, 페달)에는 그리지 않는다.
-    constexpr float stickSeconds = 0.13f;
-    const auto width = static_cast<float> (getWidth()), height = static_cast<float> (getHeight());
-
-    for (std::size_t i = 0; i < items.size(); ++i)
+    for (int i = 0; i < static_cast<int> (items.size()); ++i)
     {
-        const auto& motion = motions[i];
-        const auto kind = kinds[i];
-
-        if (motion.age >= stickSeconds || motion.strength <= 0.0f || kind == Kind::kick || kind == Kind::pedal)
+        if (! isStickVisible (i) || ! inClip (stickBoundsOf (i)))
             continue;
 
-        const auto centre = centreOf (items[i]);
-        const auto radius = radiusOf (items[i]);
-        const auto hand = Point (width * (items[i].x < 0.5f ? 0.40f : 0.60f), height * 1.25f);
-        const auto progress = motion.age / stickSeconds;
+        const auto progress = motions[static_cast<std::size_t> (i)].age / stickSeconds;
+        const auto stick = stickOf (i, progress);
+        kitart::drawStick (g, stick.tip, stick.hand, stick.length, stick.thickness, 1.0f - progress * progress);
+    }
 
-        // 북은 가운데 조금 아래를, 심벌은 드러머 쪽 가장자리를 친다.
-        auto toHand = hand - centre;
-        toHand = toHand / juce::jmax (1.0f, toHand.getDistanceFromOrigin());
-        const auto target = centre + toHand * (radius * (kitart::isCymbalKind (kind) ? 0.55f : 0.12f));
+    // 둥근 모서리 바깥은 창 바탕색으로 덮는다 (잘라 내는 것보다 가볍다).
+    const auto corner = juce::roundToInt (std::ceil (ui::theme().panelRadius));
 
-        kitart::drawStick (g, target + toHand * (height * 0.07f * progress), hand, height * 0.40f, juce::jmax (5.0f, height * 0.016f), 1.0f - progress * progress);
+    if (g.clipRegionIntersects (bounds.withSize (corner, corner)) || g.clipRegionIntersects (bounds.withLeft (bounds.getRight() - corner).withHeight (corner))
+        || g.clipRegionIntersects (bounds.withTop (bounds.getBottom() - corner).withWidth (corner))
+        || g.clipRegionIntersects (bounds.withLeft (bounds.getRight() - corner).withTop (bounds.getBottom() - corner)))
+    {
+        g.setColour (ui::theme().background);
+        g.fillPath (corners);
     }
 
     if (editing)
@@ -738,6 +935,7 @@ void KitView::mouseDrag (const juce::MouseEvent& event)
     item.x = juce::jlimit (0.02f, 0.98f, centre.x / static_cast<float> (getWidth()));
     item.y = juce::jlimit (0.03f, 0.97f, centre.y / static_cast<float> (getHeight()));
     labelsDirty = true;
+    stageDirty = true;
     repaint();
 }
 
@@ -752,6 +950,7 @@ void KitView::mouseUp (const juce::MouseEvent&)
         std::stable_sort (drawOrder.begin(), drawOrder.end(),
                           [this] (int a, int b) { return items[static_cast<std::size_t> (a)].y < items[static_cast<std::size_t> (b)].y; });
         labelsDirty = true;
+        stageDirty = true;
     }
 
     dragged = -1;
@@ -782,8 +981,12 @@ void KitView::setHovered (int index)
     const auto previous = hovered;
     hovered = index;
 
-    if (showLabels && (hidesName (previous) || hidesName (index)))
-        repaint();
+    if (! showLabels)
+        return;
+
+    for (const auto i : { previous, index })
+        if (hidesName (i))
+            repaintArea (labels[static_cast<std::size_t> (i)].nameBounds.expanded (labelMargin));
 }
 
 void KitView::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
@@ -799,6 +1002,7 @@ void KitView::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWh
     auto& item = items[static_cast<std::size_t> (index)];
     item.size = clampSize (item.size * (1.0f + 0.25f * wheel.deltaY));
     labelsDirty = true;
+    stageDirty = true;
 
     if (onItemChanged)
         onItemChanged (index);

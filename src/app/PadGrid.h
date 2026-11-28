@@ -23,7 +23,7 @@ public:
     /** index번 패드를 strength(0 ~ 1) 밝기로 켠다. */
     void flash (int index, float strength);
 
-    /** 켜진 패드를 조금씩 어둡게 한다. 화면을 다시 그려야 하면 true를 돌려준다. */
+    /** 켜진 패드를 조금씩 어둡게 하고 그 타일만 다시 그린다. 아직 켜진 패드가 있으면 true. */
     bool fade();
 
     /** 패드를 마우스로 누르면 불린다. */
