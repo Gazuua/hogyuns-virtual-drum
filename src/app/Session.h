@@ -98,7 +98,7 @@ public:
     juce::String exportKit (const juce::File& zipFile) const;
     juce::String importKit (const juce::File& zipFile);
 
-    /** 킷 파일과 샘플을 다시 읽는다. 샘플을 디코딩하므로 1초쯤 걸릴 수 있다. */
+    /** 킷 파일과 샘플을 다시 읽는다. 전에 읽은 샘플 파일은 다시 디코드하지 않으므로, 새 파일이 많을 때만 오래 걸린다. */
     void reloadKit();
 
     /** 패드 설정 하나를 바꾼다. 소리에는 바로 반영되고, 파일에는 saveKit()을 불러야 저장된다.

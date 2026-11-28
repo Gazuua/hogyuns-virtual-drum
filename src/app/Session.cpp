@@ -8,6 +8,7 @@
 #include "KeymapLoader.h"
 #include "KitLoader.h"
 #include "MusicFile.h"
+#include "SampleCache.h"
 #include "Text.h"
 
 namespace
@@ -228,8 +229,17 @@ void Session::poll()
 
 void Session::releaseRetired()
 {
+    auto releasedKit = false;
+
     while (const auto* retired = engine.popRetiredKit())
+    {
         std::erase_if (ownedKits, [retired] (const auto& kit) { return kit.get() == retired; });
+        releasedKit = true;
+    }
+
+    // 내려놓은 킷만 쓰던 샘플은 상한까지만 남겨 둔다 (그 킷이나 소리로 되돌아가면 다시 디코드하지 않게).
+    if (releasedKit)
+        trimSampleCache();
 
     while (const auto* retired = track.popRetiredTrack())
         std::erase_if (ownedTracks, [retired] (const auto& data) { return data.get() == retired; });

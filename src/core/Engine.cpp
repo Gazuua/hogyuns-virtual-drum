@@ -735,10 +735,11 @@ bool Engine::playPad (std::uint16_t padIndex, float velocity, int offset, float 
     const auto turn = roundRobin[padIndex]++;
     const auto sampleIndex = layer->samples[turn % layer->samples.size()];
 
-    if (sampleIndex >= kit->samples.size())
+    if (sampleIndex >= kit->samples.size() || kit->samples[sampleIndex] == nullptr)
         return false;
 
-    const auto& sample = kit->samples[sampleIndex];
+    // 샘플은 킷이 들고 있다. 엔진은 킷을 바꿀 때 모든 보이스를 멈추므로, 지금 킷의 샘플만 가리킨다.
+    const auto& sample = *kit->samples[sampleIndex];
 
     if (sample.frames() < 4)
         return false;

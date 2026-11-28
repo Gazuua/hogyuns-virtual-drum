@@ -14,9 +14,11 @@ struct KitLoadResult
     juce::StringArray warnings;         // 건너뛴 항목들
     double totalSeconds = 0.0;          // 샘플 길이의 합
     double averageTrimMs = 0.0;         // 샘플 앞에서 잘라 낸 무음의 평균 길이
-    juce::int64 memoryBytes = 0;        // 샘플이 차지하는 메모리
+    juce::int64 memoryBytes = 0;        // 샘플이 차지하는 메모리 (다른 킷과 함께 쓰는 것도 센다)
+    int decodedFiles = 0;               // 이번에 디코드한 샘플 파일 수
+    int reusedFiles = 0;                // 전에 읽어 둔 것을 그대로 쓴 파일 수
 };
 
 /** kit.json과 거기 적힌 샘플 파일들을 읽어 엔진이 쓸 수 있는 킷을 만든다.
-    샘플 경로는 kit.json이 있는 폴더를 기준으로 한다. */
+    샘플 경로는 kit.json이 있는 폴더를 기준으로 한다. 전에 읽은 샘플 파일이 그대로면 다시 디코드하지 않는다 (SampleCache.h). */
 KitLoadResult loadKit (const juce::File& kitFile);

@@ -58,11 +58,11 @@ bool isNear (float a, float b, float tolerance = 1.0e-5f)
     return std::fabs (a - b) <= tolerance;
 }
 
-hvd::Sample makeConstantSample (float value, std::size_t frames, double sampleRate = 48000.0)
+std::shared_ptr<const hvd::Sample> makeConstantSample (float value, std::size_t frames, double sampleRate = 48000.0)
 {
-    hvd::Sample sample;
-    sample.left.assign (frames, value);
-    sample.sampleRate = sampleRate;
+    auto sample = std::make_shared<hvd::Sample>();
+    sample->left.assign (frames, value);
+    sample->sampleRate = sampleRate;
     return sample;
 }
 
@@ -530,7 +530,7 @@ void testSkipAndChokeCount()
     for (int i = 0; i < 4000; ++i)
         ramp.left.push_back (static_cast<float> (i) / 4000.0f);
 
-    kit.samples.push_back (ramp);
+    kit.samples.push_back (std::make_shared<const hvd::Sample> (ramp));
     kit.pads.push_back (makePad ("splash", 0));
 
     hvd::Engine engine;
@@ -639,7 +639,7 @@ void testResampledPlayback()
     for (int i = 0; i < 200; ++i)
         ramp.left.push_back (static_cast<float> (i));
 
-    kit.samples.push_back (ramp);
+    kit.samples.push_back (std::make_shared<const hvd::Sample> (ramp));
     kit.pads.push_back (makePad ("ramp", 0));
 
     hvd::Engine engine;
@@ -917,11 +917,11 @@ constexpr std::uint64_t msNs = 1'000'000;
 constexpr hvd::KeyCode keyA = 0x1e, keyS = 0x1f, keyD = 0x20, keyTab = 0x0f, keyBackquote = 0x29, keyF1 = 0x3b;
 
 /** 첫 프레임만 값이 있는 샘플. 타격이 시작된 프레임을 출력에서 바로 찾을 수 있다. */
-hvd::Sample makeImpulse (float value)
+std::shared_ptr<const hvd::Sample> makeImpulse (float value)
 {
-    hvd::Sample sample;
-    sample.left.assign (8, 0.0f);
-    sample.left[0] = value;
+    auto sample = std::make_shared<hvd::Sample>();
+    sample->left.assign (8, 0.0f);
+    sample->left[0] = value;
     return sample;
 }
 
@@ -1807,7 +1807,7 @@ void testPadParams()
     for (std::size_t i = 0; i < ramp.left.size(); ++i)
         ramp.left[i] = static_cast<float> (i) * 0.001f;
 
-    kit.samples.push_back (ramp);
+    kit.samples.push_back (std::make_shared<const hvd::Sample> (ramp));
     kit.pads.push_back (makePad ("a", 0));
     kit.pads.push_back (makePad ("ramp", 1));
     kit.pads[0].volume = 0.5f;

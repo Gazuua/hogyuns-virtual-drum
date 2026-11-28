@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -129,7 +130,8 @@ struct Kit
     float humanizeVolume = 0.0f;         // 비율. 0.05면 ±5%
     float humanizePitchCents = 0.0f;     // 센트(반음의 1/100)
 
-    std::vector<Sample> samples;
+    // 같은 샘플 파일은 여러 킷이 함께 쓴다 (킷을 다시 읽거나 바꿀 때 다시 디코드하지 않으려고). 샘플은 바꾸지 않는다.
+    std::vector<std::shared_ptr<const Sample>> samples;
     std::vector<Pad> pads;
     std::vector<std::string> groupNames;
 

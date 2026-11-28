@@ -8,6 +8,7 @@
 #include "MusicFile.h"
 #include "PlayPage.h"
 #include "PracticePage.h"
+#include "SampleCache.h"
 #include "SfzImport.h"
 #include "Text.h"
 
@@ -308,6 +309,185 @@ bool checkKitOffline (const juce::File& kitFile, juce::String& report)
 
     engine.detachKit();
     return ok;
+}
+
+/** 킷 화면에서 패드 하나의 소리를 다음 것으로 넘긴 것과 같은 킷 파일을 temp 폴더에 만든다.
+    샘플 경로는 원래 킷 폴더 기준의 절대 경로로 바꾼다. 바꾼 패드의 id를 돌려준다. 바꿀 패드가 없으면 빈 문자열. */
+juce::String writeKitWithOtherSound (const juce::File& kitFile, const juce::File& target)
+{
+    juce::var root;
+
+    if (juce::JSON::parse (kitFile.loadFileAsString(), root).failed() || root["pads"].getArray() == nullptr)
+        return {};
+
+    const auto folder = kitFile.getParentDirectory();
+    const auto absolute = [&folder] (const juce::var& list)
+    {
+        if (auto* files = list.getArray())
+            for (auto& file : *files)
+                file = folder.getChildFile (file.toString()).getFullPathName();
+    };
+
+    juce::String changed;
+
+    for (auto& pad : *root["pads"].getArray())
+    {
+        auto* object = pad.getDynamicObject();
+        const auto* sounds = pad["sounds"].getArray();
+
+        // 스네어를 먼저 고른다 (소리가 많고 파일이 24개).
+        if (object != nullptr && sounds != nullptr && sounds->size() >= 2 && changed.isEmpty() && pad["id"].toString() == "snare")
+        {
+            auto next = 0;
+
+            for (int i = 0; i < sounds->size(); ++i)
+                if ((*sounds)[i]["id"].toString() == pad["sound"].toString())
+                    next = (i + 1) % sounds->size();
+
+            object->setProperty ("sound", (*sounds)[next]["id"]);
+            object->setProperty ("layers", juce::JSON::parse (juce::JSON::toString ((*sounds)[next]["layers"])));
+            changed = pad["id"].toString();
+        }
+
+        absolute (pad["samples"]);
+
+        if (const auto* layers = pad["layers"].getArray())
+            for (const auto& layer : *layers)
+                absolute (layer["samples"]);
+    }
+
+    if (changed.isNotEmpty())
+        target.replaceWithText (juce::JSON::toString (root));
+
+    return changed;
+}
+
+/** 두 킷이 같은 소리를 내는지: 패드, 레이어, 샘플 번호와 샘플 내용이 모두 같은지. */
+bool sameKitContent (const hvd::Kit& a, const hvd::Kit& b)
+{
+    if (a.samples.size() != b.samples.size() || a.pads.size() != b.pads.size())
+        return false;
+
+    for (std::size_t i = 0; i < a.samples.size(); ++i)
+    {
+        const auto& x = *a.samples[i];
+        const auto& y = *b.samples[i];
+
+        if (x.sampleRate != y.sampleRate || x.left != y.left || x.right != y.right)
+            return false;
+    }
+
+    for (std::size_t i = 0; i < a.pads.size(); ++i)
+    {
+        const auto& x = a.pads[i];
+        const auto& y = b.pads[i];
+
+        if (x.id != y.id || x.layers.size() != y.layers.size())
+            return false;
+
+        for (std::size_t j = 0; j < x.layers.size(); ++j)
+            if (x.layers[j].upTo != y.layers[j].upTo || x.layers[j].nominal != y.layers[j].nominal || x.layers[j].samples != y.layers[j].samples)
+                return false;
+    }
+
+    return true;
+}
+
+/** 킷을 읽는 데 걸리는 시간(처음, 같은 킷을 다시, 소리 하나를 바꾼 킷)과, 읽어 둔 샘플을 다시 써도 같은 킷이 되는지. */
+bool checkKitLoading (const juce::File& kitFile, const juce::File& temp, juce::String& report)
+{
+    report << "\n[kit loading]\n";
+
+    const auto timed = [] (const juce::File& file, KitLoadResult& result)
+    {
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+        result = loadKit (file);
+        return juce::roundToInt (juce::Time::getMillisecondCounterHiRes() - start);
+    };
+
+    const auto describe = [] (const KitLoadResult& result)
+    {
+        return juce::String (result.decodedFiles) + " decoded, " + juce::String (result.reusedFiles) + " reused";
+    };
+
+    const auto changedFile = temp.getChildFile ("changed-sound").getChildFile ("kit.json");
+    changedFile.getParentDirectory().createDirectory();
+    const auto changedPad = writeKitWithOtherSound (kitFile, changedFile);
+
+    clearSampleCache();
+
+    KitLoadResult first, again, changed;
+    const auto firstMs = timed (kitFile, first);
+    const auto againMs = timed (kitFile, again);
+    const auto changedMs = changedPad.isNotEmpty() ? timed (changedFile, changed) : -1;
+
+    auto ok = first.kit != nullptr && again.kit != nullptr && changed.kit != nullptr;
+
+    report << "first " << firstMs << " ms (" << describe (first) << ")\n"
+           << "same kit again " << againMs << " ms (" << describe (again) << ")\n"
+           << "one sound changed (" << changedPad << ") " << changedMs << " ms (" << describe (changed) << ")\n";
+
+    // 기본 킷의 샘플을 함께 쓰는 프리셋으로 바꾸기 (kit.json만 있는 킷). 기본 킷과 같은 소리인 "음량맞춤"이 먼저다.
+    auto presets = kitFile.getParentDirectory().getParentDirectory().findChildFiles (juce::File::findDirectories, false, "*",
+                                                                                     juce::File::FollowSymlinks::no);
+    std::stable_partition (presets.begin(), presets.end(), [] (const juce::File& folder) { return folder.getFileName() == ko ("음량맞춤"); });
+
+    for (const auto& folder : presets)
+    {
+        const auto presetFile = folder.getChildFile ("kit.json");
+
+        if (folder == kitFile.getParentDirectory() || ! presetFile.loadFileAsString().contains ("../default/"))
+            continue;
+
+        KitLoadResult preset;
+        const auto presetMs = timed (presetFile, preset);
+        report << "preset that shares the default samples (" << folder.getFileName() << ") " << presetMs << " ms ("
+               << describe (preset) << ")\n";
+        ok = ok && preset.kit != nullptr;
+        break;
+    }
+
+    if (! ok)
+    {
+        report << "FAILED: kit not loaded\n";
+        return false;
+    }
+
+    // 다시 읽은 킷은 같은 샘플을 함께 쓴다. 소리를 바꾼 킷은 바뀐 패드의 파일만 새로 읽는다.
+    auto shared = again.kit->samples.size() == first.kit->samples.size();
+
+    for (std::size_t i = 0; shared && i < first.kit->samples.size(); ++i)
+        shared = again.kit->samples[i] == first.kit->samples[i];
+
+    ok = ok && shared && again.decodedFiles == 0 && again.reusedFiles == first.decodedFiles
+      && changed.decodedFiles > 0 && changed.decodedFiles < first.decodedFiles && first.warnings == again.warnings;
+    report << (shared ? "ok      " : "FAILED  ") << "the same kit read again shares the decoded samples\n";
+
+    // 처음부터 디코드한 것과 내용이 같다.
+    again = {};
+    clearSampleCache();
+    KitLoadResult fresh;
+    timed (kitFile, fresh);
+    const auto sameAsFresh = fresh.kit != nullptr && sameKitContent (*first.kit, *fresh.kit) && first.warnings == fresh.warnings
+                          && first.memoryBytes == fresh.memoryBytes && first.totalSeconds == fresh.totalSeconds;
+    report << (sameAsFresh ? "ok      " : "FAILED  ") << "kit from shared samples is the same as a fresh decode\n";
+
+    first = {};
+    fresh = {};
+    clearSampleCache();
+    timed (changedFile, fresh);
+    const auto changedSame = fresh.kit != nullptr && sameKitContent (*changed.kit, *fresh.kit);
+    report << (changedSame ? "ok      " : "FAILED  ") << "kit with a changed sound is the same as a fresh decode\n";
+
+    changed = {};
+    fresh = {};
+    trimSampleCache();
+    const auto stats = getSampleCacheStats();
+    constexpr double megabyte = 1024.0 * 1024.0;
+    report << "kept for later: " << stats.numSamples << " samples, " << juce::String (static_cast<double> (stats.unusedBytes) / megabyte, 1)
+           << " MB not used by any kit (limit " << juce::roundToInt (static_cast<double> (sampleCacheUnusedBytes) / megabyte) << " MB)\n";
+
+    return ok && sameAsFresh && changedSame && stats.unusedBytes <= sampleCacheUnusedBytes;
 }
 
 /** 440 Hz 사인파가 든 WAV 파일을 만든다. */
@@ -1210,6 +1390,7 @@ private:
         options.playLogFolder = test->temp.getChildFile ("logs");    // 연주 로그도 임시 폴더에 남겨 끝에서 읽어 본다
         options.backupsFolder = test->temp.getChildFile ("backups"); // 백업도 마찬가지
         const auto kitFile = options.dataRoot.getChildFile ("kits").getChildFile ("default").getChildFile ("kit.json");
+        test->ok = checkKitLoading (kitFile, test->temp, test->report) && test->ok;
         test->ok = checkKitOffline (kitFile, test->report) && test->ok;
         test->ok = checkDocuments (options.dataRoot, test->temp, test->report) && test->ok;
         test->ok = checkBackups (test->temp, test->report) && test->ok;
@@ -1235,6 +1416,11 @@ private:
             test->ok = false;
             test->report << "FAILED: no kit\n";
         }
+
+        // 같은 킷을 다시 읽는 데 걸리는 시간. 그동안 화면이 멈춘다 (킷 파일을 밖에서 고쳤을 때, 킷 화면에서 소리를 바꿀 때).
+        const auto reloadStart = juce::Time::getMillisecondCounterHiRes();
+        session.reloadKit();
+        test->report << "kit reload in the session: " << juce::roundToInt (juce::Time::getMillisecondCounterHiRes() - reloadStart) << " ms\n";
 
         for (const auto& message : session.getMessages())
             test->report << "message: " << message << "\n";

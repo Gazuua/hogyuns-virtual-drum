@@ -5,13 +5,12 @@
 #include <map>
 
 #include "Json.h"
+#include "SampleCache.h"
 #include "core/Engine.h"
 #include "core/StandardPads.h"
 
 namespace
 {
-
-constexpr double maxSampleSeconds = 60.0;
 
 /** 패드 id로 고르는 기본 MIDI 노트 번호. 표준 패드가 아니면 -1. */
 int defaultMidiNote (const std::string& padId)
@@ -24,82 +23,6 @@ int defaultMidiNote (const std::string& padId)
 double padNumber (const juce::var& pad, const hvd::PadField& field)
 {
     return json::numberOr (pad[field.name], field.fallback);
-}
-
-/** 소리가 시작되는 프레임을 찾는다. 타격 앞의 무음은 그대로 지연이 되므로 잘라 낸다. */
-int findOnset (const juce::AudioBuffer<float>& buffer)
-{
-    const auto frames = buffer.getNumSamples();
-    auto peak = 0.0f;
-
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-        peak = std::max (peak, buffer.getMagnitude (channel, 0, frames));
-
-    if (peak <= 0.0f)
-        return 0;
-
-    const auto threshold = std::max (peak * 0.01f, 1.0e-4f);
-
-    for (int i = 0; i < frames; ++i)
-        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-            if (std::abs (buffer.getSample (channel, i)) > threshold)
-                return std::max (0, i - 24);    // 어택이 잘리지 않게 조금 앞에서 시작한다
-
-    return 0;
-}
-
-bool decodeFile (juce::AudioFormatManager& formats, const juce::File& file,
-                 hvd::Sample& sample, int& trimmedFrames, juce::String& error)
-{
-    std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-
-    if (reader == nullptr)
-    {
-        error = "unsupported or unreadable audio file";
-        return false;
-    }
-
-    if (reader->sampleRate <= 0.0 || reader->lengthInSamples < 4)
-    {
-        error = "empty audio file";
-        return false;
-    }
-
-    const auto maxFrames = static_cast<juce::int64> (maxSampleSeconds * reader->sampleRate);
-    const auto frames = static_cast<int> (std::min (reader->lengthInSamples, maxFrames));
-    const auto channels = juce::jlimit (1, 2, static_cast<int> (reader->numChannels));
-
-    juce::AudioBuffer<float> buffer (channels, frames);
-
-    if (! reader->read (&buffer, 0, frames, 0, true, true))
-    {
-        error = "could not decode";
-        return false;
-    }
-
-    trimmedFrames = findOnset (buffer);
-
-    if (frames - trimmedFrames < 4)
-    {
-        error = "no sound in file";
-        return false;
-    }
-
-    const auto* left = buffer.getReadPointer (0);
-    sample.sampleRate = reader->sampleRate;
-    sample.left.assign (left + trimmedFrames, left + frames);
-    sample.right.clear();
-
-    if (channels == 2)
-    {
-        const auto* right = buffer.getReadPointer (1);
-
-        // 양쪽이 똑같으면 한 벌만 둔다.
-        if (! std::equal (left, left + frames, right))
-            sample.right.assign (right + trimmedFrames, right + frames);
-    }
-
-    return true;
 }
 
 } // namespace
@@ -131,9 +54,6 @@ KitLoadResult loadKit (const juce::File& kitFile)
         return result;
     }
 
-    juce::AudioFormatManager formats;
-    formats.registerBasicFormats();
-
     auto kit = std::make_unique<hvd::Kit>();
     kit->name = root["name"].toString().toStdString();
     kit->source = root["source"].toString().toStdString();
@@ -147,33 +67,69 @@ KitLoadResult loadKit (const juce::File& kitFile)
     const auto folder = kitFile.getParentDirectory();
     const auto kitCurve = json::numberOr (root[hvd::padField::velocityCurve.name], hvd::padField::velocityCurve.fallback);
 
+    // 킷이 쓰는 샘플 파일을 먼저 모아 한꺼번에 읽는다. 전에 읽은 파일은 다시 디코드하지 않고 함께 쓰며,
+    // 새 파일은 여러 스레드로 나눠 디코드한다. 아래에서 패드를 읽을 때는 그 결과를 꺼내 쓴다.
+    std::map<juce::String, DecodedSample> decoded;
+
+    {
+        juce::StringArray paths;
+
+        const auto collect = [&paths] (const juce::var& list)
+        {
+            if (const auto* files = list.getArray())
+                for (const auto& file : *files)
+                    paths.addIfNotAlreadyThere (file.toString());
+        };
+
+        for (const auto& padVar : *padsArray)
+        {
+            if (const auto* layers = padVar["layers"].getArray())
+                for (const auto& layerVar : *layers)
+                    collect (layerVar["samples"]);
+            else
+                collect (padVar["samples"]);
+        }
+
+        juce::Array<juce::File> files;
+
+        for (const auto& path : paths)
+            files.add (folder.getChildFile (path));
+
+        auto samples = decodeSamples (files);
+
+        for (int i = 0; i < paths.size(); ++i)
+            decoded[paths[i]] = std::move (samples[static_cast<std::size_t> (i)]);
+    }
+
     std::map<juce::String, std::uint32_t> loadedSamples;
     juce::int64 trimmedFramesTotal = 0;
     auto trimmedMsTotal = 0.0;
 
-    // 샘플 파일을 읽어 번호를 돌려준다. 같은 파일은 한 번만 읽는다. 실패하면 -1.
+    // 샘플 파일의 번호를 돌려준다. 같은 파일은 한 번만 넣는다. 못 읽은 파일이면 -1.
     const auto loadSample = [&] (const juce::String& relativePath) -> int
     {
         if (const auto found = loadedSamples.find (relativePath); found != loadedSamples.end())
             return static_cast<int> (found->second);
 
-        hvd::Sample sample;
-        juce::String error;
-        auto trimmed = 0;
+        const auto& file = decoded[relativePath];
 
-        if (! decodeFile (formats, folder.getChildFile (relativePath), sample, trimmed, error))
+        if (file.sample == nullptr)
         {
-            result.warnings.add (relativePath + ": " + error);
+            result.warnings.add (relativePath + ": " + file.error);
             return -1;
         }
+
+        const auto& sample = *file.sample;
+        const auto trimmed = file.trimmedFrames;
 
         trimmedFramesTotal += trimmed;
         trimmedMsTotal += 1000.0 * trimmed / sample.sampleRate;
         result.totalSeconds += static_cast<double> (sample.frames()) / sample.sampleRate;
         result.memoryBytes += static_cast<juce::int64> ((sample.left.size() + sample.right.size()) * sizeof (float));
+        ++(file.reused ? result.reusedFiles : result.decodedFiles);
 
         const auto index = static_cast<std::uint32_t> (kit->samples.size());
-        kit->samples.push_back (std::move (sample));
+        kit->samples.push_back (file.sample);
         loadedSamples[relativePath] = index;
         return static_cast<int> (index);
     };
