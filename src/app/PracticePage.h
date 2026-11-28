@@ -10,7 +10,7 @@
 #include "Ui.h"
 
 /** 악기마다 박자가 어땠는지 한 줄씩 보여 준다: 가운데(0)가 박, 왼쪽이 빠름, 오른쪽이 늦음.
-    띠는 타격의 가운데 80%가 놓인 범위이고, 흰 눈금은 가운뎃값이다. */
+    띠는 타격의 가운데 80%가 놓인 범위이고, 흰 눈금은 가운뎃값이다. 오른쪽에 치우침(가운뎃값)과 흩어짐을 숫자로 적는다. */
 class TimingRows final : public juce::Component
 {
 public:
@@ -91,11 +91,13 @@ private:
     int getNumRows() override;
     void paintListBoxItem (int rowNumber, juce::Graphics&, int width, int height, bool rowIsSelected) override;
     void selectedRowsChanged (int lastRowSelected) override;
+    juce::String getTooltipForRow (int row) override;
 
-    /** 요약 수치 하나: 작은 제목, 큰 값, 덧붙이는 말. */
+    /** 요약 수치 하나: 작은 제목, 큰 값, 값 아래 덧붙이는 말. checked이면 값 옆에 ✓를 그린다. */
     struct Tile
     {
         juce::String caption, value, note;
+        bool checked = false;
     };
 
     /** 오른쪽(고른 연주)에 놓이는 것들의 자리. paint와 resized가 함께 쓴다. */
@@ -103,6 +105,8 @@ private:
     {
         juce::Rectangle<int> title, subtitle, tiles, rowsCaption, rows, flowCaption, chart, hover, trend;
     };
+
+    void paintLegend (juce::Graphics&, juce::Rectangle<int> area) const;
 
     void showTake (int index);
     void showHover (const hvd::PracticeSection* section);
@@ -118,9 +122,10 @@ private:
     juce::String whenLine, subtitleText, trendText;
     std::array<Tile, 4> tiles;
 
-    juce::Label listCaption, hoverLabel;
+    juce::Label countLabel, hoverLabel;
     juce::ListBox list;
-    juce::TextButton reloadButton, folderButton;
+    ui::IconButton reloadButton { ui::IconButton::Icon::refresh, ko ("새로 고침") };
+    ui::IconButton folderButton { ui::IconButton::Icon::folder, ko ("연주 로그 폴더 열기") };
     TimingRows timingRows;
     FlowChart flowChart;
 
