@@ -6,7 +6,7 @@
 #include "Session.h"
 #include "Ui.h"
 
-/** 킷 편집 화면. 킷을 고르고 복제하고, 패드마다 소리와 샘플을 바꾸고 음량, 팬, 피치 등을 조절한다. */
+/** 킷 편집 화면. 킷을 고르고 복제하고, 패드마다 소리와 샘플을 바꾸고 음량, 피치 등을 조절한다. */
 class KitPage final : public ui::Page,
                       public juce::FileDragAndDropTarget,
                       private juce::ChangeListener,
@@ -71,7 +71,7 @@ private:
     juce::ListBox padList { {}, this };
     juce::TextButton addPadButton, removePadButton;
     juce::TextButton renamePadButton, softButton, mediumButton, hardButton;
-    std::array<Field, 6> fields;
+    std::array<Field, 4> fields;    // 음량, 피치, 시작, 세기 곡선 (팬·리버브는 믹서)
 
     // 모아 둔 소리 고르기
     juce::Label soundCaption, soundCount;

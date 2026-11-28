@@ -9,31 +9,6 @@ constexpr int listWidth = 250;
 constexpr int captionHeight = 20;       // 조절 항목의 이름 줄
 constexpr int valueBoxWidth = 72;       // 슬라이더 값 상자 ("가운데", "+1.5 반음")
 
-/** 팬 값(-1 ~ 1)을 "가운데", "L30", "R30" 꼴로. */
-juce::String panText (double value)
-{
-    const auto percent = juce::roundToInt (value * 100.0);
-
-    if (percent == 0)
-        return ko ("가운데");
-
-    return (percent < 0 ? "L" : "R") + juce::String (std::abs (percent));
-}
-
-double panValue (const juce::String& text)
-{
-    const auto trimmed = text.trim().toUpperCase();
-    const auto number = trimmed.retainCharacters ("0123456789.-").getDoubleValue();
-
-    if (trimmed.startsWith ("L"))
-        return -std::abs (number) / 100.0;
-
-    if (trimmed.startsWith ("R"))
-        return std::abs (number) / 100.0;
-
-    return std::abs (number) > 1.0 ? number / 100.0 : number;    // 숫자만 적으면 -1 ~ 1, 넘으면 퍼센트로 본다
-}
-
 /** 피치 값을 "0 반음", "+1.5 반음", "-2 반음" 꼴로. */
 juce::String pitchText (double value)
 {
@@ -111,7 +86,7 @@ KitPage::KitPage (Session& sessionToUse)
     familyButton.setTooltip (ko ("같은 악기의 패드도 함께 바꾸기 (하이햇, 스네어 등)"));
 
     //==============================================================================
-    // 조절 항목. 두 개씩 한 줄: 음량 · 팬 / 피치 · 시작 / 세기 곡선 · 리버브
+    // 조절 항목. 두 개씩 한 줄: 음량 · 피치 / 시작 · 세기 곡선. 팬과 리버브는 믹서에서 고친다.
     struct FieldSpec
     {
         const char* name;
@@ -126,11 +101,9 @@ KitPage::KitPage (Session& sessionToUse)
     // 음량은 0 ~ 10배. 1.0을 가운데에 두어, 왼쪽 절반이 0 ~ 1, 오른쪽 절반이 1 ~ 10이다.
     const FieldSpec specs[] = {
         { "volume", "음량", "0 ~ 10배", 0.0, static_cast<double> (hvd::maxPadVolume), 0.01, 1.0, "", 2, 1.0 },
-        { "pan", "팬", "왼쪽 L, 오른쪽 R", -1.0, 1.0, 0.01, 0.0, "", 2, 0.0 },
         { "pitch", "피치", "반음 단위", -12.0, 12.0, 0.1, 0.0, "", 1, 0.0 },
         { "startMs", "시작", "앞부분을 건너뛴다", 0.0, 200.0, 0.5, 0.0, " ms", 1, 0.0 },
         { "velocityCurve", "세기 곡선", "클수록 약한 타가 더 작게", 0.2, 2.5, 0.05, 1.0, "", 2, 0.0 },
-        { "reverbSend", "리버브", "리버브로 보내는 양", 0.0, 1.0, 0.01, 1.0, "", 2, 0.0 },
     };
 
     for (std::size_t i = 0; i < fields.size(); ++i)
@@ -159,13 +132,11 @@ KitPage::KitPage (Session& sessionToUse)
         };
     }
 
-    // 값 상자에 단위를 붙인다: 음량 ×1.00, 팬 가운데 / L30 / R30, 피치 +1.5 반음
+    // 값 상자에 단위를 붙인다: 음량 ×1.00, 피치 +1.5 반음
     auto& volume = fields[0].slider;
     volume.textFromValueFunction = [] (double value) { return ko ("×") + juce::String (value, 2); };
     volume.valueFromTextFunction = [] (const juce::String& text) { return text.retainCharacters ("0123456789.").getDoubleValue(); };
-    fields[1].slider.textFromValueFunction = panText;
-    fields[1].slider.valueFromTextFunction = panValue;
-    fields[2].slider.textFromValueFunction = pitchText;
+    fields[1].slider.textFromValueFunction = pitchText;
 
     for (auto& field : fields)
         field.slider.updateText();
@@ -325,7 +296,7 @@ void KitPage::layoutEditor()
     editor.removeFromTop (ui::space::large);
 
     //==============================================================================
-    // 조절 항목: 두 개씩 한 줄. 음량 · 팬 다음에 묶음 사이를 띄운다.
+    // 조절 항목: 두 개씩 한 줄.
     for (std::size_t i = 0; i < fields.size(); i += 2)
     {
         auto row = editor.removeFromTop (captionHeight + ui::space::control);
@@ -337,7 +308,7 @@ void KitPage::layoutEditor()
         fields[i + 1].caption.setBounds (rightHalf.removeFromTop (captionHeight));
         fields[i + 1].slider.setBounds (rightHalf);
 
-        editor.removeFromTop (i == 0 || i + 2 >= fields.size() ? ui::space::large : ui::space::small);
+        editor.removeFromTop (ui::space::large);
     }
 
     //==============================================================================
