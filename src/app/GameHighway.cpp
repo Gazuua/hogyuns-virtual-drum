@@ -37,16 +37,6 @@ juce::String judgementName (hvd::Judgement judgement)
     return {};
 }
 
-juce::String withThousands (int value)
-{
-    auto text = juce::String (value);
-
-    for (int i = text.length() - 3; i > 0; i -= 3)
-        text = text.substring (0, i) + "," + text.substring (i);
-
-    return text;
-}
-
 } // namespace
 
 GameHighway::GameHighway()
@@ -354,7 +344,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
         g.setFont (juce::FontOptions (ui::type::caption, juce::Font::bold));
 
         juce::String text;
-        text << kickLane.name << ko (" (가로 막대)") << "   " << (kickLane.keys.isEmpty() ? ko ("키 없음") : kickLane.keys.joinIntoString ("  "));
+        text << kickLane.name << "   " << (kickLane.keys.isEmpty() ? ko ("키 없음") : kickLane.keys.joinIntoString ("  "));
         g.drawFittedText (text, box.toNearestInt(), juce::Justification::centred, 1, 0.7f);
     }
 
@@ -410,12 +400,19 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
         g.drawText (ko ("콤보"), box.translated (0.0f, 52.0f).withHeight (20.0f).toNearestInt(), juce::Justification::centred);
     }
 
-    // 준비 시간에는 남은 시간을 센다.
+    // 준비 시간에는 남은 시간을 세고, 그동안에만 치는 법을 알린다.
     if (now < 0.0 && runner->getState() == GameRunner::State::playing)
     {
+        const auto countdown = layout.field.withTrimmedBottom (160.0f);
         g.setColour (fieldText.withAlpha (0.85f));
         g.setFont (juce::FontOptions (64.0f, juce::Font::bold));
-        g.drawText (juce::String (static_cast<int> (std::ceil (-now / speed))), layout.field.withTrimmedBottom (160.0f).toNearestInt(), juce::Justification::centred);
+        g.drawText (juce::String (static_cast<int> (std::ceil (-now / speed))), countdown.toNearestInt(), juce::Justification::centred);
+
+        g.setColour (fieldText.withAlpha (0.75f));
+        g.setFont (juce::FontOptions (ui::type::body));
+        g.drawText (ko ("노트가 흰 줄에 닿을 때 치기  ·  킥은 가로 막대  ·  Esc 멈춤"),
+                    juce::Rectangle<float> (countdown.getX(), countdown.getCentreY() + 48.0f, countdown.getWidth(), 22.0f).toNearestInt(),
+                    juce::Justification::centred);
     }
 
     if (runner->getState() == GameRunner::State::paused)
@@ -424,10 +421,10 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
         g.fillRoundedRectangle (layout.field, t.panelRadius);
         g.setColour (fieldText);
         g.setFont (juce::FontOptions (26.0f, juce::Font::bold));
-        g.drawText (ko ("잠깐 멈춤"), layout.field.toNearestInt(), juce::Justification::centred);
+        g.drawText (ko ("멈춤"), layout.field.toNearestInt(), juce::Justification::centred);
         g.setFont (juce::FontOptions (14.0f));
         g.setColour (fieldText.withAlpha (0.7f));
-        g.drawText (ko ("Esc 또는 \"계속\" 버튼으로 이어서 합니다"), layout.field.translated (0.0f, 34.0f).toNearestInt(), juce::Justification::centred);
+        g.drawText (ko ("Esc 계속"), layout.field.translated (0.0f, 34.0f).toNearestInt(), juce::Justification::centred);
     }
 
     // 곡의 진행 정도
@@ -474,7 +471,7 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
         area.removeFromTop (8);
     };
 
-    label (ko ("점수"), withThousands (game.getScore()), 30.0f, ui::theme().text);
+    label (ko ("점수"), ui::withCommas (game.getScore()), 30.0f, ui::theme().text);
     label (ko ("콤보"), juce::String (game.getCombo()) + ko ("  (최고 ") + juce::String (game.getMaxCombo()) + ")", 20.0f, ui::theme().accent);
     label (ko ("정확도"), juce::String (game.getAccuracy() * 100.0, 1) + "%", 20.0f, ui::theme().text);
 
@@ -497,8 +494,7 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
     if (game.getJudgedCount() > 0 && ! runner->wasAssisted())
     {
         const auto mean = game.getMeanOffset() * 1000.0;
-        juce::String text;
-        text << ko ("평균 ") << juce::String (std::abs (mean), 0) << " ms " << (mean < 0.0 ? ko ("빠름") : ko ("늦음"));
+        const auto text = ko ("평균 ") + ui::formatLean (static_cast<float> (mean));
 
         g.setColour (ui::theme().textMuted);
         g.setFont (juce::FontOptions (ui::type::caption));
@@ -515,9 +511,7 @@ void GameHighway::paintHud (juce::Graphics& g, const Layout& layout)
     if (runner->wasAssisted())
     {
         g.setColour (ui::theme().warning);
-        g.drawFittedText (setup.autoplay ? ko ("오토 모드: 프로그램이 대신 칩니다. 기록은 남지 않습니다.")
-                                         : ko ("오토 모드를 써서 기록이 남지 않습니다."),
-                          area.removeFromTop (36), juce::Justification::topLeft, 2);
+        g.drawFittedText (ko ("오토  ·  기록 안 남음"), area.removeFromTop (20), juce::Justification::topLeft, 1);
     }
 }
 
@@ -538,7 +532,7 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
 
     g.setColour (ui::theme().textMuted);
     g.setFont (juce::FontOptions (14.0f));
-    g.drawText (runner->wasAssisted() ? ko ("결과 (오토 모드, 기록 안 남음)") : ko ("결과"), area.removeFromTop (20), juce::Justification::centred);
+    g.drawText (runner->wasAssisted() ? ko ("결과  ·  오토") : ko ("결과"), area.removeFromTop (20), juce::Justification::centred);
 
     const auto grade = game.getGrade();
     g.setColour (grade == 'S' ? judgementColour (hvd::Judgement::perfect, false)
@@ -549,13 +543,13 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
 
     g.setColour (ui::theme().text);
     g.setFont (juce::FontOptions (30.0f, juce::Font::bold));
-    g.drawText (withThousands (game.getScore()), area.removeFromTop (38), juce::Justification::centred);
+    g.drawText (ui::withCommas (game.getScore()), area.removeFromTop (38), juce::Justification::centred);
 
     const auto total = juce::jmax (1, static_cast<int> (game.getNotes().size()));
     const auto accuracy = (game.getCount (hvd::Judgement::perfect) + 0.7 * game.getCount (hvd::Judgement::great) + 0.4 * game.getCount (hvd::Judgement::good)) / total;
 
     juce::String line;
-    line << ko ("정확도 ") << juce::String (accuracy * 100.0, 1) << "%   ·   " << ko ("최고 콤보 ") << game.getMaxCombo() << " / " << total;
+    line << ko ("정확도 ") << juce::String (accuracy * 100.0, 1) << "%" << ui::separator() << ko ("최고 콤보 ") << game.getMaxCombo() << " / " << total;
     g.setFont (juce::FontOptions (15.0f));
     g.drawText (line, area.removeFromTop (26), juce::Justification::centred);
 
@@ -577,8 +571,8 @@ void GameHighway::paintResult (juce::Graphics& g, const Layout& layout)
     {
         const auto mean = game.getMeanOffset() * 1000.0;
         juce::String timing;
-        timing << ko ("맞힌 타격은 평균 ") << juce::String (std::abs (mean), 0) << " ms " << (mean < 0.0 ? ko ("빨랐습니다") : ko ("늦었습니다"))
-               << " (" << ko ("빠름 ") << game.getEarlyCount() << ", " << ko ("늦음 ") << game.getLateCount() << ")";
+        timing << ko ("맞힌 타격 평균 ") << ui::formatLean (static_cast<float> (mean))
+               << ui::separator() << ko ("빠름 ") << game.getEarlyCount() << ui::separator() << ko ("늦음 ") << game.getLateCount();
 
         g.setColour (ui::theme().textMuted);
         g.setFont (juce::FontOptions (ui::type::caption));

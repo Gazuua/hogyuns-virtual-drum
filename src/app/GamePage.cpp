@@ -22,12 +22,24 @@ enum Column
     bestColumn
 };
 
+// 채보 메뉴의 항목
+enum ChartMenuItem
+{
+    analyseThisItem = 1,
+    analyseAllItem,
+    separatorItem,
+    cancelItem
+};
+
 // 드럼 세트에서의 자리 순서 (킥 제외)
 constexpr hvd::Lane kitOrder[] = { hvd::Lane::crash, hvd::Lane::hihat, hvd::Lane::snare, hvd::Lane::tomHigh,
                                    hvd::Lane::tomMid, hvd::Lane::tomFloor, hvd::Lane::ride };
 
 const char* const laneTitles[hvd::numLanes] = { "크래시", "하이햇", "스네어", "하이 탐", "미드 탐", "플로어 탐", "라이드", "킥" };
 const char* const laneColourIds[hvd::numLanes] = { "crash", "hihat", "snare", "tom", "tom", "tom", "ride", "kick" };
+
+// 옆 칸의 항목 이름 폭
+constexpr int sideCaptionWidth = 70;
 
 /** 글자 키의 자판 위 자리: 왼쪽에서 몇 번째인지와 줄의 우선순위(가운데 줄이 먼저). 그 밖의 키는 false. */
 bool keyGridPosition (hvd::KeyCode key, float& column, int& rowRank)
@@ -53,11 +65,6 @@ bool keyGridPosition (hvd::KeyCode key, float& column, int& rowRank)
     return false;
 }
 
-juce::String starsText (float stars)
-{
-    return stars < 0.0f ? juce::String::fromUTF8 ("\xe2\x80\x94") : juce::String::fromUTF8 ("\xe2\x98\x85 ") + juce::String (stars, 1);
-}
-
 } // namespace
 
 GamePage::GamePage (Session& sessionToUse)
@@ -68,10 +75,19 @@ GamePage::GamePage (Session& sessionToUse)
     highway.setRunner (&runner);
     addChildComponent (highway);
 
-    // 곡 고르기
+    // 위 줄: 음악 폴더(이름만, 전체 경로는 툴팁) · [채보] [폴더 바꾸기] [새로 고침]
     ui::setupLabel (*this, folderLabel, {}, ui::Text::caption);
-    ui::setupButton (*this, folderButton, ko ("음악 폴더 바꾸기"), [this] { chooseFolder(); });
-    ui::setupButton (*this, rescanButton, ko ("새로 고침"), [this] { library.rescan(); });
+    ui::setupButton (*this, folderButton, ko ("폴더 바꾸기"), [this] { chooseFolder(); });
+    folderButton.setTooltip (ko ("곡을 찾을 음악 폴더 바꾸기"));
+    rescanButton.onClick = [this] { library.rescan(); };
+    addAndMakeVisible (rescanButton);
+
+    ui::setupButton (*this, chartButton, ko ("채보"), [this] { showChartMenu(); });
+    chartButton.setTooltip (ko ("채보 만들기, 드럼 분리, 분석 멈춤"));
+
+    // 분석하는 동안 목록 위에 진행 줄
+    ui::setupLabel (*this, progressLabel, {}, ui::Text::caption);
+    progressLabel.setMinimumHorizontalScale (0.7f);
 
     searchEditor.setTextToShowWhenEmpty (ko ("곡 이름이나 폴더 이름으로 찾기"), ui::theme().textMuted);
     searchEditor.onTextChange = [this] { rebuildRows(); };
@@ -83,9 +99,7 @@ GamePage::GamePage (Session& sessionToUse)
     {
         session.setSetting ("gameChartedOnly", chartedToggle.getToggleState());
         rebuildRows();
-    });
-
-    chartedToggle.setToggleState (static_cast<bool> (session.getSetting ("gameChartedOnly", false)), juce::dontSendNotification);
+    }, static_cast<bool> (session.getSetting ("gameChartedOnly", false)));
 
     songTable.setModel (this);
     songTable.setRowHeight (24);
@@ -103,6 +117,7 @@ GamePage::GamePage (Session& sessionToUse)
     songTable.getHeader().addColumn (ko ("최고 기록"), bestColumn, 96, 80, 130, sortable);
     addAndMakeVisible (songTable);
 
+    // 옆 칸: 고른 곡, 단계, 곡 속도, 오토, [시작]
     ui::setupLabel (*this, songTitleLabel, {}, ui::Text::section);
     ui::setupLabel (*this, songInfoLabel, {}, ui::Text::caption);
     songTitleLabel.setJustificationType (juce::Justification::topLeft);
@@ -110,49 +125,59 @@ GamePage::GamePage (Session& sessionToUse)
 
     ui::setupLabel (*this, levelLabel, ko ("단계"), ui::Text::caption);
 
+    juce::StringArray levelTexts;
+
+    for (const auto* name : levelNames)
+        levelTexts.add (ko (name));
+
+    ui::setupSegmented (*this, levelButtons, levelTexts, 300, [this] (int level) { setLevel (level); });
+
     for (int level = 0; level < hvd::numChartLevels; ++level)
+        levelButtons[static_cast<std::size_t> (level)].setTooltip (ko (levelHints[level]));
+
+    // 슬라이더 값은 마우스를 놓은 뒤(값 상자에 적었으면 바로) 설정에 적는다.
+    sliderSaver.save = [this]
     {
-        auto& button = levelButtons[static_cast<std::size_t> (level)];
-        ui::setupButton (*this, button, ko (levelNames[level]), [this, level] { setLevel (level); });
-        button.setClickingTogglesState (true);
-        button.setRadioGroupId (300);
-        ui::setButtonKind (button, ui::ButtonKind::segment);
-        button.setConnectedEdges ((level > 0 ? juce::Button::ConnectedOnLeft : 0) | (level < hvd::numChartLevels - 1 ? juce::Button::ConnectedOnRight : 0));
-        button.setTooltip (ko (levelHints[level]));
-    }
+        session.setSetting ("gameSpeed", speedSlider.getValue());
+        session.setSetting ("gameScroll", scrollSlider.getValue());
+        session.setSetting ("gameOffsetMs", offsetSlider.getValue());
+    };
 
     ui::setupLabel (*this, speedLabel, ko ("곡 속도"), ui::Text::caption);
     ui::setupSlider (*this, speedSlider, 50.0, 100.0, 5.0, 100.0, "%", 0);
     speedSlider.setValue (static_cast<double> (session.getSetting ("gameSpeed", 100.0)), juce::dontSendNotification);
-    speedSlider.onDragEnd = [this] { session.setSetting ("gameSpeed", speedSlider.getValue()); };
+    speedSlider.setTooltip (ko ("100% 아래로 친 판은 기록이 남지 않는다"));
+    speedSlider.onValueChange = [this] { sliderSaver.mark(); };
+
+    ui::setupToggle (*this, autoplayToggle, ko ("오토"), [] {});
+    autoplayToggle.setTooltip (ko ("프로그램이 채보대로 대신 친다. 기록은 남지 않는다. 연주 도중에도 켜고 끌 수 있다."));
+
+    ui::setupButton (*this, startButton, ko ("시작"), [this] { startSelected(); });
+    ui::setButtonKind (startButton, ui::ButtonKind::primary);
+
+    // 접어 두는 설정: 노트 속도, 판정 보정, 레인 순서, 드럼 빼고 틀기, 비슷한 악기 인정
+    ui::setupButton (*this, settingsButton, ko ("설정"), [this] { setSettingsOpen (! settingsOpen); });
+    ui::setButtonKind (settingsButton, ui::ButtonKind::quiet);
 
     ui::setupLabel (*this, scrollLabel, ko ("노트 속도"), ui::Text::caption);
     ui::setupSlider (*this, scrollSlider, 200.0, 1000.0, 20.0, 440.0, {}, 0);
     scrollSlider.setValue (static_cast<double> (session.getSetting ("gameScroll", 440.0)), juce::dontSendNotification);
-    scrollSlider.onValueChange = [this] { highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue())); };
-    scrollSlider.onDragEnd = [this] { session.setSetting ("gameScroll", scrollSlider.getValue()); };
+    scrollSlider.onValueChange = [this]
+    {
+        highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue()));
+        sliderSaver.mark();
+    };
     highway.setScrollSpeed (static_cast<float> (scrollSlider.getValue()));
 
     ui::setupLabel (*this, offsetLabel, ko ("판정 보정"), ui::Text::caption);
-    ui::setupSlider (*this, offsetSlider, -150.0, 150.0, 1.0, 0.0, " ms", 0);
+    ui::setupSlider (*this, offsetSlider, -150.0, 150.0, 1.0, 0.0, "ms", 0);
     offsetSlider.setValue (static_cast<double> (session.getSetting ("gameOffsetMs", 0.0)), juce::dontSendNotification);
-    offsetSlider.onDragEnd = [this] { session.setSetting ("gameOffsetMs", offsetSlider.getValue()); };
-    offsetSlider.setTooltip (ko ("늘 늦다고 나오면 값을 올리고, 늘 빠르다고 나오면 내립니다. 한 판이 끝난 뒤 \"보정에 반영\"을 눌러도 됩니다."));
-
-    ui::setupToggle (*this, drumlessToggle, ko ("원곡의 드럼을 빼고 틀기"), [this] { session.setSetting ("gameDrumless", drumlessToggle.getToggleState()); });
-    drumlessToggle.setToggleState (static_cast<bool> (session.getSetting ("gameDrumless", true)), juce::dontSendNotification);
-    drumlessToggle.setTooltip (ko ("드럼을 분리한 곡에서만 됩니다. 내가 친 드럼만 들립니다."));
-
-    ui::setupToggle (*this, relaxedToggle, ko ("비슷한 악기는 바꿔 쳐도 인정"), [this] { session.setSetting ("gameRelaxed", relaxedToggle.getToggleState()); });
-    relaxedToggle.setToggleState (static_cast<bool> (session.getSetting ("gameRelaxed", false)), juce::dontSendNotification);
-    relaxedToggle.setTooltip (ko ("탐끼리, 심벌끼리는 바꿔 쳐도 맞은 것으로 봅니다."));
-
-    ui::setupToggle (*this, autoplayToggle, ko ("오토 모드 (대신 연주)"), [] {});
-    autoplayToggle.setTooltip (ko ("프로그램이 채보대로 정확한 박자에 대신 칩니다. 기록은 남지 않습니다. 연주 도중에도 아래의 \"오토\" 버튼으로 켜고 끌 수 있습니다."));
+    offsetSlider.onValueChange = [this] { sliderSaver.mark(); };
+    offsetSlider.setTooltip (ko ("늘 늦다고 나오면 올리고, 늘 빠르다고 나오면 내린다. 한 판이 끝난 뒤 \"보정에 반영\"을 눌러도 된다."));
 
     ui::setupLabel (*this, orderLabel, ko ("레인 순서"), ui::Text::caption);
-    orderCombo.addItem (ko ("키보드에서의 자리 순"), 1);
-    orderCombo.addItem (ko ("드럼 세트에서의 자리 순"), 2);
+    orderCombo.addItem (ko ("키보드 자리 순"), 1);
+    orderCombo.addItem (ko ("드럼 세트 자리 순"), 2);
     orderCombo.setSelectedId (session.getSetting ("gameLaneOrder", "keys").toString() == "kit" ? 2 : 1, juce::dontSendNotification);
     ui::setupCombo (*this, orderCombo, [this]
     {
@@ -160,73 +185,32 @@ GamePage::GamePage (Session& sessionToUse)
         updateLanes();
     });
 
-    ui::setupButton (*this, startButton, ko ("시작"), [this] { startSelected(); });
-    ui::setButtonKind (startButton, ui::ButtonKind::primary);
+    ui::setupToggle (*this, drumlessToggle, ko ("드럼 빼고 틀기"), [this] { session.setSetting ("gameDrumless", drumlessToggle.getToggleState()); },
+                     static_cast<bool> (session.getSetting ("gameDrumless", true)));
+    drumlessToggle.setTooltip (ko ("원곡의 드럼을 빼고 내가 친 드럼만 듣는다. 드럼을 분리한 곡에서만 된다."));
 
-    ui::setupButton (*this, analyseButton, ko ("채보 만들기"), [this]
-    {
-        if (selectedSong >= 0)
-            library.analyse ({ selectedSong }, true);
-    });
+    ui::setupToggle (*this, relaxedToggle, ko ("비슷한 악기 인정"), [this] { session.setSetting ("gameRelaxed", relaxedToggle.getToggleState()); },
+                     static_cast<bool> (session.getSetting ("gameRelaxed", false)));
+    relaxedToggle.setTooltip (ko ("탐끼리, 심벌끼리는 바꿔 쳐도 맞은 것으로 본다"));
 
-    ui::setupButton (*this, analyseAllButton, {}, [this]
-    {
-        std::vector<int> wanted;
+    // 드럼 분리: 채보 메뉴에서 켜고 끈다.
+    useSeparator = library.isSeparatorInstalled() && static_cast<bool> (session.getSetting ("gameSeparator", true));
+    library.setUseSeparator (useSeparator);
 
-        for (const auto songIndex : rows)
-            if (! library.getSong (songIndex).hasChart)
-                wanted.push_back (songIndex);
-
-        if (wanted.empty())
-            return;
-
-        const auto queue = [this, wanted] { library.analyse (wanted, false); };
-
-        // 많은 곡은 오래 걸리므로 한 번 물어본다.
-        if (wanted.size() > 20)
-            ui::confirm (this, ko ("여러 곡 분석"),
-                         juce::String (static_cast<int> (wanted.size())) + ko ("곡의 채보를 만듭니다. 곡당 30초~1분, 중간에 멈출 수 있습니다. 시작할까요?"),
-                         queue);
-        else
-            queue();
-    });
-
-    ui::setupButton (*this, cancelButton, ko ("분석 멈춤"), [this]
-    {
-        pendingStartSong = -1;
-        library.cancelAnalysis();
-    });
-
-    ui::setupToggle (*this, separatorToggle, ko ("드럼을 분리해서 정밀하게 받아 적기"), [this]
-    {
-        library.setUseSeparator (separatorToggle.getToggleState());
-        session.setSetting ("gameSeparator", separatorToggle.getToggleState());
-    });
-
-    separatorToggle.setEnabled (library.isSeparatorInstalled());
-    separatorToggle.setToggleState (library.isSeparatorInstalled() && static_cast<bool> (session.getSetting ("gameSeparator", true)), juce::dontSendNotification);
-    library.setUseSeparator (separatorToggle.getToggleState());
-
-    if (! library.isSeparatorInstalled())
-        separatorToggle.setTooltip (ko ("드럼 분리 도구가 없어 완성곡에서 바로 받아 적습니다 (tools/setup-demucs.ps1)."));
-
-    ui::setupLabel (*this, progressLabel, {}, ui::Text::warning);
-    progressLabel.setJustificationType (juce::Justification::topLeft);
-    progressLabel.setMinimumHorizontalScale (0.7f);
-
-    // 연주 중
-    ui::setupButton (*this, pauseButton, ko ("잠깐 멈춤"), [this]
+    // 연주 중: 아래 줄 [오토] ... [멈춤 (Esc)]   [그만하기]
+    ui::setupButton (*this, pauseButton, {}, [this]
     {
         runner.setPaused (runner.getState() == GameRunner::State::playing);
-        pauseButton.setButtonText (runner.getState() == GameRunner::State::paused ? ko ("계속") : ko ("잠깐 멈춤"));
+        updatePauseText();
     });
 
     ui::setupButton (*this, stopButton, ko ("그만하기"), [this] { endPlay(); });
+    stopButton.setTooltip (ko ("이 판을 끝내고 곡 고르기로"));
 
     // 연주 도중에 오토 모드를 켜고 끈다 (어려운 구간만 프로그램에 맡길 때).
-    ui::setupButton (*this, autoButton, ko ("오토"), [this] { runner.setAutoplay (autoButton.getToggleState()); });
-    autoButton.setClickingTogglesState (true);
-    autoButton.setTooltip (ko ("프로그램이 대신 칩니다. 켠 판은 기록이 남지 않습니다."));
+    ui::setupToggle (*this, playAutoToggle, ko ("오토"), [this] { runner.setAutoplay (playAutoToggle.getToggleState()); });
+    playAutoToggle.setTooltip (ko ("프로그램이 대신 친다. 켠 판은 기록이 남지 않는다."));
+
     ui::setupButton (*this, retryButton, ko ("다시 하기"), [this]
     {
         if (playingSong >= 0)
@@ -242,18 +226,16 @@ GamePage::GamePage (Session& sessionToUse)
         offsetSlider.setValue (std::round (offsetSlider.getValue() + mean), juce::dontSendNotification);
         session.setSetting ("gameOffsetMs", offsetSlider.getValue());
         applyOffsetButton.setEnabled (false);
-        applyOffsetButton.setButtonText (ko ("보정했습니다"));
+        applyOffsetButton.setButtonText (ko ("보정함"));
     });
 
-    ui::setupLabel (*this, playHintLabel, ko ("Esc: 잠깐 멈춤  ·  노트가 흰 줄에 닿을 때 치기 (킥은 가로 막대)  ·  오토: 대신 연주"), ui::Text::caption);
-
-    ui::setButtonKind (rescanButton, ui::ButtonKind::quiet);
     ui::setButtonKind (stopButton, ui::ButtonKind::danger);
 
     library.addChangeListener (this);
     session.addChangeListener (this);
 
     setLevel (juce::jlimit (0, hvd::numChartLevels - 1, static_cast<int> (session.getSetting ("gameLevel", 0))));
+    setSettingsOpen (static_cast<bool> (session.getSetting ("gameSettingsOpen", false)));
     setPlayView (false);
     rebuildRows();
     updateLanes();
@@ -265,6 +247,7 @@ GamePage::~GamePage()
     session.removeChangeListener (this);
     library.removeChangeListener (this);
     songTable.setModel (nullptr);
+    sliderSaver.flush();
 }
 
 //==============================================================================
@@ -287,6 +270,19 @@ void GamePage::setLevel (int level)
 
     songTable.repaint();
     updateSelection();
+}
+
+void GamePage::setSettingsOpen (bool shouldOpen)
+{
+    settingsOpen = shouldOpen;
+    settingsButton.setOpen (settingsOpen);
+    session.setSetting ("gameSettingsOpen", settingsOpen);
+
+    for (auto* component : std::initializer_list<juce::Component*> { &scrollLabel, &scrollSlider, &offsetLabel, &offsetSlider,
+                                                                      &orderLabel, &orderCombo, &drumlessToggle, &relaxedToggle })
+        component->setVisible (settingsOpen && ! playView);
+
+    resized();
 }
 
 void GamePage::changeListenerCallback (juce::ChangeBroadcaster* source)
@@ -380,18 +376,22 @@ void GamePage::rebuildRows()
     else
         songTable.deselectAllRows();
 
-    auto missing = 0;
+    missingCharts = 0;
 
     for (const auto songIndex : rows)
-        missing += library.getSong (songIndex).hasChart ? 0 : 1;
+        missingCharts += library.getSong (songIndex).hasChart ? 0 : 1;
 
-    analyseAllButton.setButtonText (ko ("목록에서 채보 없는 ") + juce::String (missing) + ko ("곡 분석"));
-    analyseAllButton.setEnabled (missing > 0);
+    // 폴더 이름만 적고 전체 경로는 툴팁으로 (화면을 찍어도 개인 경로가 남지 않게)
+    const auto folder = library.getMusicFolder();
+    juce::String text;
+    text << ko ("음악 폴더 ") << folder.getFileName() << ui::separator() << ko ("곡 ");
 
-    juce::String folder;
-    folder << ko ("음악 폴더: ") << library.getMusicFolder().getFullPathName() << "   ·   " << ko ("곡 ") << library.getNumSongs()
-           << (rows.size() != static_cast<std::size_t> (library.getNumSongs()) ? ko (" 가운데 ") + juce::String (static_cast<int> (rows.size())) + ko ("곡 표시") : juce::String());
-    folderLabel.setText (folder, juce::dontSendNotification);
+    if (rows.size() != static_cast<std::size_t> (library.getNumSongs()))
+        text << ui::withCommas (static_cast<int> (rows.size())) << " / ";
+
+    text << ui::withCommas (library.getNumSongs());
+    folderLabel.setText (text, juce::dontSendNotification);
+    folderLabel.setTooltip (folder.getFullPathName());
 
     updateSelection();
 }
@@ -403,7 +403,8 @@ void GamePage::updateSelection()
     if (! valid)
     {
         songTitleLabel.setText (ko ("곡을 고르세요"), juce::dontSendNotification);
-        songInfoLabel.setText (ko ("왼쪽에서 곡을 고르세요. 두 번 누르면 바로 시작합니다."), juce::dontSendNotification);
+        songInfoLabel.setText ({}, juce::dontSendNotification);
+        songInfoLabel.setTooltip (ko ("두 번 누르면 바로 시작"));
     }
 
     for (int level = 0; level < hvd::numChartLevels; ++level)
@@ -411,19 +412,17 @@ void GamePage::updateSelection()
         juce::String text = ko (levelNames[level]);
 
         if (valid && library.getSong (selectedSong).hasChart)
-            text << "\n" << starsText (library.getSong (selectedSong).stars[static_cast<std::size_t> (level)]);
+            text << "\n" << ui::formatStars (library.getSong (selectedSong).stars[static_cast<std::size_t> (level)]);
 
         levelButtons[static_cast<std::size_t> (level)].setButtonText (text);
     }
 
     startButton.setEnabled (valid);
-    analyseButton.setEnabled (valid);
     drumlessToggle.setEnabled (valid && library.getSong (selectedSong).hasBacking);
 
     if (! valid)
     {
         startButton.setButtonText (ko ("시작"));
-        analyseButton.setButtonText (ko ("채보 만들기"));
         return;
     }
 
@@ -439,12 +438,12 @@ void GamePage::updateSelection()
 
     if (song.hasChart)
     {
-        info << ui::formatTime (song.duration).upToFirstOccurrenceOf (".", false, false) << "  ·  BPM " << juce::roundToInt (song.tempo)
-             << "  ·  " << ko ("노트 ") << song.noteCounts[level] << ko ("개") << "\n"
-             << (song.precise ? ko ("드럼을 분리해서 받아 적은 채보") : ko ("완성곡에서 바로 받아 적은 채보 (간이)"));
+        info << ui::formatMinutes (song.duration) << ui::separator() << "BPM " << juce::roundToInt (song.tempo)
+             << ui::separator() << ko ("노트 ") << ui::withCommas (song.noteCounts[level]) << "\n"
+             << (song.precise ? ko ("드럼 분리 채보") : ko ("간이 채보"));
 
         if (song.bestScore[level] > 0)
-            info << "\n" << ko ("최고 기록 ") << song.bestGrade[level] << "  " << song.bestScore[level];
+            info << ui::separator() << ko ("최고 ") << song.bestGrade[level] << " " << ui::withCommas (song.bestScore[level]);
     }
     else if (song.error.isNotEmpty())
     {
@@ -452,12 +451,12 @@ void GamePage::updateSelection()
     }
     else
     {
-        info << ko ("채보가 없습니다. 시작하면 먼저 만듭니다.");
+        info << ko ("채보 없음. 시작하면 먼저 만든다");
     }
 
     songInfoLabel.setText (info, juce::dontSendNotification);
+    songInfoLabel.setTooltip (song.hasChart && ! song.precise ? ko ("간이 채보: 드럼을 분리하지 않고 완성곡에서 받아 적었다") : juce::String());
     startButton.setButtonText (song.hasChart ? ko ("시작") : ko ("채보 만들고 시작"));
-    analyseButton.setButtonText (song.hasChart ? ko ("채보 다시 만들기") : ko ("채보 만들기"));
 }
 
 void GamePage::updateLanes()
@@ -558,32 +557,118 @@ void GamePage::updateLanes()
 void GamePage::updateProgress()
 {
     const auto progress = library.getProgress();
+    const auto running = progress.running || progress.done < progress.total;
     juce::String text;
 
-    if (progress.running || progress.done < progress.total)
+    if (running)
     {
         text << ko ("분석 중 ") << juce::jmin (progress.done + 1, progress.total) << " / " << progress.total;
 
         if (progress.title.isNotEmpty())
-            text << "  ·  " << progress.title;
+            text << ui::separator() << progress.title;
 
         if (progress.stage.isNotEmpty())
         {
-            text << "\n" << progress.stage;
+            text << ui::separator() << progress.stage;
 
             if (progress.fraction > 0.0f)
-                text << " " << juce::roundToInt (progress.fraction * 100.0f) << "%";
+                text << " " << ui::formatPercent (progress.fraction * 100.0f);
         }
     }
-    else if (selectedSong >= 0 && selectedSong < library.getNumSongs() && library.getSong (selectedSong).error.isNotEmpty())
-    {
-        text << library.getSong (selectedSong).error;
-    }
+
+    const auto fraction = progress.total > 0 ? juce::jlimit (0.0f, 1.0f, (static_cast<float> (progress.done) + progress.fraction) / static_cast<float> (progress.total))
+                                             : 0.0f;
 
     if (text != progressLabel.getText())
         progressLabel.setText (text, juce::dontSendNotification);
 
-    cancelButton.setEnabled (progress.running || progress.done < progress.total);
+    // 진행 줄은 분석하는 동안에만 자리를 차지한다.
+    if (running != progressLabel.isVisible() && ! playView)
+    {
+        progressLabel.setVisible (running);
+        resized();
+    }
+
+    if (std::abs (fraction - progressFraction) > 0.001f)
+    {
+        progressFraction = fraction;
+        repaint (progressArea);
+    }
+}
+
+void GamePage::showChartMenu()
+{
+    const auto valid = selectedSong >= 0 && selectedSong < library.getNumSongs();
+    const auto hasChart = valid && library.getSong (selectedSong).hasChart;
+    const auto progress = library.getProgress();
+    const auto installed = library.isSeparatorInstalled();
+
+    juce::PopupMenu menu;
+    menu.addItem (analyseThisItem, hasChart ? ko ("이 곡 채보 다시 만들기") : ko ("이 곡 채보 만들기"), valid);
+    menu.addItem (analyseAllItem, ko ("모두 만들기 (") + ui::withCommas (missingCharts) + ")", missingCharts > 0);
+    menu.addSeparator();
+    menu.addItem (separatorItem, installed ? ko ("드럼 분리") : ko ("드럼 분리 (도구 없음)"), installed, useSeparator);
+    menu.addSeparator();
+    menu.addItem (cancelItem, ko ("분석 멈춤"), progress.running || progress.done < progress.total);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&chartButton),
+                        [safe = juce::Component::SafePointer<GamePage> (this)] (int result)
+                        {
+                            if (safe == nullptr)
+                                return;
+
+                            auto& page = *safe;
+
+                            switch (result)
+                            {
+                                case analyseThisItem:
+                                    if (page.selectedSong >= 0)
+                                        page.library.analyse ({ page.selectedSong }, true);
+                                    break;
+
+                                case analyseAllItem:
+                                    page.analyseMissing();
+                                    break;
+
+                                case separatorItem:
+                                    page.useSeparator = ! page.useSeparator;
+                                    page.library.setUseSeparator (page.useSeparator);
+                                    page.session.setSetting ("gameSeparator", page.useSeparator);
+                                    break;
+
+                                case cancelItem:
+                                    page.pendingStartSong = -1;
+                                    page.library.cancelAnalysis();
+                                    break;
+
+                                default:
+                                    break;
+                            }
+
+                            page.updateProgress();
+                        });
+}
+
+void GamePage::analyseMissing()
+{
+    std::vector<int> wanted;
+
+    for (const auto songIndex : rows)
+        if (! library.getSong (songIndex).hasChart)
+            wanted.push_back (songIndex);
+
+    if (wanted.empty())
+        return;
+
+    const auto queue = [this, wanted] { library.analyse (wanted, false); };
+
+    // 많은 곡은 오래 걸리므로 한 번 물어본다.
+    if (wanted.size() > 20)
+        ui::confirm (this, ko ("채보 모두 만들기"),
+                     ui::withCommas (static_cast<int> (wanted.size())) + ko ("곡의 채보를 만듭니다. 곡당 30초~1분, 중간에 멈출 수 있습니다."),
+                     ko ("만들기"), queue);
+    else
+        queue();
 }
 
 //==============================================================================
@@ -618,24 +703,37 @@ void GamePage::paintCell (juce::Graphics& g, int row, int column, int width, int
             break;
 
         case lengthColumn:
-            text = song.hasChart ? ui::formatTime (song.duration).upToFirstOccurrenceOf (".", false, false) : juce::String();
+            text = song.hasChart ? ui::formatMinutes (song.duration) : ui::dash();
             colour = ui::theme().textMuted;
             justification = juce::Justification::centredRight;
             break;
 
         case tempoColumn:
-            text = song.hasChart && song.tempo > 0.0f ? juce::String (juce::roundToInt (song.tempo)) : juce::String();
+            text = song.hasChart && song.tempo > 0.0f ? juce::String (juce::roundToInt (song.tempo)) : ui::dash();
             colour = ui::theme().textMuted;
             justification = juce::Justification::centredRight;
             break;
 
         case starsColumn:
-            text = song.hasChart ? starsText (song.stars[level]) : (song.error.isNotEmpty() ? ko ("실패") : juce::String());
-            colour = song.hasChart ? (song.precise ? ui::theme().accent : ui::theme().accent.withAlpha (0.6f)) : ui::theme().danger;
+            if (song.hasChart)
+            {
+                text = ui::formatStars (song.stars[level]);
+                colour = song.precise ? ui::theme().accent : ui::theme().accent.withAlpha (0.6f);
+            }
+            else if (song.error.isNotEmpty())
+            {
+                text = ko ("실패");
+                colour = ui::theme().danger;
+            }
+            else
+            {
+                text = ui::dash();
+                colour = ui::theme().textFaint;
+            }
             break;
 
         case bestColumn:
-            text = song.bestScore[level] > 0 ? song.bestGrade[level] + "  " + juce::String (song.bestScore[level]) : juce::String();
+            text = song.bestScore[level] > 0 ? song.bestGrade[level] + "  " + ui::withCommas (song.bestScore[level]) : juce::String();
             colour = ui::theme().good;
             break;
 
@@ -736,20 +834,23 @@ juce::String GamePage::startSong (int songIndex, bool autoplay)
     const auto drumless = drumlessToggle.getToggleState() && backing != juce::File();
 
     juce::String detail;
-    detail << ko (levelNames[level]) << "  " << starsText (song.stars[static_cast<std::size_t> (level)])
-           << "  ·  BPM " << juce::roundToInt (chart.tempo);
+    detail << ko (levelNames[level]) << "  " << ui::formatStars (song.stars[static_cast<std::size_t> (level)])
+           << ui::separator() << "BPM " << juce::roundToInt (chart.tempo);
 
     if (setup.speed < 0.999)
-        detail << "  ·  " << ko ("속도 ") << juce::roundToInt (setup.speed * 100.0) << "%";
+        detail << ui::separator() << ko ("속도 ") << ui::formatPercent (setup.speed * 100.0);
 
-    detail << "\n" << (drumless ? ko ("원곡의 드럼을 뺀 반주") : ko ("원곡 그대로"));
+    detail << "\n" << (drumless ? ko ("드럼 뺀 반주") : ko ("원곡 그대로"));
 
     playingSong = songIndex;
     playingLevel = level;
 
-    juce::MouseCursor::showWaitCursor();
-    const auto error = runner.start (drumless ? backing : song.file, std::move (setup));
-    juce::MouseCursor::hideWaitCursor();
+    juce::String error;
+
+    {
+        const ui::WaitCursor wait;
+        error = runner.start (drumless ? backing : song.file, std::move (setup));
+    }
 
     if (error.isNotEmpty())
         return error;
@@ -820,7 +921,7 @@ void GamePage::startDemo (bool autoplay)
     if (runner.start (juce::File(), std::move (setup)).isNotEmpty())
         return;
 
-    highway.setInfo (ko ("연습 패턴"), ko ("8비트 록, 템포 110\n곡 없이 메트로놈처럼 진행합니다"));
+    highway.setInfo (ko ("연습 패턴"), ko ("8비트 록, 템포 110\n곡 없이 메트로놈처럼 진행"));
     highway.reset();
     resultRecorded = false;
     setPlayView (true);
@@ -848,10 +949,15 @@ void GamePage::finished()
     const auto useful = ! runner.wasAssisted() && std::abs (mean) >= 8.0 && game.getJudgedCount() - game.getCount (hvd::Judgement::miss) >= 20;
 
     applyOffsetButton.setEnabled (useful);
-    applyOffsetButton.setButtonText (useful ? ko ("보정에 반영 (") + (mean > 0.0 ? "+" : "") + juce::String (juce::roundToInt (mean)) + " ms)"
+    applyOffsetButton.setButtonText (useful ? ko ("보정에 반영 (") + ui::formatSignedMs (static_cast<float> (mean)) + ")"
                                             : ko ("보정할 것 없음"));
 
     setPlayView (true);
+}
+
+void GamePage::updatePauseText()
+{
+    pauseButton.setButtonText (runner.getState() == GameRunner::State::paused ? ko ("계속 (Esc)") : ko ("멈춤 (Esc)"));
 }
 
 void GamePage::setPlayView (bool shouldShowPlay)
@@ -859,11 +965,9 @@ void GamePage::setPlayView (bool shouldShowPlay)
     playView = shouldShowPlay;
     const auto done = playView && runner.getState() == GameRunner::State::finished;
 
-    juce::Component* const selecting[] = { &folderLabel, &folderButton, &rescanButton, &searchEditor, &chartedToggle, &songTable,
-                                           &songTitleLabel, &songInfoLabel, &levelLabel,
-                                           &speedLabel, &speedSlider, &scrollLabel, &scrollSlider, &offsetLabel, &offsetSlider,
-                                           &drumlessToggle, &relaxedToggle, &autoplayToggle, &orderLabel, &orderCombo, &startButton,
-                                           &analyseButton, &analyseAllButton, &cancelButton, &separatorToggle, &progressLabel };
+    juce::Component* const selecting[] = { &folderLabel, &folderButton, &rescanButton, &chartButton, &searchEditor, &chartedToggle, &songTable,
+                                           &songTitleLabel, &songInfoLabel, &levelLabel, &speedLabel, &speedSlider,
+                                           &autoplayToggle, &startButton, &settingsButton };
 
     for (auto* component : selecting)
         component->setVisible (! playView);
@@ -871,16 +975,21 @@ void GamePage::setPlayView (bool shouldShowPlay)
     for (auto& button : levelButtons)
         button.setVisible (! playView);
 
+    for (auto* component : std::initializer_list<juce::Component*> { &scrollLabel, &scrollSlider, &offsetLabel, &offsetSlider,
+                                                                      &orderLabel, &orderCombo, &drumlessToggle, &relaxedToggle })
+        component->setVisible (! playView && settingsOpen);
+
+    progressLabel.setVisible (! playView && progressLabel.getText().isNotEmpty());
+
     highway.setVisible (playView);
-    playHintLabel.setVisible (playView && ! done);
     pauseButton.setVisible (playView && ! done);
     stopButton.setVisible (playView && ! done);
-    autoButton.setVisible (playView && ! done);
-    autoButton.setToggleState (runner.isAutoplay(), juce::dontSendNotification);
+    playAutoToggle.setVisible (playView && ! done);
+    playAutoToggle.setToggleState (runner.isAutoplay(), juce::dontSendNotification);
     retryButton.setVisible (done);
     backButton.setVisible (done);
     applyOffsetButton.setVisible (done);
-    pauseButton.setButtonText (ko ("잠깐 멈춤"));
+    updatePauseText();
 
     resized();
     repaint();
@@ -892,9 +1001,8 @@ void GamePage::pageShown()
     if (! library.hasScanned())
     {
         // 음악 폴더를 처음 훑는다. 곡이 많으면 잠깐 걸린다.
-        juce::MouseCursor::showWaitCursor();
+        const ui::WaitCursor wait;
         library.rescan();
-        juce::MouseCursor::hideWaitCursor();
     }
 
     runner.refreshPads();
@@ -906,7 +1014,7 @@ void GamePage::pageHidden()
     if (runner.getState() == GameRunner::State::playing)
     {
         runner.setPaused (true);
-        pauseButton.setButtonText (ko ("계속"));
+        updatePauseText();
     }
 }
 
@@ -962,6 +1070,17 @@ void GamePage::paint (juce::Graphics& g)
         return;
 
     ui::fillPanel (g, sidePanel);
+
+    // 분석 진행 막대
+    if (progressLabel.isVisible() && ! progressArea.isEmpty())
+    {
+        const auto& t = ui::theme();
+        const auto bar = progressArea.withTop (progressArea.getBottom() - 3).toFloat();
+        g.setColour (t.surfaceSunken);
+        g.fillRoundedRectangle (bar, 1.5f);
+        g.setColour (t.accent);
+        g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * progressFraction), 1.5f);
+    }
 }
 
 void GamePage::resized()
@@ -970,16 +1089,14 @@ void GamePage::resized()
 
     if (playView)
     {
+        // 아래 줄: [오토] ......... [멈춤 (Esc)]   [그만하기]
         auto bottom = area.removeFromBottom (30);
-        stopButton.setBounds (bottom.removeFromRight (92));
-        bottom.removeFromRight (6);
-        pauseButton.setBounds (bottom.removeFromRight (92));
-        bottom.removeFromRight (6);
-        autoButton.setBounds (bottom.removeFromRight (64));
-        bottom.removeFromRight (12);
-        playHintLabel.setBounds (bottom);
+        stopButton.setBounds (bottom.removeFromRight (96));
+        bottom.removeFromRight (ui::space::large);
+        pauseButton.setBounds (bottom.removeFromRight (110));
+        playAutoToggle.setBounds (bottom.removeFromLeft (90));
 
-        area.removeFromBottom (6);
+        area.removeFromBottom (ui::space::small);
         highway.setBounds (area);
 
         auto buttons = highway.getResultButtonArea().translated (highway.getX(), highway.getY());
@@ -992,22 +1109,25 @@ void GamePage::resized()
         return;
     }
 
-    auto top = area.removeFromTop (28);
-    rescanButton.setBounds (top.removeFromRight (84));
-    top.removeFromRight (6);
-    folderButton.setBounds (top.removeFromRight (128));
-    top.removeFromRight (12);
+    // 위 줄: 음악 폴더 · [채보] [폴더 바꾸기] [새로 고침]
+    auto top = area.removeFromTop (ui::space::control);
+    rescanButton.setBounds (top.removeFromRight (ui::space::control));
+    top.removeFromRight (ui::space::tight);
+    folderButton.setBounds (top.removeFromRight (104));
+    top.removeFromRight (ui::space::small);
+    chartButton.setBounds (top.removeFromRight (84));
+    top.removeFromRight (ui::space::medium);
     folderLabel.setBounds (top);
-    area.removeFromTop (8);
+    area.removeFromTop (ui::space::small);
 
-    // 오른쪽: 고른 곡과 설정
+    // 오른쪽: 고른 곡과 한 판 설정
     sidePanel = area.removeFromRight (340);
-    area.removeFromRight (12);
-    auto side = sidePanel.reduced (14, 12);
+    area.removeFromRight (ui::space::medium);
+    auto side = sidePanel.reduced (ui::space::large, ui::space::medium);
 
     songTitleLabel.setBounds (side.removeFromTop (42));
     songInfoLabel.setBounds (side.removeFromTop (68));
-    side.removeFromTop (6);
+    side.removeFromTop (ui::space::small);
 
     auto row = side.removeFromTop (42);
     levelLabel.setBounds (row.removeFromLeft (40));
@@ -1016,49 +1136,40 @@ void GamePage::resized()
     for (auto& button : levelButtons)
         button.setBounds (row.removeFromLeft (levelWidth));
 
-    side.removeFromTop (8);
-
-    const auto sliderRow = [&side] (juce::Label& label, juce::Slider& slider)
-    {
-        auto line = side.removeFromTop (26);
-        label.setBounds (line.removeFromLeft (70));
-        slider.setBounds (line);
-        side.removeFromTop (2);
-    };
-
-    sliderRow (speedLabel, speedSlider);
-    sliderRow (scrollLabel, scrollSlider);
-    sliderRow (offsetLabel, offsetSlider);
-
-    row = side.removeFromTop (26);
-    orderLabel.setBounds (row.removeFromLeft (70));
-    orderCombo.setBounds (row);
-    side.removeFromTop (6);
-
-    drumlessToggle.setBounds (side.removeFromTop (24));
-    relaxedToggle.setBounds (side.removeFromTop (24));
+    side.removeFromTop (ui::space::small);
+    ui::placeLabelled (side, speedLabel, speedSlider, sideCaptionWidth);
     autoplayToggle.setBounds (side.removeFromTop (24));
-    side.removeFromTop (8);
+    side.removeFromTop (ui::space::small);
+    startButton.setBounds (side.removeFromTop (40));
+    side.removeFromTop (ui::space::medium);
 
-    startButton.setBounds (side.removeFromTop (44));
-    side.removeFromTop (14);
+    settingsButton.setBounds (side.removeFromTop (ui::space::control).removeFromLeft (80));
 
-    row = side.removeFromTop (28);
-    analyseButton.setBounds (row.removeFromLeft (150));
-    row.removeFromLeft (6);
-    cancelButton.setBounds (row);
-    side.removeFromTop (6);
-    analyseAllButton.setBounds (side.removeFromTop (28));
-    side.removeFromTop (4);
-    separatorToggle.setBounds (side.removeFromTop (24));
-    side.removeFromTop (4);
-    progressLabel.setBounds (side);
+    if (settingsOpen)
+    {
+        side.removeFromTop (ui::space::tight);
+        ui::placeLabelled (side, scrollLabel, scrollSlider, sideCaptionWidth);
+        ui::placeLabelled (side, offsetLabel, offsetSlider, sideCaptionWidth);
+        ui::placeLabelled (side, orderLabel, orderCombo, sideCaptionWidth);
+        side.removeFromTop (ui::space::tight);
+        drumlessToggle.setBounds (side.removeFromTop (24));
+        relaxedToggle.setBounds (side.removeFromTop (24));
+    }
 
-    // 왼쪽: 찾기와 곡 목록
-    row = area.removeFromTop (26);
+    // 왼쪽: (분석 중이면 진행 줄) 찾기와 곡 목록
+    progressArea = {};
+
+    if (progressLabel.isVisible())
+    {
+        progressArea = area.removeFromTop (24);
+        progressLabel.setBounds (progressArea.withTrimmedBottom (5));
+        area.removeFromTop (ui::space::small);
+    }
+
+    row = area.removeFromTop (ui::space::control);
     chartedToggle.setBounds (row.removeFromRight (130));
-    row.removeFromRight (8);
+    row.removeFromRight (ui::space::small);
     searchEditor.setBounds (row);
-    area.removeFromTop (6);
+    area.removeFromTop (ui::space::small);
     songTable.setBounds (area);
 }

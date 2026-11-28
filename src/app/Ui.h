@@ -252,6 +252,67 @@ private:
 };
 
 //==============================================================================
+/** 글 옆에 꺾쇠(⌄, ›)를 그리는 버튼.
+    menu: 누르면 메뉴가 뜨는 버튼(꺾쇠는 늘 아래). disclosure: 아래 묶음을 펼치고 접는 버튼(펼쳐지면 아래, 접히면 오른쪽).
+    펼침 상태는 setOpen()으로 정한다. 모양(보조, 조용한 등)은 setButtonKind를 따른다. */
+class ChevronButton final : public juce::TextButton
+{
+public:
+    enum class Style
+    {
+        menu,
+        disclosure
+    };
+
+    explicit ChevronButton (Style styleToUse = Style::menu) : style (styleToUse) {}
+
+    void setOpen (bool shouldBeOpen)    { if (open != shouldBeOpen) { open = shouldBeOpen; repaint(); } }
+    bool isOpen() const noexcept        { return open; }
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        auto& lf = getLookAndFeel();
+        const auto& t = theme();
+
+        lf.drawButtonBackground (g, *this, findColour (juce::TextButton::buttonColourId), highlighted, down);
+
+        const auto font = juce::Font (juce::FontOptions (juce::jmin (type::body, static_cast<float> (getHeight()) * 0.56f)));
+        const auto textWidth = juce::GlyphArrangement::getStringWidth (font, getButtonText());
+        constexpr float chevron = 8.0f, gap = 6.0f;
+
+        auto area = getLocalBounds().toFloat().reduced (getButtonKind (*this) == ButtonKind::quiet ? 4.0f : 10.0f, 0.0f);
+        const auto contentWidth = juce::jmin (area.getWidth(), textWidth + gap + chevron);
+        auto content = style == Style::menu ? area.withSizeKeepingCentre (contentWidth, area.getHeight()) : area.withWidth (contentWidth);
+
+        g.setColour ((getButtonKind (*this) == ButtonKind::quiet && ! highlighted ? t.textMuted : t.text).withMultipliedAlpha (isEnabled() ? 1.0f : 0.45f));
+        g.setFont (font);
+        g.drawText (getButtonText(), content.removeFromLeft (contentWidth - gap - chevron), juce::Justification::centredLeft, true);
+
+        const auto c = content.removeFromRight (chevron).getCentre();
+        juce::Path path;
+
+        if (style == Style::menu || open)
+        {
+            path.startNewSubPath (c.x - 4.0f, c.y - 2.0f);
+            path.lineTo (c.x, c.y + 2.0f);
+            path.lineTo (c.x + 4.0f, c.y - 2.0f);
+        }
+        else
+        {
+            path.startNewSubPath (c.x - 2.0f, c.y - 4.0f);
+            path.lineTo (c.x + 2.0f, c.y);
+            path.lineTo (c.x - 2.0f, c.y + 4.0f);
+        }
+
+        g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+private:
+    Style style;
+    bool open = false;
+};
+
+//==============================================================================
 /** "조절 값은 소리에 바로, 파일에는 마우스를 놓은 뒤에" 저장을 맡는다.
     값을 바꿀 때마다 mark()를 부르면, 마우스 단추가 모두 떼어진 뒤에 save가 한 번 불린다.
     화면이 가려져도 돈다 (값 상자에 적고 바로 탭을 바꿔도 저장된다). */

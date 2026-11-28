@@ -53,6 +53,10 @@ private:
     void updateLanes();
     void updateProgress();
     void setPlayView (bool shouldShowPlay);
+    void setSettingsOpen (bool shouldOpen);
+    void showChartMenu();
+    void analyseMissing();
+    void updatePauseText();
     void beginPlay (const juce::File& audio, GameRunner::Setup setup, const juce::String& title, const juce::String& detail);
     void finished();
     void startSelected();
@@ -67,18 +71,27 @@ private:
 
     // 곡 고르기
     juce::Label folderLabel, songTitleLabel, songInfoLabel, levelLabel, speedLabel, scrollLabel, offsetLabel, orderLabel, progressLabel;
-    juce::TextButton folderButton, rescanButton, startButton, analyseButton, analyseAllButton, cancelButton;
+    juce::TextButton folderButton, startButton;
+    ui::IconButton rescanButton { ui::IconButton::Icon::refresh, ko ("새로 고침") };
+    ui::ChevronButton chartButton { ui::ChevronButton::Style::menu };          // 채보 만들기 메뉴
+    ui::ChevronButton settingsButton { ui::ChevronButton::Style::disclosure };  // 한 판 설정 펼치기
     std::array<juce::TextButton, hvd::numChartLevels> levelButtons;
     juce::TextEditor searchEditor;
-    juce::ToggleButton chartedToggle, drumlessToggle, relaxedToggle, autoplayToggle, separatorToggle;
+    juce::ToggleButton chartedToggle, drumlessToggle, relaxedToggle, autoplayToggle;
     juce::Slider speedSlider, scrollSlider, offsetSlider;
     juce::ComboBox orderCombo;
     juce::TableListBox songTable;
     std::unique_ptr<juce::FileChooser> chooser;
+    ui::DeferredSave sliderSaver;       // 곡 속도, 노트 속도, 판정 보정
+    bool useSeparator = false;          // 드럼을 분리해서 받아 적기
+    bool settingsOpen = false;
+    int missingCharts = 0;              // 목록에서 채보 없는 곡 수
+    juce::Rectangle<int> progressArea;  // 분석 중일 때 목록 위의 진행 줄
+    float progressFraction = 0.0f;
 
     // 연주 중
-    juce::TextButton pauseButton, stopButton, autoButton, retryButton, backButton, applyOffsetButton;
-    juce::Label playHintLabel;
+    juce::TextButton pauseButton, stopButton, retryButton, backButton, applyOffsetButton;
+    juce::ToggleButton playAutoToggle;
 
     std::vector<int> rows;              // 표의 줄 → 곡 번호
     int selectedSong = -1;
