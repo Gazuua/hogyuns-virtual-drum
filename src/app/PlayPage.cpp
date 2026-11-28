@@ -1,8 +1,7 @@
 #include "PlayPage.h"
 
-#include <cstring>
-
 #include "KitLayout.h"
+#include "core/PadKinds.h"
 
 namespace
 {
@@ -41,21 +40,6 @@ void confirmDanger (juce::Component* parent, const juce::String& title, const ju
                                      onConfirm();
                              }),
                              true);
-}
-
-/** 패드가 어느 악기의 것인지. 같은 악기의 패드는 오른쪽 단추로 잡을 때 함께 멈춘다 (라이드와 라이드 벨, 스네어와 림샷). */
-juce::String instrumentOf (const juce::String& padId)
-{
-    const auto id = padId.toLowerCase();
-
-    if (id == "sidestick")
-        return "snare";
-
-    for (const auto* suffix : { "_bell", "_edge", "_bow", "_rim", "_closed", "_half", "_open", "_pedal", "_splash", "_buzz" })
-        if (id.endsWith (suffix))
-            return id.dropLastCharacters (static_cast<int> (std::strlen (suffix)));
-
-    return id;
 }
 
 } // namespace
@@ -230,21 +214,7 @@ void PlayPage::rebuild()
             shownAs.push_back (static_cast<int> (i));
 
         // 오른쪽 단추로 잡으면 함께 멈출 패드: 같은 악기의 패드와 같은 초크 그룹의 패드 (하이햇은 모두)
-        for (const auto& pad : kit->pads)
-        {
-            const auto instrument = instrumentOf (juce::String (pad.id));
-            std::vector<std::uint16_t> set;
-
-            for (std::size_t j = 0; j < kit->pads.size(); ++j)
-            {
-                const auto& other = kit->pads[j];
-
-                if (instrumentOf (juce::String (other.id)) == instrument || (pad.group >= 0 && other.group == pad.group))
-                    set.push_back (static_cast<std::uint16_t> (j));
-            }
-
-            chokeSets.push_back (std::move (set));
-        }
+        chokeSets = hvd::chokeSetsOf (*kit);
 
         for (std::size_t i = 0; i < kit->pads.size(); ++i)
         {

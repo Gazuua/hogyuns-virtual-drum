@@ -5,42 +5,13 @@
 #include <numeric>
 
 #include "Ui.h"
+#include "core/PadKinds.h"
+#include "core/StandardPads.h"
 
 namespace
 {
 
 using Point = juce::Point<float>;
-
-struct Placement
-{
-    const char* id;
-    float x, y, size;
-};
-
-// 드러머 자리에서 내려다본 배치: 왼쪽에 하이햇, 가운데 아래에 스네어와 킥, 위에 탐과 크래시, 오른쪽에 라이드와 플로어 탐.
-constexpr Placement placements[] = {
-    { "kick", 0.50f, 0.62f, 0.34f },
-    { "snare", 0.305f, 0.70f, 0.27f },
-    { "snare_rim", 0.215f, 0.90f, 0.12f },
-    { "sidestick", 0.375f, 0.925f, 0.12f },
-    { "hihat_closed", 0.125f, 0.56f, 0.27f },
-    { "hihat_half", 0.045f, 0.36f, 0.12f },
-    { "hihat_open", 0.135f, 0.32f, 0.12f },
-    { "hihat_pedal", 0.06f, 0.83f, 0.13f },
-    { "tom_high", 0.405f, 0.31f, 0.22f },
-    { "tom_mid", 0.575f, 0.30f, 0.24f },
-    { "tom_floor", 0.70f, 0.65f, 0.26f },
-    { "tom_low", 0.86f, 0.71f, 0.26f },
-    { "crash1", 0.25f, 0.20f, 0.31f },
-    { "crash2", 0.735f, 0.19f, 0.31f },
-    { "china", 0.94f, 0.20f, 0.20f },
-    { "ride", 0.855f, 0.40f, 0.32f },
-    { "ride_bell", 0.855f, 0.395f, 0.10f },
-    { "ride_edge", 0.965f, 0.565f, 0.11f },
-    { "crash_bright", 0.40f, 0.085f, 0.13f },
-    { "crash_trash", 0.49f, 0.075f, 0.13f },
-    { "crash_stack", 0.58f, 0.085f, 0.13f },
-};
 
 constexpr float hitAspect = 0.8f;    // 클릭을 받는 타원의 세로 반지름 / 가로 반지름
 constexpr float keyCapHeight = 18.0f;    // 키 캡의 높이. 모든 자리에서 같다 (글자 약 12px)
@@ -74,49 +45,44 @@ KitView::KitView()
 
 KitView::Kind KitView::kindOf (const juce::String& padId)
 {
+    // 악기는 코어의 규칙(instrumentOfPad)으로 고르고, 모양은 정확한 id로 가른다: 스네어·하이햇·라이드의 딸린 패드
+    // (snare_rim, hihat_open, ride_edge …)는 작은 패드로, 하이햇 페달은 발판으로, 라이드 벨은 벨로 그린다.
     const auto id = padId.toLowerCase();
 
-    if (id.startsWith ("kick") || id.startsWith ("bass"))
-        return Kind::kick;
+    switch (hvd::instrumentOfPad (id.toStdString()))
+    {
+        case hvd::Instrument::kick:     return Kind::kick;
+        case hvd::Instrument::snare:    return id == "snare" ? Kind::snare : Kind::zone;
+        case hvd::Instrument::tom:      return id.contains ("floor") || id.contains ("low") ? Kind::floorTom : Kind::tom;
+        case hvd::Instrument::crash:    return Kind::crash;
+        case hvd::Instrument::china:    return Kind::china;
 
-    if (id == "snare")
-        return Kind::snare;
+        case hvd::Instrument::hihat:
+            if (id == "hihat" || id == "hihat_closed" || id == "hat")
+                return Kind::hihat;
 
-    if (id.startsWith ("tom"))
-        return id.contains ("floor") || id.contains ("low") ? Kind::floorTom : Kind::tom;
+            return id.contains ("pedal") ? Kind::pedal : Kind::zone;
 
-    if (id == "hihat" || id == "hihat_closed" || id == "hat")
-        return Kind::hihat;
+        case hvd::Instrument::ride:
+            if (id == "ride")
+                return Kind::ride;
 
-    if (id.startsWith ("hihat") && id.contains ("pedal"))
-        return Kind::pedal;
+            return id.contains ("bell") ? Kind::bell : Kind::zone;
 
-    if (id == "ride")
-        return Kind::ride;
-
-    if (id.startsWith ("ride") && id.contains ("bell"))
-        return Kind::bell;
-
-    if (id.startsWith ("china"))
-        return Kind::china;
-
-    if (id.startsWith ("crash") || id.startsWith ("splash") || id.startsWith ("cymbal"))
-        return Kind::crash;
+        case hvd::Instrument::other:    break;
+    }
 
     return Kind::zone;
 }
 
 void KitView::defaultPlacement (const juce::String& padId, int index, float& x, float& y, float& size)
 {
-    for (const auto& placement : placements)
+    if (const auto* standard = hvd::findStandardPad (padId.toStdString()))
     {
-        if (padId == placement.id)
-        {
-            x = placement.x;
-            y = placement.y;
-            size = placement.size;
-            return;
-        }
+        x = standard->x;
+        y = standard->y;
+        size = standard->size;
+        return;
     }
 
     // 모르는 패드는 아래쪽에 작게 늘어놓는다. 배치 편집에서 원하는 곳으로 옮기면 된다.
@@ -234,20 +200,6 @@ std::vector<KitView::HitArea> KitView::getHitAreas() const
 
 void KitView::setActingPads (const std::vector<int>& pads)
 {
-    // 하이햇이 열린 정도: 패드 id로 짐작한다.
-    const auto opennessOf = [] (const juce::String& padId)
-    {
-        const auto id = padId.toLowerCase();
-
-        if (! id.startsWith ("hihat") && ! id.startsWith ("hat"))
-            return 0.0f;
-
-        if (id.contains ("half"))
-            return 0.45f;
-
-        return id.contains ("open") ? 1.0f : 0.0f;
-    };
-
     auto changed = false;
 
     for (std::size_t i = 0; i < items.size() && i < pads.size(); ++i)
@@ -261,7 +213,9 @@ void KitView::setActingPads (const std::vector<int>& pads)
         changed = true;
 
         const auto shown = itemOfPad (wanted);
-        motions[i].targetOpenness = kinds[i] == Kind::hihat && shown >= 0 ? opennessOf (items[static_cast<std::size_t> (shown)].id) : 0.0f;
+        // 하이햇이 열린 정도는 패드 id로 짐작한다.
+        motions[i].targetOpenness = kinds[i] == Kind::hihat && shown >= 0
+                                        ? hvd::hihatOpenness (items[static_cast<std::size_t> (shown)].id.toStdString()) : 0.0f;
     }
 
     // 하이햇의 모양은 fade()가 열림을 따라가며 다시 그린다. 여기서는 바뀐 이름만.

@@ -1,5 +1,7 @@
 #include "Theme.h"
 
+#include "core/PadKinds.h"
+
 namespace ui
 {
 
@@ -269,20 +271,28 @@ juce::String themeDisplayName (const juce::String& id)
     return "Graphite";
 }
 
-juce::Colour padColour (const juce::String& padId)
+juce::Colour instrumentColour (hvd::Instrument instrument)
 {
-    const auto id = padId.toLowerCase();
     const auto& t = theme();
 
-    if (id.startsWith ("kick") || id.startsWith ("bass"))                  return t.kick;
-    if (id.startsWith ("snare") || id.startsWith ("sidestick"))            return t.snare;
-    if (id.startsWith ("hihat") || id.startsWith ("hat"))                  return t.hihat;
-    if (id.startsWith ("tom"))                                             return t.tom;
-    if (id.startsWith ("ride"))                                            return t.ride;
-    if (id.startsWith ("crash") || id.startsWith ("china")
-        || id.startsWith ("splash") || id.startsWith ("cymbal"))           return t.cymbal;
+    switch (instrument)
+    {
+        case hvd::Instrument::kick:     return t.kick;
+        case hvd::Instrument::snare:    return t.snare;
+        case hvd::Instrument::hihat:    return t.hihat;
+        case hvd::Instrument::tom:      return t.tom;
+        case hvd::Instrument::ride:     return t.ride;
+        case hvd::Instrument::crash:
+        case hvd::Instrument::china:    return t.cymbal;
+        case hvd::Instrument::other:    break;
+    }
 
     return t.otherPad;
+}
+
+juce::Colour padColour (const juce::String& padId)
+{
+    return instrumentColour (hvd::instrumentOfPad (padId.toStdString()));
 }
 
 } // namespace ui

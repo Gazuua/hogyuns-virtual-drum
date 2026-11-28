@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "core/PadKinds.h"
+
 namespace
 {
 
@@ -11,7 +13,7 @@ constexpr int groupCaptionHeight = 20;   // 무리 이름 줄
 constexpr int masterWidth = 320;
 constexpr int captionWidth = 76;         // 오른쪽 칸의 항목 이름 폭
 
-/** 패드 줄을 묶는 악기 무리. 색(ui::padColour)과 같은 규칙으로 고른다. */
+/** 패드 줄을 묶는 악기 무리. 색과 같은 규칙(hvd::instrumentOfPad)으로 고른다. */
 enum Group
 {
     kickGroup,
@@ -26,15 +28,14 @@ const char* const groupNames[] = { "킥", "스네어", "하이햇", "탐", "심�
 
 int groupOf (const juce::String& padId)
 {
-    const auto id = padId.toLowerCase();
-
-    if (id.startsWith ("kick") || id.startsWith ("bass"))          return kickGroup;
-    if (id.startsWith ("snare") || id.startsWith ("sidestick"))    return snareGroup;
-    if (id.startsWith ("hihat") || id.startsWith ("hat"))          return hihatGroup;
-    if (id.startsWith ("tom"))                                     return tomGroup;
-    if (ui::isCymbalPad (id))                                      return cymbalGroup;
-
-    return otherGroup;
+    switch (const auto instrument = hvd::instrumentOfPad (padId.toStdString()))
+    {
+        case hvd::Instrument::kick:     return kickGroup;
+        case hvd::Instrument::snare:    return snareGroup;
+        case hvd::Instrument::hihat:    return hihatGroup;
+        case hvd::Instrument::tom:      return tomGroup;
+        default:                        return hvd::isCymbal (instrument) ? cymbalGroup : otherGroup;
+    }
 }
 
 /** 패드 이름 버튼: 누르면 그 패드를 들어 본다. 오른쪽 위의 작은 ▶가 그것을 알린다. */

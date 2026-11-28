@@ -1,5 +1,7 @@
 #include "GamePage.h"
 
+#include "core/PadKinds.h"
+
 namespace
 {
 
@@ -36,7 +38,9 @@ constexpr hvd::Lane kitOrder[] = { hvd::Lane::crash, hvd::Lane::hihat, hvd::Lane
                                    hvd::Lane::tomMid, hvd::Lane::tomFloor, hvd::Lane::ride };
 
 const char* const laneTitles[hvd::numLanes] = { "크래시", "하이햇", "스네어", "하이 탐", "미드 탐", "플로어 탐", "라이드", "킥" };
-const char* const laneColourIds[hvd::numLanes] = { "crash", "hihat", "snare", "tom", "tom", "tom", "ride", "kick" };
+constexpr hvd::Instrument laneInstruments[hvd::numLanes] = { hvd::Instrument::crash, hvd::Instrument::hihat, hvd::Instrument::snare,
+                                                             hvd::Instrument::tom, hvd::Instrument::tom, hvd::Instrument::tom,
+                                                             hvd::Instrument::ride, hvd::Instrument::kick };
 
 // 옆 칸의 항목 이름 폭
 constexpr int sideCaptionWidth = 70;
@@ -474,7 +478,7 @@ void GamePage::updateLanes()
         auto& info = infos[static_cast<std::size_t> (lane)];
         info.lane = static_cast<hvd::Lane> (lane);
         info.name = ko (laneTitles[lane]);
-        info.colour = ui::padColour (laneColourIds[lane]);
+        info.colour = ui::instrumentColour (laneInstruments[lane]);
         rowRanks[static_cast<std::size_t> (lane)] = 9;
     }
 

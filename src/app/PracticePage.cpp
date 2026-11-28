@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "core/PadKinds.h"
+
 namespace
 {
 
@@ -20,11 +22,12 @@ juce::Colour zeroLine()      { return ui::theme().textFaint; }
 struct GroupInfo
 {
     const char* name;
-    const char* padId;    // 색을 고를 때 쓴다
+    hvd::Instrument instrument;    // 색을 고를 때 쓴다
 };
 
-const GroupInfo groupInfos[hvd::numPracticeGroups] = {
-    { "킥", "kick" }, { "스네어", "snare" }, { "하이햇", "hihat" }, { "라이드", "ride" }, { "크래시", "crash" }, { "탐", "tom" },
+constexpr GroupInfo groupInfos[hvd::numPracticeGroups] = {
+    { "킥", hvd::Instrument::kick }, { "스네어", hvd::Instrument::snare }, { "하이햇", hvd::Instrument::hihat },
+    { "라이드", hvd::Instrument::ride }, { "크래시", hvd::Instrument::crash }, { "탐", hvd::Instrument::tom },
 };
 
 // 악기별 줄에서 이름, 타격 수, 수치가 차지하는 너비. 나머지가 띠를 그리는 자리다.
@@ -84,7 +87,7 @@ void TimingRows::paint (juce::Graphics& g)
 
         // 악기 이름: 색 점은 어느 악기인지 알려 주는 표시이고, 글자는 글자 색 그대로다.
         auto nameArea = row.removeFromLeft (nameWidth);
-        g.setColour (ui::padColour (groupInfos[group].padId));
+        g.setColour (ui::instrumentColour (groupInfos[group].instrument));
         g.fillRoundedRectangle (nameArea.removeFromLeft (10).withSizeKeepingCentre (8, 8).toFloat(), 2.0f);
         nameArea.removeFromLeft (8);
         g.setColour (ui::theme().text);

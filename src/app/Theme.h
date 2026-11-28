@@ -2,6 +2,10 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cstdint>
+
+namespace hvd { enum class Instrument : std::uint8_t; }    // core/PadKinds.h
+
 /** 화면 디자인의 기준값(테마 토큰): 색, 모서리, 간격, 글자 크기.
     화면과 그림은 색을 직접 적지 않고 ui::theme()에서 읽는다. 테마는 프로그램을 켤 때 한 번 고른다. */
 namespace ui
@@ -50,7 +54,7 @@ struct Theme
     juce::Colour info;              // 진행한 부분, 자료 점
 
     //==============================================================================
-    // 악기 색 (padColour가 고른다)
+    // 악기 색 (instrumentColour가 고른다)
     juce::Colour kick, snare, hihat, tom, ride, cymbal, otherPad;
 
     //==============================================================================
@@ -143,7 +147,10 @@ enum class Text
     warning     // 경고
 };
 
-/** 패드 id로 악기 종류를 짐작해 색을 고른다. */
+/** 악기의 색. 크래시와 차이나는 함께 심벌 색이다. */
+juce::Colour instrumentColour (hvd::Instrument instrument);
+
+/** 패드 id로 악기를 짐작해(hvd::instrumentOfPad) 그 색을 고른다. */
 juce::Colour padColour (const juce::String& padId);
 
 } // namespace ui
