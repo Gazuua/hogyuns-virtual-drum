@@ -62,6 +62,11 @@ public:
     /** start ~ end 구간을 되풀이한다. enabled가 false이면 끝까지 재생하고 멈춘다. */
     void setLoop (double startSeconds, double endSeconds, bool enabled) noexcept;
 
+    /** 반복 구간. 꺼져 있어도 마지막에 정한 구간은 남는다. */
+    double getLoopStart() const noexcept          { return loopStart.load (std::memory_order_relaxed); }
+    double getLoopEnd() const noexcept            { return loopEnd.load (std::memory_order_relaxed); }
+    bool isLoopEnabled() const noexcept           { return loopEnabled.load (std::memory_order_relaxed); }
+
     double getPosition() const noexcept           { return position.load (std::memory_order_relaxed); }
 
     /** 마지막 render()가 내보낸 첫 샘플의 곡 안 위치(초). getPosition()과 달리 샘플 단위로 정확하고,

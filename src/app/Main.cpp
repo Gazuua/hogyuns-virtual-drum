@@ -11,6 +11,7 @@
 #include "SampleCache.h"
 #include "SfzImport.h"
 #include "Text.h"
+#include "TrackControls.h"
 
 #include "../../tests/CoreTests.h"
 
@@ -1189,12 +1190,13 @@ public:
         // --screenshot <PNG 파일> [--page play|kit|keys|mixer|track|game|gameplay] [--after <ms>] [--press <키,키>]: 화면을 그려 PNG로 저장하고 끝낸다.
         // gameplay는 리듬 게임의 연습 패턴을 시범 연주로 돌리는 모습이다. --after로 찍을 때까지 기다릴 시간을 정한다.
         // --press는 찍기 전에 누를 키 이름이다(예: Pedal1). 주지 않으면 Space, J, D를 누른다.
-        // --footswitch는 풋스위치가 꽂혀 있는 것으로 친다.
+        // --footswitch는 풋스위치가 꽂혀 있는 것으로 친다. --track <음악>은 그 곡을 반주로 열어 3분의 1쯤에 둔다.
         if (const auto index = args.indexOf ("--screenshot"); index >= 0)
         {
             const auto pageIndex = args.indexOf ("--page");
             const auto afterIndex = args.indexOf ("--after");
             const auto pressIndex = args.indexOf ("--press");
+            const auto trackIndex = args.indexOf ("--track");
             const auto pageName = pageIndex >= 0 ? args[pageIndex + 1] : juce::String ("play");
             const auto demo = pageName == "gameplay";
 
@@ -1207,7 +1209,7 @@ public:
 
             saveScreenshot (args[index + 1], demo ? MainComponent::pageIndexFromName ("game") : MainComponent::pageIndexFromName (pageName),
                             demo, afterIndex >= 0 ? args[afterIndex + 1].getIntValue() : (demo ? 6500 : 360), pressKeys,
-                            args.contains ("--footswitch"));
+                            args.contains ("--footswitch"), trackIndex >= 0 ? resolvePath (args[trackIndex + 1]) : juce::File());
             return;
         }
 
@@ -1528,7 +1530,16 @@ private:
                          << juce::String (juce::Decibels::gainToDecibels (peak), 1) << " dB\n";
             test->expect (position > 0.15 && position < 0.50, "track advanced at half speed");
             test->expect (peak > 0.05f, "track reached the output stage");
+
+            // 반주 화면과 연주 화면의 반주 줄이 함께 쓰는 동작. 반복 구간은 재생기의 값 하나만 본다.
+            test->expect (transport::hasTrack (s) && transport::playText (s) == ko ("정지"), "the track strip sees a playing track");
+            s.getTrack().setLoop (1.0, 2.0, true);
+            test->expect (s.getTrack().isLoopEnabled() && s.getTrack().getLoopStart() == 1.0 && s.getTrack().getLoopEnd() == 2.0,
+                          "the player keeps the loop for every screen");
+            transport::togglePlay (s);
+            test->expect (! s.getTrack().isPlaying() && transport::playText (s) == ko ("재생"), "the strip stops the track");
             s.unloadTrack();
+            test->expect (! transport::hasTrack (s), "the strip sees the track closed");
 
             // 8. 연주 기록을 MIDI로 내보내고 다시 읽은 뒤, 엔진으로 다시 친다.
             test->report << "\n[midi and replay]\n";
@@ -1865,7 +1876,8 @@ private:
         juce::PopupMenu::dismissAllActiveMenus();
     }
 
-    void saveScreenshot (const juce::String& path, int page, bool gameDemo, int afterMs, std::vector<hvd::KeyCode> pressKeys, bool footswitch)
+    void saveScreenshot (const juce::String& path, int page, bool gameDemo, int afterMs, std::vector<hvd::KeyCode> pressKeys, bool footswitch,
+                         const juce::File& trackFile)
     {
         // 연습 기록 화면은 사용자의 연주 로그를 읽어서 그린다. 읽기만 하고, 이 실행에서는 로그를 남기지 않는다.
         auto options = headlessOptions();
@@ -1878,6 +1890,9 @@ private:
 
         if (footswitch)
             headless->getSession().pretendFootswitchConnected();
+
+        if (trackFile.existsAsFile())
+            headless->getSession().loadTrack (trackFile);
 
         juce::Timer::callAfterDelay (250, [this, gameDemo, pressKeys = std::move (pressKeys)]
         {
@@ -1892,6 +1907,10 @@ private:
 
             // 패드가 켜진 모습도 보이도록 키 몇 개를 누른 뒤에 찍는다. 기본은 Space, J, D.
             auto& session = headless->getSession();
+
+            // 반주는 재생기가 곡을 받은 뒤에 옮긴다.
+            if (session.getTrack().getLength() > 0.0)
+                session.getTrack().seek (session.getTrack().getLength() / 3.0);
 
             for (const auto key : pressKeys.empty() ? std::vector<hvd::KeyCode> { 0x39, 0x24, 0x20 } : pressKeys)
                 session.handleKey (key, true);

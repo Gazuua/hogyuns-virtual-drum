@@ -8,68 +8,6 @@ constexpr float timingRangeMs = 60.0f;
 } // namespace
 
 //==============================================================================
-TrackBar::TrackBar()
-{
-    setWantsKeyboardFocus (false);
-    setMouseClickGrabsKeyboardFocus (false);
-    setMouseCursor (juce::MouseCursor::PointingHandCursor);
-}
-
-void TrackBar::setState (double positionSeconds, double lengthSeconds, double loopStartSeconds, double loopEndSeconds, bool loopOn)
-{
-    if (positionSeconds == position && lengthSeconds == length && loopStartSeconds == loopStart
-        && loopEndSeconds == loopEnd && loopOn == loopEnabled)
-        return;
-
-    position = positionSeconds;
-    length = lengthSeconds;
-    loopStart = loopStartSeconds;
-    loopEnd = loopEndSeconds;
-    loopEnabled = loopOn;
-    repaint();
-}
-
-void TrackBar::paint (juce::Graphics& g)
-{
-    const auto& t = ui::theme();
-    const auto bounds = getLocalBounds().toFloat();
-    const auto radius = juce::jmin (6.0f, t.controlRadius);
-    g.setColour (t.surfaceSunken);
-    g.fillRoundedRectangle (bounds, radius);
-
-    if (length <= 0.0)
-        return;
-
-    const auto toX = [&bounds, this] (double seconds)
-    {
-        return bounds.getX() + bounds.getWidth() * static_cast<float> (juce::jlimit (0.0, 1.0, seconds / length));
-    };
-
-    // 반복 구간
-    if (loopEnd > loopStart)
-    {
-        g.setColour (t.accent.withAlpha (loopEnabled ? 0.35f : 0.15f));
-        g.fillRect (juce::Rectangle<float> (toX (loopStart), bounds.getY(), toX (loopEnd) - toX (loopStart), bounds.getHeight()));
-    }
-
-    // 지나온 부분과 지금 위치
-    const auto x = toX (position);
-    g.setColour (t.info.withAlpha (0.35f));
-    g.fillRoundedRectangle (bounds.withRight (x), radius);
-    g.setColour (t.text);
-    g.fillRect (x - 1.0f, bounds.getY(), 2.0f, bounds.getHeight());
-}
-
-void TrackBar::seekTo (const juce::MouseEvent& event)
-{
-    if (length > 0.0 && getWidth() > 0 && onSeek)
-        onSeek (length * juce::jlimit (0.0, 1.0, static_cast<double> (event.position.x) / getWidth()));
-}
-
-void TrackBar::mouseDown (const juce::MouseEvent& event)    { seekTo (event); }
-void TrackBar::mouseDrag (const juce::MouseEvent& event)    { seekTo (event); }
-
-//==============================================================================
 void TimingView::setTiming (const hvd::MetronomeTiming& newTiming)
 {
     if (newTiming.count == shownCount)
@@ -133,10 +71,10 @@ TrackPage::TrackPage (Session& sessionToUse)
     ui::setupLabel (*this, dropLabel, ko ("음악 파일을 끌어 놓기"), ui::Text::hint);
     dropLabel.setJustificationType (juce::Justification::centred);
 
-    ui::setupButton (*this, openButton, ko ("열기"), [this] { openTrack(); });
+    ui::setupButton (*this, openButton, ko ("열기"), [this] { transport::chooseAndLoad (session, chooser, [this] { refresh(); }); });
     openButton.setTooltip (ko ("반주로 쓸 음악 파일 열기"));
-    ui::setupButton (*this, playButton, {}, [this] { session.getTrack().setPlaying (! session.getTrack().isPlaying()); refresh(); });
-    ui::setupButton (*this, rewindButton, ko ("처음으로"), [this] { session.getTrack().seek (loopToggle.getToggleState() ? loopStart : 0.0); });
+    ui::setupButton (*this, playButton, {}, [this] { transport::togglePlay (session); refresh(); });
+    ui::setupButton (*this, rewindButton, ko ("처음으로"), [this] { transport::rewind (session); });
     ui::setupButton (*this, unloadButton, ko ("닫기"), [this] { session.unloadTrack(); });
 
     bar.onSeek = [this] (double seconds) { session.getTrack().seek (seconds); };
@@ -152,30 +90,28 @@ TrackPage::TrackPage (Session& sessionToUse)
     speedSlider.setTooltip (ko ("음높이는 그대로"));
     speedSlider.onValueChange = [this] { session.getTrack().setSpeed (static_cast<float> (speedSlider.getValue() / 100.0)); };
 
+    // 반복 구간은 재생기가 가진 값 하나만 쓴다 (연주 화면의 반주 줄, 게임 시작이 함께 본다).
     ui::setupButton (*this, loopStartButton, ko ("구간 시작"), [this]
     {
-        loopStart = session.getTrack().getPosition();
-
-        if (loopEnd <= loopStart)
-            loopEnd = session.getTrack().getLength();
-
-        applyLoop();
+        const auto& track = session.getTrack();
+        const auto start = track.getPosition();
+        setLoop (start, track.getLoopEnd() > start ? track.getLoopEnd() : track.getLength(), track.isLoopEnabled());
     });
 
     ui::setupButton (*this, loopEndButton, ko ("구간 끝"), [this]
     {
-        loopEnd = session.getTrack().getPosition();
-
-        if (loopEnd <= loopStart)
-            loopStart = 0.0;
-
-        loopToggle.setToggleState (true, juce::dontSendNotification);
-        applyLoop();
+        const auto& track = session.getTrack();
+        const auto end = track.getPosition();
+        setLoop (end > track.getLoopStart() ? track.getLoopStart() : 0.0, end, true);
     });
 
     loopStartButton.setTooltip (ko ("지금 위치를 반복 구간의 시작으로"));
     loopEndButton.setTooltip (ko ("지금 위치를 반복 구간의 끝으로"));
-    ui::setupToggle (*this, loopToggle, ko ("구간 반복"), [this] { applyLoop(); });
+    ui::setupToggle (*this, loopToggle, ko ("구간 반복"), [this]
+    {
+        const auto& track = session.getTrack();
+        setLoop (track.getLoopStart(), track.getLoopEnd(), loopToggle.getToggleState());
+    });
     ui::setupLabel (*this, loopLabel, {}, ui::Text::caption);
 
     // 녹음
@@ -381,7 +317,7 @@ void TrackPage::resized()
 void TrackPage::refresh()
 {
     auto& track = session.getTrack();
-    const auto nowHasTrack = session.getTrackFile() != juce::File() && track.getLength() > 0.0;
+    const auto nowHasTrack = transport::hasTrack (session);
 
     // 곡이 없으면 반주 칸에는 끌어 놓는 자리와 [열기]만 둔다.
     for (auto* component : std::initializer_list<juce::Component*> { &trackName, &timeLabel, &playButton, &rewindButton, &unloadButton, &bar,
@@ -398,7 +334,8 @@ void TrackPage::refresh()
     }
 
     trackName.setText (session.getTrackFile().getFileName(), juce::dontSendNotification);
-    playButton.setButtonText (track.isPlaying() ? ko ("정지") : ko ("재생"));
+    playButton.setButtonText (transport::playText (session));
+    updateLoop();
 
     if (! gainSlider.isMouseButtonDown())
         gainSlider.setValue (track.getGain(), juce::dontSendNotification);
@@ -419,44 +356,20 @@ void TrackPage::refresh()
     takeExportButton.setEnabled (session.hasTake());
 }
 
-void TrackPage::applyLoop()
+void TrackPage::setLoop (double start, double end, bool enabled)
 {
-    session.getTrack().setLoop (loopStart, loopEnd, loopToggle.getToggleState() && loopEnd > loopStart);
+    session.getTrack().setLoop (start, end, enabled);
+    updateLoop();
 }
 
-void TrackPage::openTrack()
+void TrackPage::updateLoop()
 {
-    const juce::File startFolder (session.getSetting ("trackFolder",
-                                                      juce::File::getSpecialLocation (juce::File::userMusicDirectory).getFullPathName())
-                                      .toString());
-
-    ui::chooseFile (chooser, ko ("반주로 쓸 음악 파일 고르기"), startFolder, ui::audioFilePatterns(),
-                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                    [this] (const juce::File& file) { loadTrack (file); });
-}
-
-void TrackPage::loadTrack (const juce::File& file)
-{
-    session.setSetting ("trackFolder", file.getParentDirectory().getFullPathName());
-
-    // 곡을 통째로 읽으므로 잠깐 걸린다.
-    juce::String error;
-
-    {
-        const ui::WaitCursor wait;
-        error = session.loadTrack (file);
-    }
-
-    if (error.isNotEmpty())
-    {
-        ui::showMessage (ko ("음악을 열지 못했습니다"), error);
-        return;
-    }
-
-    loopStart = 0.0;
-    loopEnd = 0.0;
-    loopToggle.setToggleState (false, juce::dontSendNotification);
-    refresh();
+    const auto& track = session.getTrack();
+    const auto hasRange = track.getLoopEnd() > track.getLoopStart();
+    loopToggle.setEnabled (hasRange);
+    loopToggle.setToggleState (track.isLoopEnabled(), juce::dontSendNotification);
+    loopLabel.setText (hasRange ? ui::formatTime (track.getLoopStart()) + "  ~  " + ui::formatTime (track.getLoopEnd()) : ko ("구간 없음"),
+                       juce::dontSendNotification);
 }
 
 bool TrackPage::isInterestedInFileDrag (const juce::StringArray& files)
@@ -481,8 +394,8 @@ void TrackPage::filesDropped (const juce::StringArray& files, int, int)
     dragOver = false;
     repaint();
 
-    if (isInterestedInFileDrag (files))
-        loadTrack (juce::File (files[0]));
+    if (isInterestedInFileDrag (files) && transport::load (session, juce::File (files[0])))
+        refresh();
 }
 
 void TrackPage::toggleRecording()
@@ -525,8 +438,12 @@ void TrackPage::importMidi()
 
 void TrackPage::tick()
 {
+    // 곡의 길이는 오디오 스레드가 곡을 받은 뒤에 정해진다. 열자마자 부른 refresh가 놓쳤으면 여기서 맞춘다.
+    if (transport::hasTrack (session) != hasTrack)
+        refresh();
+
     auto& track = session.getTrack();
-    bar.setState (track.getPosition(), track.getLength(), loopStart, loopEnd, loopToggle.getToggleState());
+    bar.update (track);
 
     if (++tickCount % 6 != 0)
         return;
@@ -535,14 +452,11 @@ void TrackPage::tick()
                                                : juce::String(),
                        juce::dontSendNotification);
 
-    // 곡이 끝나 저절로 멈췄을 때 버튼 글자를 맞춘다.
-    const auto playText = track.isPlaying() ? ko ("정지") : ko ("재생");
-
-    if (playButton.getButtonText() != playText)
+    // 곡이 끝나 저절로 멈췄을 때 버튼 글자를 맞춘다. 게임이 구간을 끌 수도 있다.
+    if (const auto playText = transport::playText (session); playButton.getButtonText() != playText)
         playButton.setButtonText (playText);
 
-    loopLabel.setText (loopEnd > loopStart ? ui::formatTime (loopStart) + "  ~  " + ui::formatTime (loopEnd) : ko ("구간 없음"),
-                       juce::dontSendNotification);
+    updateLoop();
 
     // 녹음: 파일 이름만 적고, 전체 경로는 툴팁으로
     auto& audio = session.getAudio();

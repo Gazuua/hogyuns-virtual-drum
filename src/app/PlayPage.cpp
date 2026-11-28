@@ -70,6 +70,7 @@ PlayPage::PlayPage (Session& sessionToUse)
 
     ui::setupLabel (*this, timingLabel, {}, ui::Text::hint);
     timingLabel.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (trackStrip);
 
     session.addChangeListener (this);
     setShowingSet (session.getSetting ("padView", "set").toString() != "tiles");
@@ -147,9 +148,17 @@ void PlayPage::resized()
     editTitle.setBounds (edit.removeFromLeft (ui::textWidth (editTitle) + editTitle.getBorderSize().getLeftAndRight() + ui::space::tight));
     editHint.setBounds (edit);
 
-    // 그림 아래 줄: 오른쪽에 박자. 그림의 크기가 바뀌지 않도록 줄의 높이는 그대로 둔다.
-    auto bottom = area.removeFromBottom (48);
-    timingLabel.setBounds (bottom.removeFromTop (ui::space::control));
+    // 그림 아래 줄: 왼쪽에 반주, 오른쪽에 박자(메트로놈을 켰을 때만 자리를 차지한다).
+    // 그림의 크기가 바뀌지 않도록 줄의 높이는 그대로 둔다.
+    auto bottom = area.removeFromBottom (48).removeFromTop (ui::space::control);
+
+    if (timingLabel.getText().isNotEmpty())
+    {
+        timingLabel.setBounds (bottom.removeFromRight (juce::jmin (300, bottom.getWidth() / 3)));
+        bottom.removeFromRight (ui::space::large);
+    }
+
+    trackStrip.setBounds (bottom);
 
     area.removeFromTop (ui::space::small);
     area.removeFromBottom (ui::space::small);
@@ -544,8 +553,14 @@ void PlayPage::updateTimingLabel()
     if (session.getEngine().isMetronomeOn() && timing.count > 0)
         text << ko ("박자: ") << ui::formatHitTiming (timing.lastMs) << ui::separator() << ko ("평균 오차 ") << ui::formatMs (timing.averageAbsMs);
 
-    if (text != timingLabel.getText())
-        timingLabel.setText (text, juce::dontSendNotification);
+    if (text == timingLabel.getText())
+        return;
+
+    const auto wasEmpty = timingLabel.getText().isEmpty();
+    timingLabel.setText (text, juce::dontSendNotification);
+
+    if (wasEmpty != text.isEmpty())
+        resized();
 }
 
 void PlayPage::pageShown()
@@ -622,6 +637,7 @@ void PlayPage::tick()
     // 둘 다 움직인 자리만 스스로 다시 그린다 (가려져 있으면 그리지 않는다).
     padGrid.fade();
     kitView.fade();
+    trackStrip.update();
 
     if (++tickCount % 6 == 0)
         updateTimingLabel();

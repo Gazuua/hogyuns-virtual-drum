@@ -6,6 +6,7 @@
 #include "KitView.h"
 #include "PadGrid.h"
 #include "Session.h"
+#include "TrackControls.h"
 #include "Ui.h"
 
 /** 연주 화면. 패드를 타일이나 드럼 세트 그림으로 보여 주고, 친 패드를 밝힌다. */
@@ -71,7 +72,9 @@ private:
     juce::Label editTitle, editHint;
     juce::TextButton resetButton, doneButton;
 
-    juce::Label timingLabel;    // 그림 아래 줄 오른쪽. 메트로놈을 켜면 박자를 보인다
+    // 그림 아래 줄: 왼쪽에 반주, 오른쪽에 박자(메트로놈을 켜면)
+    TrackStrip trackStrip { session };
+    juce::Label timingLabel;
 
     std::vector<std::uint32_t> seenHitCounts, seenChokeCounts;
     std::vector<int> actingPads;    // 그림의 자리마다 지금 치면 울리는 패드 (tick마다 다시 채운다)

@@ -1,31 +1,10 @@
 #pragma once
 
-#include <functional>
 #include <memory>
 
 #include "Session.h"
+#include "TrackControls.h"
 #include "Ui.h"
-
-/** 반주의 재생 위치와 반복 구간을 보여 주는 막대. 클릭하거나 끌면 그 위치로 옮긴다. */
-class TrackBar final : public juce::Component
-{
-public:
-    TrackBar();
-
-    void setState (double positionSeconds, double lengthSeconds, double loopStartSeconds, double loopEndSeconds, bool loopOn);
-
-    std::function<void (double seconds)> onSeek;
-
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-    void mouseDrag (const juce::MouseEvent&) override;
-
-private:
-    void seekTo (const juce::MouseEvent& event);
-
-    double position = 0.0, length = 0.0, loopStart = 0.0, loopEnd = 0.0;
-    bool loopEnabled = false;
-};
 
 /** 타격이 메트로놈의 16분음표 자리에서 얼마나 벗어났는지 점으로 보여 준다.
     가운데 띠가 "박에 맞음"(ui::timing::onBeatMs) 범위다. */
@@ -62,15 +41,13 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { refresh(); }
 
     void refresh();
-    void openTrack();
-    void loadTrack (const juce::File& file);
-    void applyLoop();
+    void setLoop (double start, double end, bool enabled);
+    void updateLoop();
     void toggleRecording();
     void exportMidi();
     void importMidi();
 
     Session& session;
-    double loopStart = 0.0, loopEnd = 0.0;
     int tickCount = 0;
     bool hasTrack = false;
     bool dragOver = false;    // 소리 파일을 끌고 들어와 있는 동안

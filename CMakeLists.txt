@@ -133,6 +133,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/SfzImport.cpp
     src/app/TakeRecorder.cpp
     src/app/Theme.cpp
+    src/app/TrackControls.cpp
     src/app/TrackPage.cpp
     # 코어 자동 테스트. `--coretests <보고서>` 옵션으로 돌린다.
     tests/CoreTests.cpp)
