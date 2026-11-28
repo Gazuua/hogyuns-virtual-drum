@@ -187,88 +187,6 @@ void NoticeBand::mouseUp (const juce::MouseEvent& event)
 }
 
 //==============================================================================
-TempoField::TempoField()
-{
-    setJustificationType (juce::Justification::centred);
-    setEditable (false, true, false);    // 두 번 누르면 숫자를 적는다
-    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
-    setTooltip (ko ("끌어서 바꾸기, 두 번 눌러 적기"));
-    setWantsKeyboardFocus (false);
-    setMouseClickGrabsKeyboardFocus (false);
-    setTempo (tempo);
-}
-
-void TempoField::setTempo (float beatsPerMinute)
-{
-    if (dragging || isBeingEdited())
-        return;
-
-    tempo = beatsPerMinute;
-    setText (juce::String (juce::roundToInt (tempo)) + " BPM", juce::dontSendNotification);
-}
-
-void TempoField::mouseDown (const juce::MouseEvent& event)
-{
-    dragging = false;
-    dragStartTempo = static_cast<float> (juce::roundToInt (tempo));
-    juce::Label::mouseDown (event);
-}
-
-void TempoField::mouseDrag (const juce::MouseEvent& event)
-{
-    // 위나 오른쪽으로 4px마다 1 BPM
-    const auto offset = event.getDistanceFromDragStartX() - event.getDistanceFromDragStartY();
-
-    if (! dragging && std::abs (offset) < 3)
-        return;
-
-    dragging = true;
-    const auto next = juce::jlimit (30.0f, 300.0f, dragStartTempo + static_cast<float> (offset / 4));
-
-    if (juce::roundToInt (next) != juce::roundToInt (tempo))
-    {
-        tempo = next;
-        setText (juce::String (juce::roundToInt (tempo)) + " BPM", juce::dontSendNotification);
-
-        if (onTempoChange)
-            onTempoChange (tempo);
-    }
-}
-
-void TempoField::mouseUp (const juce::MouseEvent& event)
-{
-    dragging = false;
-    juce::Label::mouseUp (event);
-}
-
-juce::TextEditor* TempoField::createEditorComponent()
-{
-    auto* textEditor = juce::Label::createEditorComponent();
-    textEditor->setInputRestrictions (3, "0123456789");
-    textEditor->setJustification (juce::Justification::centred);
-    return textEditor;
-}
-
-void TempoField::editorShown (juce::TextEditor* textEditor)
-{
-    textEditor->setText (juce::String (juce::roundToInt (tempo)), false);
-    textEditor->selectAll();
-}
-
-void TempoField::textWasEdited()
-{
-    if (const auto value = getText().getIntValue(); value > 0)
-    {
-        tempo = juce::jlimit (30.0f, 300.0f, static_cast<float> (value));
-
-        if (onTempoChange)
-            onTempoChange (tempo);
-    }
-
-    setText (juce::String (juce::roundToInt (tempo)) + " BPM", juce::dontSendNotification);
-}
-
-//==============================================================================
 MainComponent::MainComponent (const Options& options)
     : session (options)
 {
@@ -316,7 +234,7 @@ MainComponent::MainComponent (const Options& options)
         ui::setButtonKind (*button, ui::ButtonKind::quiet);
 
     ui::setTextStyle (tempoField, ui::Text::heading);
-    tempoField.onTempoChange = [this] (float tempo) { session.getEngine().setTempo (tempo); };
+    tempoField.onValueChange = [this] (int tempo) { session.getEngine().setTempo (static_cast<float> (tempo)); };
     addAndMakeVisible (tempoField);
 
     // 전체 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다. 두 번 누르면 기본값.
@@ -590,7 +508,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 void MainComponent::updateTempoControls()
 {
     auto& engine = session.getEngine();
-    tempoField.setTempo (engine.getTempo());
+    tempoField.setValue (juce::roundToInt (engine.getTempo()));
 
     const auto on = engine.isMetronomeOn();
     metronomeButton.setButtonText (on ? (beatFlashTicks > 0 ? ko ("메트로놈 ●") : ko ("메트로놈 ○")) : ko ("메트로놈"));

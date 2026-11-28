@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "NumberField.h"
 #include "Session.h"
 #include "TrackControls.h"
 #include "Ui.h"
@@ -42,6 +43,7 @@ private:
 
     void refresh();
     void setLoop (double start, double end, bool enabled);
+    void trainerSettingChanged (ui::NumberField& changed);
     void updateLoop();
     void toggleRecording();
     void exportMidi();
@@ -60,6 +62,11 @@ private:
     juce::ToggleButton loopToggle, trainToggle;    // 구간 반복, 속도 올리기
     juce::Slider gainSlider, speedSlider;
     TrackBar bar;
+
+    // 속도 올리기 설정: 시작, 끝, 올림 폭, 기준 (퍼센트)
+    std::array<juce::Label, 4> trainCaptions;
+    ui::NumberField trainStart { 50, 150, "%", 3.0f, true }, trainTarget { 50, 150, "%", 3.0f, true },
+                    trainStep { 1, 25, "%", 8.0f, true }, trainPass { 50, 100, "%", 4.0f, true };
 
     // 녹음
     juce::Label recordTitle, recordLabel;

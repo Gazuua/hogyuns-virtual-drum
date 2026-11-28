@@ -3258,23 +3258,49 @@ void testLayerSteps()
 
 void testSpeedTrainer()
 {
-    // 시작: 지금 속도가 느리면 거기서(5% 단위로), 100%면 70%에서
+    // 정한 시작 속도에서, 박에 맞음이 기준 이상인 바퀴마다 정한 폭만큼 끝 속도까지. 거의 치지 않은 바퀴는 셈하지 않는다
     hvd::SpeedTrainer trainer;
-    trainer.start (1.0f);
-    CHECK (isNear (trainer.speed, 0.7f));
-    trainer.start (0.82f);
-    CHECK (isNear (trainer.speed, 0.8f));
-
-    // 박에 맞음 80% 이상인 바퀴마다 5%씩. 거의 치지 않은 바퀴는 셈하지 않는다
-    trainer.start (0.9f);
+    trainer.startSpeed = 0.9f;
+    trainer.targetSpeed = 1.1f;
+    trainer.step = 0.1f;
+    trainer.passPercent = 75.0f;
+    trainer.start();
+    CHECK (isNear (trainer.speed, 0.9f));
     CHECK (! trainer.finishLap (3, 100.0f) && trainer.lapsAtSpeed == 0);
     CHECK (! trainer.finishLap (20, 70.0f) && isNear (trainer.speed, 0.9f) && isNear (trainer.lastPercent, 70.0f));
-    CHECK (trainer.finishLap (20, 85.0f) && isNear (trainer.speed, 0.95f) && trainer.lapsAtSpeed == 0);
-    CHECK (trainer.finishLap (20, 80.0f) && isNear (trainer.speed, 1.0f) && trainer.atTarget());
-    CHECK (! trainer.finishLap (20, 100.0f) && isNear (trainer.speed, 1.0f));
+    CHECK (trainer.finishLap (20, 75.0f) && isNear (trainer.speed, 1.0f) && trainer.lapsAtSpeed == 0);
+    CHECK (trainer.finishLap (20, 90.0f) && isNear (trainer.speed, 1.1f) && trainer.atTarget());
+    CHECK (! trainer.finishLap (20, 100.0f) && isNear (trainer.speed, 1.1f));
+
+    // 끝을 넘지 않는다: 남은 폭이 작으면 끝에서 멈춘다
+    trainer.startSpeed = 0.95f;
+    trainer.start();
+    CHECK (trainer.finishLap (20, 100.0f) && isNear (trainer.speed, 1.05f));
+    CHECK (trainer.finishLap (20, 100.0f) && isNear (trainer.speed, 1.1f));
+
+    // 켜 둔 동안 손으로 바꾸면 거기서 이어 간다
+    trainer.start();
+    trainer.noteSpeedChanged (0.6f);
+    CHECK (isNear (trainer.speed, 0.6f) && trainer.lapsAtSpeed == 0);
+    CHECK (trainer.finishLap (20, 100.0f) && isNear (trainer.speed, 0.7f));
+
+    // 설정은 한도 안으로: 속도 0.5 ~ 1.5, 폭 0.01 ~ 0.25, 기준 50 ~ 100, 끝은 시작보다 작지 않게
+    trainer.startSpeed = 0.2f;
+    trainer.targetSpeed = 3.0f;
+    trainer.step = 0.0f;
+    trainer.passPercent = 120.0f;
+    trainer.clampSettings();
+    CHECK (isNear (trainer.startSpeed, 0.5f) && isNear (trainer.targetSpeed, 1.5f) && isNear (trainer.step, 0.01f) && isNear (trainer.passPercent, 100.0f));
+    trainer.startSpeed = 1.2f;
+    trainer.targetSpeed = 0.8f;
+    trainer.clampSettings();
+    CHECK (isNear (trainer.targetSpeed, 1.2f));
 
     // 박자를 잴 수 없으면 두 바퀴마다
-    trainer.start (0.7f);
+    trainer.startSpeed = 0.7f;
+    trainer.targetSpeed = 1.0f;
+    trainer.step = 0.05f;
+    trainer.start();
     CHECK (! trainer.finishLap (20, -1.0f));
     CHECK (trainer.finishLap (20, -1.0f) && isNear (trainer.speed, 0.75f));
 }

@@ -16,11 +16,27 @@ class ChartLibrary;
 
 /** 반주의 반복 구간을 돌며 속도를 올린다 (규칙은 hvd::SpeedTrainer). 바퀴마다 사람이 친 타격의 박자를
     곡의 채보로 잰다 (연습 기록과 같은 analysePractice). Session이 갖고, 화면 스레드에서
-    타격마다 addHit()를, poll마다 update()를 부른다. */
+    타격마다 addHit()를, poll마다 update()를 부른다. 켜 둔 동안 속도를 손으로 바꾸면 거기서 이어 간다. */
 class LoopTrainer
 {
 public:
+    /** 사용자가 정하는 값 (퍼센트). settings.json의 "speedTrainer"에 적는다. */
+    struct Settings
+    {
+        int startPercent = 70;      // 켤 때의 속도
+        int targetPercent = 100;    // 여기까지 올린다
+        int stepPercent = 5;        // 한 번에 올리는 폭
+        int passPercent = 80;       // 한 바퀴의 박에 맞음이 이 이상이면 올린다
+
+        juce::var toVar() const;
+        static Settings fromVar (const juce::var& value);
+    };
+
     LoopTrainer (hvd::TrackPlayer& trackToDrive, const ChartLibrary& chartsToRead);
+
+    /** 켜 둔 동안 바꿔도 된다. 시작 속도는 다음에 켤 때부터. */
+    void setSettings (const Settings& newSettings);
+    Settings getSettings() const;
 
     /** 켠다. 반복 구간이 없으면 false. songFile은 지금 열린 곡이다 (채보를 찾는다). */
     bool start (const juce::File& songFile);

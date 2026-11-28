@@ -125,6 +125,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/MixerPage.cpp
     src/app/MouseRouter.cpp
     src/app/MusicFile.cpp
+    src/app/NumberField.cpp
     src/app/PadGrid.cpp
     src/app/PlayLog.cpp
     src/app/PlayPage.cpp

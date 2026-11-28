@@ -126,8 +126,26 @@ TrackPage::TrackPage (Session& sessionToUse)
 
         updateLoop();
     });
-    trainToggle.setTooltip (ko ("지금 속도(100%면 70%)부터, 한 바퀴의 박에 맞음이 80%를 넘을 때마다 5%씩"));
+    trainToggle.setTooltip (ko ("구간을 한 바퀴 돌 때마다 박자를 재어 속도를 올린다"));
     ui::setupLabel (*this, trainLabel, {}, ui::Text::caption);
+
+    // 속도 올리기 설정. 끌어서 바꾸고 두 번 눌러 적는다. 켜 둔 동안 바꿔도 되고, 시작은 다음에 켤 때부터.
+    const char* const captions[] = { "시작", "끝", "올림", "기준" };
+    const char* const tips[] = { "켤 때의 속도", "여기까지 올린다", "한 번에 올리는 폭", "한 바퀴의 박에 맞음이 이 이상이면 올린다" };
+    ui::NumberField* const fields[] = { &trainStart, &trainTarget, &trainStep, &trainPass };
+    const auto settings = session.getLoopTrainer().getSettings();
+    const int values[] = { settings.startPercent, settings.targetPercent, settings.stepPercent, settings.passPercent };
+
+    for (std::size_t i = 0; i < trainCaptions.size(); ++i)
+    {
+        ui::setupLabel (*this, trainCaptions[i], ko (captions[i]), ui::Text::caption);
+        trainCaptions[i].setTooltip (ko (tips[i]));
+        ui::setTextStyle (*fields[i], ui::Text::body);
+        fields[i]->setValue (values[i]);
+        fields[i]->setTooltip (ko (tips[i]) + ko (" (끌거나 두 번 눌러 적기)"));
+        fields[i]->onValueChange = [this, field = fields[i]] (int) { trainerSettingChanged (*field); };
+        addAndMakeVisible (*fields[i]);
+    }
 
     // 녹음
     ui::setupLabel (*this, recordTitle, ko ("녹음"), ui::Text::section);
@@ -226,7 +244,7 @@ void TrackPage::resized()
 
     //==============================================================================
     // 반주 (위쪽 전체 폭)
-    sections[0] = area.removeFromTop (196);
+    sections[0] = area.removeFromTop (236);
     auto track = sections[0].reduced (ui::space::large, ui::space::medium);
 
     auto row = track.removeFromTop (ui::space::control);
@@ -276,9 +294,23 @@ void TrackPage::resized()
         loopEndButton.setBounds (row.removeFromLeft (96));
         row.removeFromLeft (ui::space::medium);
         loopToggle.setBounds (row.removeFromLeft (110));
-        loopLabel.setBounds (row.removeFromLeft (150));
-        row.removeFromLeft (ui::space::large);
+        loopLabel.setBounds (row);
+
+        // 속도 올리기: [켜기] 시작 [70%] 끝 [100%] 올림 [5%] 기준 [80%]  지난 바퀴 결과
+        track.removeFromTop (ui::space::medium);
+        row = track.removeFromTop (ui::space::control);
         trainToggle.setBounds (row.removeFromLeft (120));
+        row.removeFromLeft (ui::space::small);
+
+        ui::NumberField* const fields[] = { &trainStart, &trainTarget, &trainStep, &trainPass };
+
+        for (std::size_t i = 0; i < trainCaptions.size(); ++i)
+        {
+            trainCaptions[i].setBounds (row.removeFromLeft (ui::textWidth (trainCaptions[i]) + trainCaptions[i].getBorderSize().getLeftAndRight()));
+            fields[i]->setBounds (row.removeFromLeft (60));
+            row.removeFromLeft (ui::space::large);
+        }
+
         trainLabel.setBounds (row);
     }
 
@@ -340,7 +372,9 @@ void TrackPage::refresh()
     // 곡이 없으면 반주 칸에는 끌어 놓는 자리와 [열기]만 둔다.
     for (auto* component : std::initializer_list<juce::Component*> { &trackName, &timeLabel, &playButton, &rewindButton, &unloadButton, &bar,
                                                                       &gainCaption, &gainSlider, &speedCaption, &speedSlider,
-                                                                      &loopStartButton, &loopEndButton, &loopToggle, &loopLabel, &trainToggle, &trainLabel })
+                                                                      &loopStartButton, &loopEndButton, &loopToggle, &loopLabel, &trainToggle, &trainLabel,
+                                                                      &trainCaptions[0], &trainCaptions[1], &trainCaptions[2], &trainCaptions[3],
+                                                                      &trainStart, &trainTarget, &trainStep, &trainPass })
         component->setVisible (nowHasTrack);
 
     dropLabel.setVisible (! nowHasTrack);
@@ -377,6 +411,23 @@ void TrackPage::refresh()
 void TrackPage::setLoop (double start, double end, bool enabled)
 {
     session.getTrack().setLoop (start, end, enabled);
+    updateLoop();
+}
+
+void TrackPage::trainerSettingChanged (ui::NumberField& changed)
+{
+    // 끝은 시작보다 작지 않게: 바꾼 쪽에 맞춰 다른 쪽을 민다.
+    if (trainTarget.getValue() < trainStart.getValue())
+        (&changed == &trainStart ? trainTarget : trainStart).setValue (changed.getValue());
+
+    LoopTrainer::Settings settings;
+    settings.startPercent = trainStart.getValue();
+    settings.targetPercent = trainTarget.getValue();
+    settings.stepPercent = trainStep.getValue();
+    settings.passPercent = trainPass.getValue();
+
+    session.getLoopTrainer().setSettings (settings);
+    session.markSettingEdited ("speedTrainer", settings.toVar());    // 마우스를 놓은 뒤에 저장한다
     updateLoop();
 }
 

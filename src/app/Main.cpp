@@ -1606,10 +1606,19 @@ private:
             test->expect (s.getTrack().isLoopEnabled() && s.getTrack().getLoopStart() == 1.0 && s.getTrack().getLoopEnd() == 2.0,
                           "the player keeps the loop for every screen");
 
-            // 속도 올리기: 지금 속도(0.5)에서 시작하고, 이 사인파에는 채보가 없어 박자를 잴 수 없다. 구간을 끄면 그만둔다.
+            // 속도 올리기: 정한 시작 속도에서 시작하고, 이 사인파에는 채보가 없어 박자를 잴 수 없다.
+            // 켜 둔 동안 손으로 바꾼 속도는 이어 받고, 구간을 끄면 그만둔다.
             auto& trainer = s.getLoopTrainer();
-            test->expect (trainer.start (s.getTrackFile()) && trainer.isOn() && std::abs (s.getTrack().getSpeed() - 0.5f) < 0.01f && ! trainer.hasTiming(),
-                          "speed trainer starts at the current speed");
+            const auto savedSettings = trainer.getSettings();
+            auto settings = savedSettings;
+            settings.startPercent = 60;
+            trainer.setSettings (settings);
+            test->expect (trainer.start (s.getTrackFile()) && trainer.isOn() && std::abs (s.getTrack().getSpeed() - 0.6f) < 0.01f && ! trainer.hasTiming(),
+                          "speed trainer starts at the chosen speed");
+            s.getTrack().setSpeed (0.8f);
+            trainer.update (s.getTrackFile());
+            test->expect (std::abs (trainer.getRule().speed - 0.8f) < 0.01f, "speed trainer follows a speed changed by hand");
+            trainer.setSettings (savedSettings);
             s.getTrack().setLoop (1.0, 2.0, false);
             trainer.update (s.getTrackFile());
             test->expect (! trainer.isOn(), "speed trainer stops when the loop is turned off");

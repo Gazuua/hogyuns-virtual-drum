@@ -115,6 +115,9 @@ Session::Session (const Options& options)
                                        static_cast<float> (numberOr (getSetting ("masterGain", {}), AudioHost::defaultMasterGain))));
     track.setGain (static_cast<float> (numberOr (getSetting ("trackGain", 0.7), 0.7)));
 
+    // 반주 화면의 속도 올리기 설정
+    loopTrainer.setSettings (LoopTrainer::Settings::fromVar (getSetting ("speedTrainer", {})));
+
     // 세기 레이어의 경계에서 크기를 잇는다. 끄려면 settings.json에 "smoothLayers": false
     engine.setSmoothLayerSteps (static_cast<bool> (getSetting ("smoothLayers", true)));
 
