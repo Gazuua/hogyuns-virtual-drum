@@ -8,6 +8,10 @@
 namespace hvd
 {
 
+/** 키를 누르고 있어서 엔진이 이어 치는 타격(롤, 스웰)은 같은 키·패드의 타격이 이보다 촘촘하게 잇따른다(초).
+    사람이 키 하나를 이렇게 빨리 거듭 누를 수는 없으므로, 이런 타격은 박자를 잴 때 뺀다. */
+inline constexpr double heldRollGapSeconds = 0.09;
+
 /** 곡에 맞춰 친 타격 하나 (연주 로그에서 읽은 것). */
 struct PracticeHit
 {

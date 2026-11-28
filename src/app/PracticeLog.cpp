@@ -6,10 +6,6 @@
 namespace
 {
 
-// 키를 누르고 있어서 엔진이 이어 치는 타격(롤, 스웰)은 같은 키의 타격이 이보다 촘촘하게 잇따른다.
-// 사람이 키 하나를 이렇게 빨리 거듭 누를 수는 없으므로, 이런 타격은 박자를 잴 때 뺀다.
-constexpr double rollGapSeconds = 0.09;
-
 // 같은 곡을 이만큼 넘게 앞으로 되감아 다시 틀면 새 연주로 본다.
 constexpr double restartSeconds = 5.0;
 
@@ -123,7 +119,7 @@ std::vector<PracticeTake> readPracticeTakes (const juce::File& logFile, int mini
 
             // 같은 키로 같은 패드를 아주 촘촘하게 잇따라 친 것은 누르고 있어서 이어진 타격이다.
             auto& last = lastHits[pad];
-            const auto rolled = source == "key" && key.isNotEmpty() && key == last.key && seconds - last.seconds < rollGapSeconds;
+            const auto rolled = source == "key" && key.isNotEmpty() && key == last.key && seconds - last.seconds < hvd::heldRollGapSeconds;
             last.seconds = seconds;
             last.key = key;
 

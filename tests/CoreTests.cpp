@@ -27,6 +27,7 @@
 #include "core/Performer.h"
 #include "core/PracticeStats.h"
 #include "core/Replay.h"
+#include "core/SpeedTrainer.h"
 #include "core/SpscQueue.h"
 #include "core/StandardPads.h"
 #include "core/TrackPlayer.h"
@@ -3159,6 +3160,29 @@ MatchResult matchLane (const std::vector<hvd::ChartNote>& truth, const std::vect
     return result;
 }
 
+void testSpeedTrainer()
+{
+    // 시작: 지금 속도가 느리면 거기서(5% 단위로), 100%면 70%에서
+    hvd::SpeedTrainer trainer;
+    trainer.start (1.0f);
+    CHECK (isNear (trainer.speed, 0.7f));
+    trainer.start (0.82f);
+    CHECK (isNear (trainer.speed, 0.8f));
+
+    // 박에 맞음 80% 이상인 바퀴마다 5%씩. 거의 치지 않은 바퀴는 셈하지 않는다
+    trainer.start (0.9f);
+    CHECK (! trainer.finishLap (3, 100.0f) && trainer.lapsAtSpeed == 0);
+    CHECK (! trainer.finishLap (20, 70.0f) && isNear (trainer.speed, 0.9f) && isNear (trainer.lastPercent, 70.0f));
+    CHECK (trainer.finishLap (20, 85.0f) && isNear (trainer.speed, 0.95f) && trainer.lapsAtSpeed == 0);
+    CHECK (trainer.finishLap (20, 80.0f) && isNear (trainer.speed, 1.0f) && trainer.atTarget());
+    CHECK (! trainer.finishLap (20, 100.0f) && isNear (trainer.speed, 1.0f));
+
+    // 박자를 잴 수 없으면 두 바퀴마다
+    trainer.start (0.7f);
+    CHECK (! trainer.finishLap (20, -1.0f));
+    CHECK (trainer.finishLap (20, -1.0f) && isNear (trainer.speed, 0.75f));
+}
+
 void testPracticeStats()
 {
     // 차이들의 통계: 가운뎃값, 10%째와 90%째 값, 20ms 안에 든 비율
@@ -3527,6 +3551,7 @@ int hvd::runCoreTests (std::string& log)
         testChartVariants,
         testMetronomeTiming,
         testPracticeStats,
+        testSpeedTrainer,
         testTranscriber,
         testTranscriberStereo,
         testTranscriberMix,

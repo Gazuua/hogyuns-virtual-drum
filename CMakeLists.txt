@@ -116,6 +116,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/KitPage.cpp
     src/app/KitView.cpp
     src/app/LookAndFeel.cpp
+    src/app/LoopTrainer.cpp
     src/app/Main.cpp
     src/app/MainComponent.cpp
     src/app/MasterGainSlider.cpp

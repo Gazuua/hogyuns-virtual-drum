@@ -55,9 +55,9 @@ private:
     juce::Rectangle<int> dropZone;
 
     // 반주
-    juce::Label trackTitle, trackName, timeLabel, gainCaption, speedCaption, loopLabel, dropLabel;
+    juce::Label trackTitle, trackName, timeLabel, gainCaption, speedCaption, loopLabel, trainLabel, dropLabel;
     juce::TextButton openButton, playButton, rewindButton, unloadButton, loopStartButton, loopEndButton;
-    juce::ToggleButton loopToggle;
+    juce::ToggleButton loopToggle, trainToggle;    // 구간 반복, 속도 올리기
     juce::Slider gainSlider, speedSlider;
     TrackBar bar;
 

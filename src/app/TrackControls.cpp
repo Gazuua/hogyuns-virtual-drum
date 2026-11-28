@@ -187,8 +187,11 @@ void TrackStrip::update()
 
     auto time = ui::formatMinutes (track.getPosition()) + " / " + ui::formatMinutes (track.getLength());
 
-    if (const auto speed = juce::roundToInt (track.getSpeed() * 100.0f); speed != 100)
-        time << ui::separator() << ui::formatPercent (speed);
+    // 속도가 100%가 아니면 붙인다. 속도 올리기 중이면 화살표도.
+    const auto training = session.getLoopTrainer().isOn();
+
+    if (const auto speed = juce::roundToInt (track.getSpeed() * 100.0f); speed != 100 || training)
+        time << ui::separator() << ui::formatPercent (speed) << (training ? ko (" ↑") : juce::String());
 
     timeLabel.setText (time, juce::dontSendNotification);
 

@@ -12,6 +12,7 @@
 #include "AudioHost.h"
 #include "Backups.h"
 #include "ChartLibrary.h"
+#include "LoopTrainer.h"
 #include "Documents.h"
 #include "PlayLog.h"
 #include "RawKeyboard.h"
@@ -60,6 +61,7 @@ public:
     AudioHost& getAudio() noexcept                           { return audio; }
     hvd::RawKeyboard& getKeyboard() noexcept                 { return keyboard; }
     ChartLibrary& getCharts() noexcept                       { return charts; }
+    LoopTrainer& getLoopTrainer() noexcept                   { return loopTrainer; }
     juce::File getDataRoot() const                           { return dataRoot; }
 
     const hvd::Kit* getKit() const noexcept                  { return shownKit; }
@@ -427,6 +429,9 @@ private:
 
     // 리듬 게임의 곡 목록과 채보
     ChartLibrary charts;
+
+    // 반주 구간을 돌며 속도 올리기
+    LoopTrainer loopTrainer;    // charts 다음에 만든다 (생성자)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Session)
 };

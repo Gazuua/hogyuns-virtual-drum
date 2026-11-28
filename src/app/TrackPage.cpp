@@ -114,6 +114,21 @@ TrackPage::TrackPage (Session& sessionToUse)
     });
     ui::setupLabel (*this, loopLabel, {}, ui::Text::caption);
 
+    // 속도 올리기: 구간을 돌 때마다 박자를 재어, 박에 맞음이 기준을 넘으면 5%씩 올린다.
+    ui::setupToggle (*this, trainToggle, ko ("속도 올리기"), [this]
+    {
+        auto& trainer = session.getLoopTrainer();
+
+        if (trainToggle.getToggleState())
+            trainToggle.setToggleState (trainer.start (session.getTrackFile()), juce::dontSendNotification);
+        else
+            trainer.stop();
+
+        updateLoop();
+    });
+    trainToggle.setTooltip (ko ("지금 속도(100%면 70%)부터, 한 바퀴의 박에 맞음이 80%를 넘을 때마다 5%씩"));
+    ui::setupLabel (*this, trainLabel, {}, ui::Text::caption);
+
     // 녹음
     ui::setupLabel (*this, recordTitle, ko ("녹음"), ui::Text::section);
     ui::setupButton (*this, recordButton, {}, [this] { toggleRecording(); });
@@ -261,7 +276,10 @@ void TrackPage::resized()
         loopEndButton.setBounds (row.removeFromLeft (96));
         row.removeFromLeft (ui::space::medium);
         loopToggle.setBounds (row.removeFromLeft (110));
-        loopLabel.setBounds (row);
+        loopLabel.setBounds (row.removeFromLeft (150));
+        row.removeFromLeft (ui::space::large);
+        trainToggle.setBounds (row.removeFromLeft (120));
+        trainLabel.setBounds (row);
     }
 
     //==============================================================================
@@ -322,7 +340,7 @@ void TrackPage::refresh()
     // 곡이 없으면 반주 칸에는 끌어 놓는 자리와 [열기]만 둔다.
     for (auto* component : std::initializer_list<juce::Component*> { &trackName, &timeLabel, &playButton, &rewindButton, &unloadButton, &bar,
                                                                       &gainCaption, &gainSlider, &speedCaption, &speedSlider,
-                                                                      &loopStartButton, &loopEndButton, &loopToggle, &loopLabel })
+                                                                      &loopStartButton, &loopEndButton, &loopToggle, &loopLabel, &trainToggle, &trainLabel })
         component->setVisible (nowHasTrack);
 
     dropLabel.setVisible (! nowHasTrack);
@@ -370,6 +388,15 @@ void TrackPage::updateLoop()
     loopToggle.setToggleState (track.isLoopEnabled(), juce::dontSendNotification);
     loopLabel.setText (hasRange ? ui::formatTime (track.getLoopStart()) + "  ~  " + ui::formatTime (track.getLoopEnd()) : ko ("구간 없음"),
                        juce::dontSendNotification);
+
+    // 속도 올리기는 구간이 있어야 켠다. 구간을 끄거나 곡을 바꾸면 저절로 꺼진다.
+    const auto& trainer = session.getLoopTrainer();
+    trainToggle.setEnabled (hasRange);
+    trainToggle.setToggleState (trainer.isOn(), juce::dontSendNotification);
+    trainLabel.setText (trainer.getStatusText(), juce::dontSendNotification);
+
+    if (! speedSlider.isMouseButtonDown())
+        speedSlider.setValue (juce::roundToInt (track.getSpeed() * 100.0f), juce::dontSendNotification);
 }
 
 bool TrackPage::isInterestedInFileDrag (const juce::StringArray& files)

@@ -1552,6 +1552,15 @@ private:
             s.getTrack().setLoop (1.0, 2.0, true);
             test->expect (s.getTrack().isLoopEnabled() && s.getTrack().getLoopStart() == 1.0 && s.getTrack().getLoopEnd() == 2.0,
                           "the player keeps the loop for every screen");
+
+            // 속도 올리기: 지금 속도(0.5)에서 시작하고, 이 사인파에는 채보가 없어 박자를 잴 수 없다. 구간을 끄면 그만둔다.
+            auto& trainer = s.getLoopTrainer();
+            test->expect (trainer.start (s.getTrackFile()) && trainer.isOn() && std::abs (s.getTrack().getSpeed() - 0.5f) < 0.01f && ! trainer.hasTiming(),
+                          "speed trainer starts at the current speed");
+            s.getTrack().setLoop (1.0, 2.0, false);
+            trainer.update (s.getTrackFile());
+            test->expect (! trainer.isOn(), "speed trainer stops when the loop is turned off");
+
             transport::togglePlay (s);
             test->expect (! s.getTrack().isPlaying() && transport::playText (s) == ko ("재생"), "the strip stops the track");
             s.unloadTrack();

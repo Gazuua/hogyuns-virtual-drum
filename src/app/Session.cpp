@@ -74,7 +74,8 @@ Session::Session (const Options& options)
     : dataRoot (options.dataRoot),
       remember (options.rememberSettings),
       appSettings (options.rememberSettings),
-      charts (options.dataRoot, options.chartsFolder)
+      charts (options.dataRoot, options.chartsFolder),
+      loopTrainer (track, charts)
 {
     for (auto& pad : midiPads)
         pad.store (-1, std::memory_order_relaxed);
@@ -197,6 +198,7 @@ void Session::poll()
     sessionLog.logSituation();
     sessionLog.logKeys();
     drainHitEvents();
+    loopTrainer.update (trackFile);
     sessionLog.flushIfDue();
 
     charts.poll();
@@ -250,7 +252,8 @@ void Session::drainHitEvents()
     const auto sampleRate = engine.getSampleRate();
     const auto measuring = engine.isMetronomeOn() && ! takes.isPlaying();
     const auto logging = sessionLog.isActive();
-    const auto sync = logging ? audio.getTrackSync() : AudioHost::TrackSync();
+    const auto training = loopTrainer.isOn();
+    const auto sync = logging || training ? audio.getTrackSync() : AudioHost::TrackSync();
     hvd::HitEvent event;
 
     while (engine.popHitEvent (event))
@@ -263,6 +266,9 @@ void Session::drainHitEvents()
 
         if (onHit != nullptr)
             onHit (event);
+
+        if (training && sync.active)
+            loopTrainer.addHit (event, *shownKit, sync.positionAt (event.time, sampleRate), static_cast<double> (event.time) / sampleRate);
 
         takes.add (event, *shownKit);
 
