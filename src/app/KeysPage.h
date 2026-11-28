@@ -3,54 +3,9 @@
 #include <functional>
 #include <vector>
 
+#include "KeyboardView.h"
 #include "Session.h"
 #include "Ui.h"
-
-/** 화면에 그린 키보드. 키마다 지정된 동작을 보여 주고, 눌려 있는 키와 고른 키를 표시한다. */
-class KeyboardView final : public juce::Component
-{
-public:
-    struct Cap
-    {
-        juce::String text;       // 지정된 동작. 비어 있으면 지정되지 않은 키
-        juce::Colour colour;
-        int count = 0;           // 이 키에 지정된 동작 수
-    };
-
-    KeyboardView();
-
-    void setCaps (std::vector<Cap> newCaps);
-    void setSelected (hvd::KeyCode key);
-    hvd::KeyCode getSelected() const noexcept    { return selected; }
-
-    /** 그림에 있는 키인지. */
-    static bool hasKey (hvd::KeyCode key);
-
-    /** 눌린 키가 바뀌었으면 다시 그린다. */
-    void refreshHeld();
-
-    std::function<void (hvd::KeyCode)> onKeyClicked;
-    std::function<bool (hvd::KeyCode)> isKeyHeld;
-
-    void paint (juce::Graphics&) override;
-    void mouseDown (const juce::MouseEvent&) override;
-
-private:
-    struct Shape
-    {
-        hvd::KeyCode code;
-        float x, y, w, h;
-    };
-
-    static const std::vector<Shape>& shapes();
-    juce::Rectangle<float> boundsOf (const Shape& shape) const;
-
-    std::vector<Cap> caps;
-    std::vector<bool> heldShown;
-    hvd::KeyCode selected = hvd::invalidKey;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyboardView)
-};
 
 //==============================================================================
 /** 페달이 바꿀 패드 한 쌍: [원래 패드] → [바꿔 칠 패드] */
