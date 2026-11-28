@@ -5,8 +5,10 @@
 #include <functional>
 #include <vector>
 
+#include "KitArt.h"
+
 /** 드럼 세트를 드러머 자리에서 내려다본 모습으로 그린다. 북은 쉘과 테와 헤드가 있는 원통으로, 심벌은 황동 원판으로 그리고,
-    치면 헤드가 번쩍이고 심벌이 흔들린다. 배치 편집을 켜면 끌어서 옮길 수 있다. */
+    치면 헤드가 번쩍이고 심벌이 흔들린다. 배치 편집을 켜면 끌어서 옮길 수 있다. 악기 그림 자체는 KitArt가 그린다. */
 class KitView final : public juce::Component
 {
 public:
@@ -59,6 +61,10 @@ public:
     /** 패드 id로 고르는 기본 자리. index는 킷 안에서의 순서다. */
     static void defaultPlacement (const juce::String& padId, int index, float& x, float& y, float& size);
 
+    /** 지름(화면 높이에 대한 비율)의 한도. */
+    static constexpr float minSize = 0.06f, maxSize = 0.60f;
+    static float clampSize (float size) noexcept          { return juce::jlimit (minSize, maxSize, size); }
+
     std::function<void (int index)> onPadClicked;
 
     /** 오른쪽 단추로 눌렀을 때 (심벌 잡기). */
@@ -75,7 +81,7 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     /** 패드가 어떤 악기 모양으로 그려지는지. */
-    enum class Kind { kick, snare, tom, floorTom, hihat, crash, china, ride, bell, pedal, zone };
+    using Kind = kitart::Kind;
 
     static Kind kindOf (const juce::String& padId);
 
@@ -96,8 +102,10 @@ private:
 
     juce::Point<float> centreOf (const Item& item) const;
     float radiusOf (const Item& item) const;
+
+    /** 클릭을 받는 타원의 테두리: 가로 반지름 radius, 세로 radius * 0.8. */
+    juce::Rectangle<float> hitEllipseOf (const Item& item) const;
     int itemAt (juce::Point<float> position) const;
-    void drawFloor (juce::Graphics&) const;
     void drawItem (juce::Graphics&, int index, int layer) const;
     void drawLabel (juce::Graphics&, int index) const;
 

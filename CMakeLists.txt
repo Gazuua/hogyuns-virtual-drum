@@ -112,6 +112,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/KeyboardView.cpp
     src/app/KeysPage.cpp
     src/app/KitLoader.cpp
+    src/app/KitArt.cpp
     src/app/KitPage.cpp
     src/app/KitView.cpp
     src/app/LookAndFeel.cpp

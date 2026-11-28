@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "KitLayout.h"
+
 namespace
 {
 
@@ -69,12 +71,8 @@ PlayPage::PlayPage (Session& sessionToUse)
     kitView.onItemChanged = [this] (int index)
     {
         const auto& item = kitView.getItems()[static_cast<std::size_t> (index)];
-
-        auto* view = new juce::DynamicObject();
-        view->setProperty ("x", juce::roundToInt (item.x * 1000.0f) / 1000.0);
-        view->setProperty ("y", juce::roundToInt (item.y * 1000.0f) / 1000.0);
-        view->setProperty ("size", juce::roundToInt (item.size * 1000.0f) / 1000.0);
-        session.getKitDocument().setPadProperty (item.id, item.fixed ? "fixedView" : "view", juce::var (view));
+        kitlayout::write (session.getKitDocument(), item.id, item.fixed ? kitlayout::fixedViewKey : kitlayout::viewKey,
+                          { item.x, item.y, item.size });
         layoutDirty = true;
     };
 
@@ -258,11 +256,11 @@ void PlayPage::rebuild()
             // 그림 위의 자리: 킷 파일에 적어 둔 값이 있으면 그것을, 없으면 기본 자리를 쓴다.
             KitView::defaultPlacement (item.id, static_cast<int> (i), item.x, item.y, item.size);
 
-            if (const auto view = session.getKitDocument().getPadProperty (item.id, "view"); view.isObject())
+            if (const auto view = kitlayout::read (session.getKitDocument(), item.id, kitlayout::viewKey))
             {
-                item.x = juce::jlimit (0.0f, 1.0f, static_cast<float> (static_cast<double> (view["x"])));
-                item.y = juce::jlimit (0.0f, 1.0f, static_cast<float> (static_cast<double> (view["y"])));
-                item.size = juce::jlimit (0.06f, 0.60f, static_cast<float> (static_cast<double> (view["size"])));
+                item.x = view->x;
+                item.y = view->y;
+                item.size = view->size;
             }
 
             tiles.push_back (std::move (tile));
@@ -295,11 +293,11 @@ void PlayPage::rebuild()
             twin.y = juce::jlimit (0.06f, 0.94f, source.y - 0.09f);
             twin.size = 0.12f;
 
-            if (const auto view = session.getKitDocument().getPadProperty (twin.id, "fixedView"); view.isObject())
+            if (const auto view = kitlayout::read (session.getKitDocument(), twin.id, kitlayout::fixedViewKey))
             {
-                twin.x = juce::jlimit (0.0f, 1.0f, static_cast<float> (static_cast<double> (view["x"])));
-                twin.y = juce::jlimit (0.0f, 1.0f, static_cast<float> (static_cast<double> (view["y"])));
-                twin.size = juce::jlimit (0.06f, 0.60f, static_cast<float> (static_cast<double> (view["size"])));
+                twin.x = view->x;
+                twin.y = view->y;
+                twin.size = view->size;
             }
 
             items.push_back (std::move (twin));
@@ -569,12 +567,7 @@ void PlayPage::publishMouseTargets()
 
 void PlayPage::resetLayout()
 {
-    for (const auto& id : session.getKitDocument().getPadIds())
-    {
-        session.getKitDocument().setPadProperty (id, "view", {});
-        session.getKitDocument().setPadProperty (id, "fixedView", {});
-    }
-
+    kitlayout::clearAll (session.getKitDocument());
     session.saveKit (false);
     rebuild();
 }
