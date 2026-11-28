@@ -120,6 +120,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/MainComponent.cpp
     src/app/MasterGainSlider.cpp
     src/app/MixerPage.cpp
+    src/app/MouseRouter.cpp
     src/app/MusicFile.cpp
     src/app/PadGrid.cpp
     src/app/PlayLog.cpp

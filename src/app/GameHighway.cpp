@@ -132,6 +132,43 @@ juce::Rectangle<int> GameHighway::getResultButtonArea() const
     return juce::Rectangle<float> (420.0f, 34.0f).withCentre ({ layout.field.getCentreX(), layout.field.getCentreY() + 150.0f }).toNearestInt();
 }
 
+std::vector<GameHighway::ClickArea> GameHighway::getClickAreas() const
+{
+    // 그리는 자리(paintField)와 같은 계산: 레인 이름 칸은 판정선 10px 아래에 40px, 킥 막대는 그 아래 44px에 18px.
+    const auto layout = getLayout();
+    const auto headerTop = layout.hitY + 10.0f;
+    constexpr float aboveHitLine = 90.0f;    // 판정선 위로 이만큼도 누를 수 있다 (노트를 보며 그 자리를 누른다)
+
+    std::vector<ClickArea> areas;
+
+    for (std::size_t column = 0; column < lanes.size(); ++column)
+    {
+        const auto x = layout.lanes.getX() + layout.laneWidth * static_cast<float> (column);
+        areas.push_back ({ juce::Rectangle<float>::leftTopRightBottom (x, layout.hitY - aboveHitLine, x + layout.laneWidth, headerTop + 41.0f),
+                           lanes[column].lane });
+    }
+
+    areas.push_back ({ juce::Rectangle<float> (layout.lanes.getX(), headerTop + 42.0f, layout.lanes.getWidth(), 22.0f), hvd::Lane::kick });
+    return areas;
+}
+
+void GameHighway::mouseDown (const juce::MouseEvent& event)
+{
+    if (runner == nullptr || runner->getState() != GameRunner::State::playing || onLaneClicked == nullptr)
+        return;
+
+    const auto areas = getClickAreas();
+
+    for (std::size_t i = 0; i < areas.size(); ++i)
+    {
+        if (areas[i].bounds.contains (event.position))
+        {
+            onLaneClicked (static_cast<int> (i), event.mods.isRightButtonDown());
+            return;
+        }
+    }
+}
+
 void GameHighway::paint (juce::Graphics& g)
 {
     const auto layout = getLayout();
@@ -410,7 +447,7 @@ void GameHighway::paintField (juce::Graphics& g, const Layout& layout)
 
         g.setColour (fieldText.withAlpha (0.75f));
         g.setFont (juce::FontOptions (ui::type::body));
-        g.drawText (ko ("노트가 흰 줄에 닿을 때 치기  ·  킥은 가로 막대  ·  Esc 멈춤"),
+        g.drawText (ko ("노트가 흰 줄에 닿을 때 치기  ·  킥은 가로 막대  ·  레인 클릭도 됨  ·  Esc 멈춤"),
                     juce::Rectangle<float> (countdown.getX(), countdown.getCentreY() + 48.0f, countdown.getWidth(), 22.0f).toNearestInt(),
                     juce::Justification::centred);
     }

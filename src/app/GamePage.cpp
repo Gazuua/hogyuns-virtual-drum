@@ -78,6 +78,7 @@ GamePage::GamePage (Session& sessionToUse)
       runner (sessionToUse)
 {
     highway.setRunner (&runner);
+    highway.onLaneClicked = [this] (int index, bool right) { mouse.handleClick (0, index, right); };
     addChildComponent (highway);
 
     // 위 줄: 음악 폴더(이름만, 전체 경로는 툴팁) · [채보] [폴더 바꾸기] [새로 고침]
@@ -460,6 +461,7 @@ void GamePage::updateLanes()
 {
     const auto* kit = session.getKit();
     const auto mapping = session.getMapping();
+    chokeSets = kit != nullptr ? hvd::chokeSetsOf (*kit) : std::vector<std::vector<std::uint16_t>>();
 
     std::array<GameHighway::LaneInfo, hvd::numLanes> infos;
     std::array<float, hvd::numLanes> positions {};
@@ -966,6 +968,8 @@ void GamePage::pageShown()
 
 void GamePage::pageHidden()
 {
+    mouse.release();
+
     if (runner.getState() == GameRunner::State::playing)
     {
         runner.setPaused (true);
@@ -997,6 +1001,8 @@ bool GamePage::escapePressed()
 void GamePage::tick()
 {
     ++tickCount;
+    publishLaneTargets();
+    mouse.reconcile();
 
     if (! playView)
     {
@@ -1017,6 +1023,55 @@ void GamePage::tick()
 
     if (before != GameRunner::State::finished && runner.getState() == GameRunner::State::finished)
         finished();
+}
+
+void GamePage::publishLaneTargets()
+{
+    // 한 판이 진행 중일 때만 레인을 마우스로 친다. 레인마다 그 레인의 대표 패드를 치고, 하이햇은 페달을 따른다.
+    auto targets = playView && runner.getState() == GameRunner::State::playing ? mouse.begin (highway) : nullptr;
+
+    if (targets != nullptr)
+    {
+        const auto areas = highway.getClickAreas();
+
+        for (std::size_t i = 0; i < areas.size(); ++i)
+        {
+            const auto pad = runner.getPreferredPad (areas[i].lane);
+
+            if (pad < 0)
+                continue;
+
+            auto target = MouseRouter::makeTarget (highway, areas[i].bounds, hvd::MouseTarget::Shape::rectangle, pad, static_cast<int> (i));
+            target.chokes = chokesOf (pad);
+            targets->targets.push_back (std::move (target));
+        }
+    }
+
+    mouse.publish (std::move (targets));
+}
+
+void GamePage::playLaneClick (const MouseRouter::Click& click)
+{
+    const auto areas = highway.getClickAreas();
+
+    if (! juce::isPositiveAndBelow (click.spot, static_cast<int> (areas.size())))
+        return;
+
+    const auto pad = runner.getPreferredPad (areas[static_cast<std::size_t> (click.spot)].lane);
+
+    if (pad < 0)
+        return;
+
+    if (click.right)
+        session.chokePads (chokesOf (pad));
+    else
+        session.previewPad (pad, 0.9f, hvd::HitSource::mouse, true);
+}
+
+const std::vector<std::uint16_t>& GamePage::chokesOf (int pad) const
+{
+    static const std::vector<std::uint16_t> none;
+    return juce::isPositiveAndBelow (pad, static_cast<int> (chokeSets.size())) ? chokeSets[static_cast<std::size_t> (pad)] : none;
 }
 
 void GamePage::paint (juce::Graphics& g)

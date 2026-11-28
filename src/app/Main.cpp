@@ -4,6 +4,7 @@
 #include "KeymapLoader.h"
 #include "KitLoader.h"
 #include "LookAndFeel.h"
+#include "MouseRouter.h"
 #include "MainComponent.h"
 #include "MusicFile.h"
 #include "PlayPage.h"
@@ -1326,6 +1327,8 @@ private:
         int takeHits = 0;
         int hitsBeforeReplay = 0;
         int songIndex = -1;
+        int laneIndex = -1, lanePad = -1;      // 리듬 게임에서 마우스로 누를 레인과 그 패드
+        std::uint32_t lanePadHits = 0;
         int waited = 0;
 
         void expect (bool condition, const juce::String& what)
@@ -1581,6 +1584,36 @@ private:
             // 도중에 오토 모드를 끄면 더 치지 않고, 그 판은 오토 모드를 쓴 판으로 남는다.
             gamePage().getRunner().setAutoplay (false);
             test->expect (! gamePage().getRunner().isAutoplay() && gamePage().getRunner().wasAssisted(), "auto mode can be switched off while playing");
+
+            // 마우스로 레인을 누르면 그 레인의 대표 패드를 친다. 창이 없어 입력 스레드는 받지 않으므로 화면 쪽이 바로 친다.
+            auto& highway = gamePage().getHighway();
+            const auto areas = highway.getClickAreas();
+            const auto snare = std::find_if (areas.begin(), areas.end(), [] (const GameHighway::ClickArea& area) { return area.lane == hvd::Lane::snare; });
+            auto apart = areas.size() == hvd::numLanes;
+
+            for (std::size_t i = 0; i < areas.size(); ++i)
+                for (auto j = i + 1; j < areas.size(); ++j)
+                    apart = apart && ! areas[i].bounds.intersects (areas[j].bounds);
+
+            test->expect (apart, "every lane has its own click area");
+            test->lanePad = gamePage().getRunner().getPreferredPad (hvd::Lane::snare);
+            test->laneIndex = snare != areas.end() ? static_cast<int> (snare - areas.begin()) : -1;
+            test->expect (test->laneIndex >= 0 && test->lanePad >= 0, "the snare lane has a pad to click");
+        });
+
+        // 오토 모드가 0.3초 앞서 넘겨 둔 타격이 다 울린 뒤에 누른다.
+        schedule (test, 400, [this, test] (Session& s)
+        {
+            if (test->laneIndex >= 0 && test->lanePad >= 0 && gamePage().getHighway().onLaneClicked != nullptr)
+            {
+                test->lanePadHits = s.getEngine().getHitCount (test->lanePad);
+                gamePage().getHighway().onLaneClicked (test->laneIndex, false);
+            }
+        });
+
+        schedule (test, 300, [this, test] (Session& s)
+        {
+            test->expect (test->lanePad >= 0 && s.getEngine().getHitCount (test->lanePad) == test->lanePadHits + 1, "clicking the snare lane plays the snare");
             gamePage().endPlay();
 
             // 10. 기본 킷으로 연주한 곡을 음악 폴더에 넣고, 받아 적게 한다 (드럼 분리 도구는 쓰지 않는다).
@@ -1758,8 +1791,8 @@ private:
                 // 팝업 메뉴를 닫은 뒤에는 다시 받는다.
                 juce::Timer::callAfterDelay (100, [this, path, check]
                 {
-                    const auto area = PlayPage::visibleScreenArea (*checkProbe);
-                    check->expect (! PlayPage::isCoveredByOtherWindow (*checkProbe, area), "takes clicks again after the menu closed");
+                    const auto area = MouseRouter::visibleScreenArea (*checkProbe);
+                    check->expect (! MouseRouter::isCoveredByOtherWindow (*checkProbe, area), "takes clicks again after the menu closed");
 
                     writeReport (path, check->report + "result: " + (check->ok ? "ALL OK" : "FAILED") + "\n");
                     setApplicationReturnValue (check->ok ? 0 : 1);
@@ -1841,8 +1874,8 @@ private:
     /** 다른 창이 연주 자리를 가리거나 입력을 붙잡고 있으면 입력 스레드에 클릭을 맡기지 않는다. */
     void checkCoveringWindows (MouseCheck& check)
     {
-        const auto area = PlayPage::visibleScreenArea (*checkProbe);
-        const auto covered = [this, &area] { return PlayPage::isCoveredByOtherWindow (*checkProbe, area); };
+        const auto area = MouseRouter::visibleScreenArea (*checkProbe);
+        const auto covered = [this, &area] { return MouseRouter::isCoveredByOtherWindow (*checkProbe, area); };
 
         check.expect (! area.isEmpty() && ! covered(), "takes clicks when nothing covers the window");
 

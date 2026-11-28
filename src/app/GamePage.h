@@ -6,6 +6,7 @@
 
 #include "GameHighway.h"
 #include "GameRunner.h"
+#include "MouseRouter.h"
 #include "Session.h"
 #include "Ui.h"
 
@@ -27,6 +28,7 @@ public:
     void paint (juce::Graphics&) override;
 
     GameRunner& getRunner() noexcept    { return runner; }
+    GameHighway& getHighway() noexcept  { return highway; }
 
     /** 곡 없이 연습 패턴으로 한 판을 시작한다 (화면 캡처와 자체 검사용). */
     void startDemo (bool autoplay);
@@ -63,6 +65,11 @@ private:
     void chooseFolder();
     int getLevel() const;
     void setLevel (int level);
+
+    // 마우스로 레인 치기. 연주 화면의 드럼 그림처럼 입력 스레드가 받아 바로 친다.
+    void publishLaneTargets();
+    void playLaneClick (const MouseRouter::Click& click);
+    const std::vector<std::uint16_t>& chokesOf (int pad) const;
 
     Session& session;
     ChartLibrary& library;
@@ -103,6 +110,9 @@ private:
     bool resultRecorded = false;
     juce::Rectangle<int> sidePanel;
     int tickCount = 0;
+
+    MouseRouter mouse { session, [this] (const MouseRouter::Click& click) { playLaneClick (click); } };
+    std::vector<std::vector<std::uint16_t>> chokeSets;     // 패드마다 오른쪽 단추로 함께 멈출 패드들 (updateLanes가 채운다)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GamePage)
 };

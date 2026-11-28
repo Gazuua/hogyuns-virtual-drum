@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <functional>
 #include <vector>
 
 #include "GameRunner.h"
@@ -39,7 +40,20 @@ public:
     /** 결과 화면에서 버튼을 놓을 자리. */
     juce::Rectangle<int> getResultButtonArea() const;
 
+    /** 마우스로 치는 자리: 레인마다 판정선 둘레부터 이름 칸까지, 킥은 아래 막대. */
+    struct ClickArea
+    {
+        juce::Rectangle<float> bounds;
+        hvd::Lane lane = hvd::Lane::snare;
+    };
+
+    std::vector<ClickArea> getClickAreas() const;
+
+    /** 한 판이 진행 중일 때 자리를 누르면 그 번호(getClickAreas의 순서)와 오른쪽 단추(멈춤)인지를 알린다. */
+    std::function<void (int index, bool right)> onLaneClicked;
+
     void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     struct Popup
