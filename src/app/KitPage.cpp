@@ -1,5 +1,6 @@
 #include "KitPage.h"
 
+#include "PageTools.h"
 #include "SfzImport.h"
 
 namespace
@@ -112,11 +113,8 @@ KitPage::KitPage (Session& sessionToUse)
     soundCount.setJustificationType (juce::Justification::centred);
     soundCount.setTooltip (ko ("모아 둔 소리 가운데 몇 번째인지"));
 
-    familyButton.setButtonText (ko ("같은 악기 함께"));
+    ui::setupToggle (*this, familyButton, ko ("같은 악기 함께"), {}, true);
     familyButton.setTooltip (ko ("같은 악기의 패드도 함께 바꾸기 (하이햇, 스네어 등)"));
-    familyButton.setToggleState (true, juce::dontSendNotification);
-    ui::noFocus (familyButton);
-    addAndMakeVisible (familyButton);
 
     //==============================================================================
     // 조절 항목. 두 개씩 한 줄: 음량 · 팬 / 피치 · 시작 / 세기 곡선 · 리버브
@@ -597,21 +595,14 @@ void KitPage::chooseSamples (bool append)
 {
     const juce::File startFolder (session.getSetting ("sampleFolder", session.getKitFile().getParentDirectory().getFullPathName()).toString());
 
-    chooser = std::make_unique<juce::FileChooser> (append ? ko ("더할 샘플 고르기") : ko ("바꿀 샘플 고르기"),
-                                                   startFolder, ui::audioFilePatterns());
-
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::canSelectMultipleItems,
-                          [this, append] (const juce::FileChooser& fileChooser)
-                          {
-                              const auto files = fileChooser.getResults();
-
-                              if (files.isEmpty())
-                                  return;
-
-                              session.setSetting ("sampleFolder", files.getFirst().getParentDirectory().getFullPathName());
-                              applySamples (files, append);
-                          });
+    ui::chooseFile (chooser, append ? ko ("더할 샘플 고르기") : ko ("바꿀 샘플 고르기"), startFolder, ui::audioFilePatterns(),
+                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::canSelectMultipleItems,
+                    [this, append] (const juce::Array<juce::File>& files)
+                    {
+                        session.setSetting ("sampleFolder", files.getFirst().getParentDirectory().getFullPathName());
+                        applySamples (files, append);
+                    });
 }
 
 void KitPage::applySamples (const juce::Array<juce::File>& files, bool append)
@@ -701,55 +692,44 @@ void KitPage::removePad()
 
 void KitPage::importKit()
 {
-    chooser = std::make_unique<juce::FileChooser> (ko ("가져올 킷(ZIP) 고르기"), juce::File(), "*.zip");
-
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [this] (const juce::FileChooser& fileChooser)
-                          {
-                              const auto file = fileChooser.getResult();
-
-                              if (file == juce::File())
-                                  return;
-
-                              if (const auto error = session.importKit (file); error.isNotEmpty())
-                                  ui::showMessage (ko ("킷을 가져오지 못했습니다"), error);
-                          });
+    ui::chooseFile (chooser, ko ("가져올 킷(ZIP) 고르기"), juce::File(), "*.zip",
+                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this] (const juce::Array<juce::File>& files)
+                    {
+                        if (const auto error = session.importKit (files.getFirst()); error.isNotEmpty())
+                            ui::showMessage (ko ("킷을 가져오지 못했습니다"), error);
+                    });
 }
 
 void KitPage::importSfzKit()
 {
     const juce::File startFolder (session.getSetting ("sfzFolder", juce::String()).toString());
-    chooser = std::make_unique<juce::FileChooser> (ko ("가져올 SFZ 파일 고르기"), startFolder, "*.sfz");
+    ui::chooseFile (chooser, ko ("가져올 SFZ 파일 고르기"), startFolder, "*.sfz",
+                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this] (const juce::Array<juce::File>& files)
+                    {
+                        const auto file = files.getFirst();
+                        session.setSetting ("sfzFolder", file.getParentDirectory().getFullPathName());
+                        const auto result = importSfz (file, session.getKitsFolder());
 
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [this] (const juce::FileChooser& fileChooser)
-                          {
-                              const auto file = fileChooser.getResult();
+                        if (result.error.isNotEmpty())
+                        {
+                            ui::showMessage (ko ("SFZ를 가져오지 못했습니다"), result.error);
+                            return;
+                        }
 
-                              if (file == juce::File())
-                                  return;
+                        session.selectKit (result.kitFolderName);
 
-                              session.setSetting ("sfzFolder", file.getParentDirectory().getFullPathName());
-                              const auto result = importSfz (file, session.getKitsFolder());
+                        juce::String summary;
+                        summary << ko ("패드 ") << result.numPads << ko ("개, 샘플 ") << result.numSamples << ko ("개를 가져왔습니다.");
 
-                              if (result.error.isNotEmpty())
-                              {
-                                  ui::showMessage (ko ("SFZ를 가져오지 못했습니다"), result.error);
-                                  return;
-                              }
+                        if (result.numMissing > 0)
+                            summary << "\n" << ko ("찾지 못한 샘플 파일: ") << result.numMissing << ko ("개");
 
-                              session.selectKit (result.kitFolderName);
-
-                              juce::String summary;
-                              summary << ko ("패드 ") << result.numPads << ko ("개, 샘플 ") << result.numSamples << ko ("개를 가져왔습니다.");
-
-                              if (result.numMissing > 0)
-                                  summary << "\n" << ko ("찾지 못한 샘플 파일: ") << result.numMissing << ko ("개");
-
-                              summary << "\n\n" << ko ("샘플은 원래 자리의 파일을 씁니다. 그 폴더를 옮기면 소리가 나지 않습니다.")
-                                      << "\n" << ko ("표준 드럼 번호가 아닌 패드는 키 배열 화면에서 키를 정하세요.");
-                              ui::showMessage (ko ("SFZ를 가져왔습니다"), summary);
-                          });
+                        summary << "\n\n" << ko ("샘플은 원래 자리의 파일을 씁니다. 그 폴더를 옮기면 소리가 나지 않습니다.")
+                                << "\n" << ko ("표준 드럼 번호가 아닌 패드는 키 배열 화면에서 키를 정하세요.");
+                        ui::showMessage (ko ("SFZ를 가져왔습니다"), summary);
+                    });
 }
 
 void KitPage::exportKit()
@@ -757,22 +737,17 @@ void KitPage::exportKit()
     const auto suggested = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
                                .getChildFile (session.getKitFolderName() + ".zip");
 
-    chooser = std::make_unique<juce::FileChooser> (ko ("킷을 ZIP으로 내보내기"), suggested, "*.zip");
+    ui::chooseFile (chooser, ko ("킷을 ZIP으로 내보내기"), suggested, "*.zip",
+                    juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::warnAboutOverwriting,
+                    [this] (const juce::Array<juce::File>& files)
+                    {
+                        const auto file = files.getFirst();
+                        const auto error = session.exportKit (file.withFileExtension ("zip"));
 
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [this] (const juce::FileChooser& fileChooser)
-                          {
-                              const auto file = fileChooser.getResult();
-
-                              if (file == juce::File())
-                                  return;
-
-                              const auto error = session.exportKit (file.withFileExtension ("zip"));
-
-                              if (error.isNotEmpty())
-                                  ui::showMessage (ko ("킷을 내보내지 못했습니다"), error);
-                              else
-                                  ui::showMessage (ko ("킷을 내보냈습니다"), file.withFileExtension ("zip").getFullPathName());
-                          });
+                        if (error.isNotEmpty())
+                            ui::showMessage (ko ("킷을 내보내지 못했습니다"), error);
+                        else
+                            ui::showMessage (ko ("킷을 내보냈습니다"), file.withFileExtension ("zip").getFullPathName());
+                    });
 }

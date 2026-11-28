@@ -1,5 +1,7 @@
 #include "KeysPage.h"
 
+#include "PageTools.h"
+
 namespace
 {
 
@@ -88,10 +90,7 @@ KeysPage::KeysPage (Session& sessionToUse)
 {
     addAndMakeVisible (documents);
 
-    followButton.setButtonText (ko ("누른 키 따라가기"));
-    followButton.setToggleState (true, juce::dontSendNotification);
-    ui::noFocus (followButton);
-    addAndMakeVisible (followButton);
+    ui::setupToggle (*this, followButton, ko ("누른 키 따라가기"), {}, true);
 
     ui::setupLabel (*this, pedalLabel, {}, ui::Text::caption);
     pedalLabel.setMinimumHorizontalScale (0.75f);
@@ -125,12 +124,12 @@ KeysPage::KeysPage (Session& sessionToUse)
     ui::setupLabel (*this, keyTitle, {}, ui::Text::section);
     ui::setupButton (*this, addButton, ko ("동작 추가"), [this] { addBinding(); });
     ui::setupButton (*this, removeButton, ko ("삭제"), [this] { removeBinding(); });
-    removeButton.setTooltip (ko ("이 동작을 지웁니다"));
+    removeButton.setTooltip (ko ("고른 동작을 지웁니다"));
 
     ui::setupLabel (*this, quickCaption, ko ("빠른 지정"), ui::Text::caption);
     quickCaption.setJustificationType (juce::Justification::centredRight);
     ui::setupCombo (*this, quickPadCombo, [] {});
-    quickPadCombo.setTooltip (ko ("이 패드를 칠 키를 정합니다"));
+    quickPadCombo.setTooltip (ko ("고른 패드를 칠 키를 정합니다"));
     ui::setupButton (*this, quickButton, ko ("키 지정"), [this] { startQuickAssign(); });
     quickButton.setTooltip (ko ("누르고 나서 칠 키를 누르세요"));
 
