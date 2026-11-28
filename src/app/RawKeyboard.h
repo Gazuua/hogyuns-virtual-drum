@@ -82,7 +82,7 @@ public:
     /** 검사용: 창의 클라이언트 영역 왼쪽 위의 화면 좌표(모니터의 실제 화소)와 그 창의 화면 배율(DPI / 96). 실패하면 false. */
     static bool clientOriginOf (void* nativeWindowHandle, int& x, int& y, double& scale);
 
-    /** 검사용: 이 스레드에서 WindowFromPoint를 부르는 데 걸린 시간(ms). 예전에 입력 스레드가 클릭마다 부르던 것이다.
+    /** 검사용: 이 스레드에서 WindowFromPoint를 부르는 데 걸린 시간(ms). 입력 스레드가 클릭마다 부른다.
         그 자리의 창이 expectedWindow(의 자식)이면 foundExpected가 true다. x, y는 모니터의 실제 화소. */
     static double windowFromPointMs (int x, int y, void* expectedWindow, bool& foundExpected);
 

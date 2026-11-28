@@ -1771,7 +1771,7 @@ private:
     static constexpr int busyMouseCheckMs = 300;
 
     /** 화면 스레드를 잠깐 붙잡아 둔 동안 다른 스레드에서 입력 스레드의 클릭 처리(processRawMouse)와
-        예전에 쓰던 WindowFromPoint에 걸리는 시간을 잰다. point는 검사 창 안의 한 점(모니터의 실제 화소). */
+        WindowFromPoint만 따로 부를 때 걸리는 시간을 잰다. point는 검사 창 안의 한 점(모니터의 실제 화소). */
     void startBusyMouseCheck (const std::shared_ptr<MouseCheck>& check, juce::Point<int> point, void* window)
     {
         check->worker = std::thread ([check, point, window]
@@ -1809,7 +1809,7 @@ private:
         check.worker.join();
         check.report << "while the UI thread was busy for " << busyMouseCheckMs << " ms:\n"
                      << "  click handling on the input side " << juce::String (check.newPathMs, 3) << " ms\n"
-                     << "  WindowFromPoint (the old check) " << juce::String (check.oldPathMs, 1) << " ms"
+                     << "  WindowFromPoint (window check) " << juce::String (check.oldPathMs, 1) << " ms"
                      << (check.oldPathFoundWindow ? "" : " (another window was on top at that point)") << "\n";
 
         check.expect (check.handlerCalls == 1 && check.newPathMs >= 0.0 && check.newPathMs < 5.0,

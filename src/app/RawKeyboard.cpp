@@ -474,9 +474,14 @@ void RawKeyboard::processRawMouse (unsigned buttonFlags, int x, int y)
 {
     // 맨 앞 창이 등록한 창일 때만 넘긴다. 누른 자리가 연주 자리인지는 처리기가 화면이 넘긴 자리 목록으로 본다.
     // 우리 팝업이나 대화 상자가 떠 있으면 화면 스레드가 자리 목록을 비워 둔다 (PlayPage::publishMouseTargets).
-    // 창에 메시지를 보내는 함수(WindowFromPoint 등)는 부르지 않는다. 그 창의 스레드(화면 스레드)가 답할 때까지 기다리게 된다.
     if (! mouseHandler || ! isInFront())
         return;
+
+    // 다른 프로그램의 "항상 위" 창이 드럼 위에 겹쳐 있으면 그 창을 누른 것이다.
+    // WindowFromPoint는 다른 스레드의 창에 메시지를 보내지 않아 화면 스레드가 바빠도 기다리지 않는다 (--mousecheck로 잼).
+    if (auto* window = activeWindow.load())
+        if (const auto under = WindowFromPoint (POINT { x, y }); under == nullptr || GetAncestor (under, GA_ROOT) != static_cast<HWND> (window))
+            return;
 
     // 왼손잡이 설정에서는 오른쪽 단추가 주 단추다. Raw Input은 실제 단추를 알려 준다.
     const auto swapped = GetSystemMetrics (SM_SWAPBUTTON) != 0;
