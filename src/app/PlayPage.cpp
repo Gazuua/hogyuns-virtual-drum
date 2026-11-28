@@ -13,7 +13,8 @@ juce::String strokeTag (const hvd::Stroke& stroke)
     {
         case hvd::Stroke::Type::single:     return {};
         case hvd::Stroke::Type::downUp:     return ko ("(뗌)");
-        case hvd::Stroke::Type::multi:      return stroke.firstScale < 1.0f ? ko ("(플램)") : ko ("(더블)");
+        case hvd::Stroke::Type::multi:      return stroke.firstScale >= 1.0f ? ko ("(더블)")
+                                                 : stroke.numExtra >= 2 ? ko ("(드래그)") : ko ("(플램)");
         case hvd::Stroke::Type::repeat:     return ko ("(반복)");
         case hvd::Stroke::Type::buzz:       return ko ("(롤)");
         case hvd::Stroke::Type::pattern:    return ko ("(패턴)");
