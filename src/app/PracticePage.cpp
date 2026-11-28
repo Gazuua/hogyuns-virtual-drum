@@ -277,11 +277,20 @@ void FlowChart::mouseMove (const juce::MouseEvent& event)
     if (found != hovered)
     {
         hovered = found;
+        setMouseCursor (found >= 0 && onSectionClicked != nullptr ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
         repaint();
 
         if (onHover != nullptr)
             onHover (found >= 0 ? &sections[static_cast<std::size_t> (found)] : nullptr);
     }
+}
+
+void FlowChart::mouseDown (const juce::MouseEvent& event)
+{
+    mouseMove (event);
+
+    if (hovered >= 0 && onSectionClicked != nullptr)
+        onSectionClicked (sections[static_cast<std::size_t> (hovered)]);
 }
 
 void FlowChart::mouseExit (const juce::MouseEvent&)
@@ -321,6 +330,7 @@ PracticePage::PracticePage (Session& sessionToUse)
     addAndMakeVisible (timingRows);
     addAndMakeVisible (flowChart);
     flowChart.onHover = [this] (const hvd::PracticeSection* section) { showHover (section); };
+    flowChart.onSectionClicked = [this] (const hvd::PracticeSection& section) { practiceSection (section); };
 
     ui::setupLabel (*this, hoverLabel, {}, ui::Text::caption);
     showHover (nullptr);
@@ -739,5 +749,34 @@ void PracticePage::showHover (const hvd::PracticeSection* section)
         text << dot << ko ("치우침 ") << ui::formatLean (stats.medianMs) << dot << ko ("흩어짐 ") << ui::plusMinus() << ui::formatMs (stats.spreadMs())
              << dot << ko ("박에 맞음 ") << ui::formatPercent (stats.withinPercent);
 
+    text << dot << ko ("누르면 이 구간 연습");
     hoverLabel.setText (text, juce::dontSendNotification);
+}
+
+void PracticePage::practiceSection (const hvd::PracticeSection& section)
+{
+    if (! juce::isPositiveAndBelow (shown, static_cast<int> (rows.size())))
+        return;
+
+    // 그때 틀어 둔 파일(리듬 게임이면 드럼 뺀 반주)로 연다. 없으면 원래 곡.
+    const auto& take = rows[static_cast<std::size_t> (shown)].take;
+    const auto file = take.track.existsAsFile() ? take.track : take.song;
+
+    if (! file.existsAsFile())
+    {
+        ui::showMessage (ko ("곡을 열지 못했습니다"), ko ("파일이 없습니다: ") + file.getFileName());
+        return;
+    }
+
+    if (session.getTrackFile() != file && ! transport::load (session, file))
+        return;
+
+    // 곡을 연 직후에는 재생기가 곡을 아직 받지 않았을 수 있으나, 구간과 위치는 재생기가 받는 즉시 쓴다.
+    auto& track = session.getTrack();
+    track.setPlaying (false);
+    track.setLoop (section.startSeconds, section.endSeconds, true);
+    track.seek (section.startSeconds);
+
+    if (showPageNamed != nullptr)
+        showPageNamed ("play");
 }

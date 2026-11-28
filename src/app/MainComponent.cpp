@@ -284,6 +284,7 @@ MainComponent::MainComponent (const Options& options)
     {
         const auto index = static_cast<std::size_t> (i);
         addChildComponent (*pages[index]);
+        pages[index]->showPageNamed = [this] (const juce::String& name) { showPage (pageIndexFromName (name)); };
 
         ui::setupButton (*this, tabButtons[index], ko (pageTitles[index]), [this, i] { showPage (i); });
         tabButtons[index].setClickingTogglesState (true);

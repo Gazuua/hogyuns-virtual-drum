@@ -33,6 +33,9 @@ public:
 
     /** true이면 윗줄에서 템포, 탭, 메트로놈을 숨긴다 (리듬 게임을 하는 동안 채보의 BPM과 헷갈리지 않게). */
     virtual bool hidesTransport() const { return false; }
+
+    /** 다른 화면으로 넘어간다 ("play", "track" 등 MainComponent의 화면 이름). MainComponent가 채운다. */
+    std::function<void (const juce::String& pageName)> showPageNamed;
 };
 
 /** 연주 중에 스페이스나 엔터가 조작 부품을 건드리지 않도록 키보드 포커스를 갖지 않게 한다. */

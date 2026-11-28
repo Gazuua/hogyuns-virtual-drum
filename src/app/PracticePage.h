@@ -7,6 +7,7 @@
 
 #include "PracticeLog.h"
 #include "Session.h"
+#include "TrackControls.h"
 #include "Ui.h"
 
 /** 악기마다 박자가 어땠는지 한 줄씩 보여 준다: 가운데(0)가 박, 왼쪽이 빠름, 오른쪽이 늦음.
@@ -42,9 +43,13 @@ public:
     void paint (juce::Graphics&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
+    void mouseDown (const juce::MouseEvent&) override;
 
     /** 마우스가 가리키는 구간이 바뀔 때 불린다. 가리키는 구간이 없으면 nullptr. */
     std::function<void (const hvd::PracticeSection*)> onHover;
+
+    /** 구간을 눌렀을 때 불린다. */
+    std::function<void (const hvd::PracticeSection&)> onSectionClicked;
 
 private:
     juce::Rectangle<float> plotArea() const;
@@ -110,6 +115,9 @@ private:
 
     void showTake (int index);
     void showHover (const hvd::PracticeSection* section);
+
+    /** 고른 연주의 곡을 반주로 열고 그 구간을 반복하게 해 둔 뒤 연주 화면으로 넘어간다. */
+    void practiceSection (const hvd::PracticeSection& section);
     juce::Rectangle<int> detailArea() const;
     DetailLayout layoutDetail() const;
 
