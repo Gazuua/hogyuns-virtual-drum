@@ -108,6 +108,10 @@ const std::vector<KeyboardView::Shape>& KeyboardView::shapes()
         for (int i = 0; i < hvd::maxPedalKeys; ++i)
             list.push_back ({ hvd::pedalKey (i), 18.5f + static_cast<float> (i), 0.0f, 1.0f, 1.0f });
 
+        // 마우스 옆 단추(뒤, 앞). ↑ 양옆의 빈자리에 둔다.
+        list.push_back ({ hvd::mouseKey (0), 15.25f, 4.25f, 1.0f, 1.0f });
+        list.push_back ({ hvd::mouseKey (1), 17.25f, 4.25f, 1.0f, 1.0f });
+
         return list;
     }();
 

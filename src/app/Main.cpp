@@ -99,6 +99,19 @@ bool checkKeyboardRules (juce::String& report)
         return same;
     };
 
+    // 마우스 옆 단추: 키처럼 누름과 뗌을 넘긴다 (RAWMOUSE의 RI_MOUSE_BUTTON_4/5 값)
+    constexpr unsigned backDown = 0x0040, backUp = 0x0080, forwardDown = 0x0100, forwardUp = 0x0200;
+    events.clear();
+    probe.processMouseSideButtons (backDown);
+    probe.processMouseSideButtons (backDown);                // 이미 눌림: 무시
+    probe.processMouseSideButtons (backUp | forwardDown);    // 한 메시지에 뒤 뗌과 앞 누름
+    probe.processMouseSideButtons (forwardUp);
+    probe.processMouseSideButtons (backUp);                  // 이미 뗌: 무시
+
+    const auto sideOk = matches ({ { hvd::mouseKey (0), true }, { hvd::mouseKey (0), false }, { hvd::mouseKey (1), true }, { hvd::mouseKey (1), false } });
+    report << "mouse side buttons: " << (sideOk ? "ok" : "FAILED") << "\n";
+    ok = ok && sideOk;
+
     // 1. 등록: 처음 밟은 장치의 키만 차례로 적고, 그동안 누른 키는 연주에 넘기지 않는다
     events.clear();
     probe.beginPedalLearning();

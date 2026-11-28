@@ -38,13 +38,19 @@ LRESULT CALLBACK windowProc (HWND window, UINT message, WPARAM wParam, LPARAM lP
             {
                 self->processRawInput (input.header.hDevice, input.data.keyboard.MakeCode, input.data.keyboard.Flags);
             }
-            else if (copied != static_cast<UINT> (-1) && input.header.dwType == RIM_TYPEMOUSE
-                     && (input.data.mouse.usButtonFlags & (RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN)) != 0)
+            else if (copied != static_cast<UINT> (-1) && input.header.dwType == RIM_TYPEMOUSE)
             {
-                // 이 메시지가 생긴 때의 커서 자리. 움직임만 알리는 메시지는 지나간다.
-                const auto position = GetMessagePos();
-                self->processRawMouse (input.data.mouse.usButtonFlags,
-                                       static_cast<short> (LOWORD (position)), static_cast<short> (HIWORD (position)));
+                const auto buttons = static_cast<unsigned> (input.data.mouse.usButtonFlags);
+
+                if ((buttons & (RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_RIGHT_BUTTON_DOWN)) != 0)
+                {
+                    // 이 메시지가 생긴 때의 커서 자리. 움직임만 알리는 메시지는 지나간다.
+                    const auto position = GetMessagePos();
+                    self->processRawMouse (buttons, static_cast<short> (LOWORD (position)), static_cast<short> (HIWORD (position)));
+                }
+
+                if ((buttons & (RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_4_UP | RI_MOUSE_BUTTON_5_DOWN | RI_MOUSE_BUTTON_5_UP)) != 0)
+                    self->processMouseSideButtons (buttons);
             }
         }
     }
@@ -491,6 +497,38 @@ void RawKeyboard::processRawMouse (unsigned buttonFlags, int x, int y)
 
     if ((buttonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN) != 0)
         mouseHandler (swapped ? MouseButton::left : MouseButton::right, x, y);
+}
+
+void RawKeyboard::processMouseSideButtons (unsigned buttonFlags)
+{
+    // 뒤 단추(XBUTTON1)와 앞 단추(XBUTTON2). 뗌을 먼저 본다 (한 메시지에 둘 다 올 수 있다).
+    constexpr struct { unsigned downFlag, upFlag; } buttons[numMouseKeys] = {
+        { RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP },
+        { RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP },
+    };
+
+    for (int i = 0; i < numMouseKeys; ++i)
+    {
+        const auto key = mouseKey (i);
+        auto& down = isDown[key];
+
+        if ((buttonFlags & buttons[i].upFlag) != 0 && down)
+        {
+            down = false;
+
+            if (handler)
+                handler (key, false);
+        }
+
+        // 다른 프로그램이 맨 앞에 있거나 페달을 등록하는 중이면 누르지 않는다.
+        if ((buttonFlags & buttons[i].downFlag) != 0 && ! down && isInFront() && ! learning.load (std::memory_order_relaxed))
+        {
+            down = true;
+
+            if (handler)
+                handler (key, true);
+        }
+    }
 }
 
 void RawKeyboard::processRawKey (unsigned makeCode, unsigned flags, DeviceId device, std::int64_t timeUs)

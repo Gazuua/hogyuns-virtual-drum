@@ -130,6 +130,10 @@ constexpr std::array keyTable {
     KeyEntry { pedalKey (1), "Pedal2", "Pedal 2" },
     KeyEntry { pedalKey (2), "Pedal3", "Pedal 3" },
     KeyEntry { pedalKey (3), "Pedal4", "Pedal 4" },
+
+    // 마우스 옆 단추
+    KeyEntry { mouseKey (0), "MouseBack", "M4 뒤" },
+    KeyEntry { mouseKey (1), "MouseForward", "M5 앞" },
 };
 
 const KeyEntry* findEntry (KeyCode key) noexcept

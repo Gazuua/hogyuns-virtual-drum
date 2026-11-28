@@ -124,6 +124,10 @@ public:
     /** 입력 스레드가 부른다. buttonFlags는 RAWMOUSE의 usButtonFlags, x와 y는 그 메시지가 생긴 때의 커서 자리다. */
     void processRawMouse (unsigned buttonFlags, int x, int y);
 
+    /** 마우스 옆 단추(뒤, 앞)를 키처럼 넘긴다 (mouseKey). 키와 같이 이 창이 맨 앞일 때만 누르고, 커서 자리는 보지 않는다.
+        입력 스레드가 부르며, 검사할 때는 직접 부를 수 있다. buttonFlags는 RAWMOUSE의 usButtonFlags다. */
+    void processMouseSideButtons (unsigned buttonFlags);
+
     /** 입력 스레드가 부른다. 장치가 꽂히거나 빠졌으니 핸들과 장치의 짝을 다시 알아내게 한다. */
     void forgetDeviceHandles() noexcept
     {

@@ -188,6 +188,12 @@ void testKeyCodes()
     CHECK (hvd::isPedalKey (hvd::pedalKey (0)) && hvd::isPedalKey (hvd::pedalKey (hvd::maxPedalKeys - 1)));
     CHECK (! hvd::isPedalKey (hvd::pedalKey (hvd::maxPedalKeys)) && ! hvd::isPedalKey (0x39));
     CHECK ((hvd::firstPedalKey & 0x7f) != hvd::firstPedalKey);    // 스캔코드는 0x7f까지만 쓴다
+
+    // 마우스 옆 단추도 이름이 붙은 키다. 페달 키와 겹치지 않는다
+    CHECK (hvd::keyFromName ("MouseBack") == hvd::mouseKey (0) && hvd::keyFromName ("mouseforward") == hvd::mouseKey (1));
+    CHECK (hvd::keyName (hvd::mouseKey (1)) == "MouseForward");
+    CHECK (hvd::isMouseKey (hvd::mouseKey (0)) && ! hvd::isPedalKey (hvd::mouseKey (0)) && ! hvd::isMouseKey (hvd::pedalKey (hvd::maxPedalKeys - 1)));
+    CHECK ((hvd::mouseKey (hvd::numMouseKeys - 1) & 0x7f) != hvd::mouseKey (hvd::numMouseKeys - 1));
 }
 
 /** 보고 간격 어림: 정해진 간격의 격자 위에 놓인 시각들을 만들어 넣어 본다. */

@@ -42,6 +42,21 @@ constexpr bool isPedalKey (KeyCode key) noexcept
     return key >= firstPedalKey && key < firstPedalKey + maxPedalKeys;
 }
 
+/** 마우스 옆 단추(뒤, 앞)를 가리키는 키 번호. 설정 파일에서는 "MouseBack", "MouseForward"로 쓴다.
+    키처럼 키 배열에 적어 아무 동작이나 붙인다. 기본 키 배열에는 없다 (사용자가 핫키로 쓰려고 아껴 둔 단추). */
+inline constexpr int numMouseKeys = 2;
+inline constexpr KeyCode firstMouseKey = firstPedalKey + maxPedalKeys;
+
+constexpr KeyCode mouseKey (int index) noexcept
+{
+    return static_cast<KeyCode> (firstMouseKey + index);
+}
+
+constexpr bool isMouseKey (KeyCode key) noexcept
+{
+    return key >= firstMouseKey && key < firstMouseKey + numMouseKeys;
+}
+
 /** 설정 파일에 쓰는 이름. 예: "KeyJ", "Space", "Numpad1", "ShiftLeft".
     표에 없는 키는 "Scan_5E", "Scan_E0_5E" 꼴로 돌려준다. */
 std::string keyName (KeyCode key);
