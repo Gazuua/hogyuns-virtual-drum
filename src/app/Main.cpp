@@ -1296,7 +1296,8 @@ private:
                          << ", late callbacks: " << audio.getLateCallbackCount()
                          << ", single hits: 8, repeat hits while held 0.5 s: " << repeats
                          << ", output peak before muting: " << juce::String (juce::Decibels::gainToDecibels (peak), 1) << " dB"
-                         << ", dropped commands: " << static_cast<int> (s.getEngine().getDroppedCommandCount()) << "\n";
+                         << ", dropped commands: " << static_cast<int> (s.getEngine().getDroppedCommandCount())
+                         << ", stolen voices: " << static_cast<int> (s.getEngine().getStolenVoiceCount()) << "\n";
 
             // 단타 8번에 반복 타격 3~6번. 반복은 키를 뗀 뒤에 멈춰 있어야 한다.
             test->expect (audio.getStatus().open && audio.getCallbackCount() > 0, "device is running");

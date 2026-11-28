@@ -700,8 +700,163 @@ void testVoiceStealing()
         render (engine, 16);
     }
 
+    render (engine, 512);    // 빼앗긴 소리가 줄어들며 끝날 때까지
     CHECK (engine.getActiveVoiceCount() == hvd::Engine::maxVoices);
     CHECK (engine.getHitCount (0) == 300);
+    CHECK (engine.getStolenVoiceCount() == 300 - hvd::Engine::maxVoices);
+}
+
+void testStealOrder()
+{
+    // 보이스가 다 찼을 때 내주는 차례: 사라지는 중인 것 → 같은 패드의 가장 오래된 것 → 가장 작게 울리는 것.
+    // 내준 소리는 3ms 동안 줄어들며 끝나서 출력이 한 프레임에 튀지 않는다.
+    hvd::Kit kit;
+    kit.samples.push_back (makeConstantSample (0.001f, 100000));     // 보통 소리
+    kit.samples.push_back (makeConstantSample (0.0f, 100000));       // 소리 없음
+    kit.samples.push_back (makeConstantSample (0.0005f, 100000));    // 작은 소리
+    kit.samples.push_back (makeConstantSample (0.01f, 100000));      // 큰 소리
+    kit.pads.push_back (makePad ("a", 0));
+    kit.pads.push_back (makePad ("silent", 1));
+    kit.pads.push_back (makePad ("quiet", 2));
+    auto loud = makePad ("loud", 3);
+    loud.chokeFadeMs = 2000.0f;
+    kit.pads.push_back (loud);
+
+    constexpr auto others = static_cast<float> (hvd::Engine::maxVoices - 1) * 0.001f;
+
+    // 패드 first를 먼저, second를 다음에 치고 나머지 보이스를 a로 채운다.
+    const auto fill = [] (hvd::Engine& engine, int first, int second)
+    {
+        hit (engine, first);
+        render (engine, 16);
+
+        if (second >= 0)
+        {
+            hit (engine, second);
+            render (engine, 16);
+        }
+
+        for (int i = second >= 0 ? 2 : 1; i < hvd::Engine::maxVoices; ++i)
+        {
+            hit (engine, 0);
+            render (engine, 16);
+        }
+    };
+
+    const auto largestStep = [] (const Block& block, float previous)
+    {
+        auto step = std::abs (block.left[0] - previous);
+
+        for (std::size_t i = 1; i < block.left.size(); ++i)
+            step = std::max (step, std::abs (block.left[i] - block.left[i - 1]));
+
+        return step;
+    };
+
+    // 1. 가장 작게 울리는 것 (가장 오래된 것이 아니다). 소리 없는 패드를 쳐서 하나를 빼앗게 한다.
+    {
+        hvd::Engine engine;
+        engine.prepare (48000.0);
+        setKit (engine, kit);
+        fill (engine, 0, 2);
+
+        const auto before = render (engine, 64);
+        CHECK (isNear (before.left[63], others + 0.0005f, 1.0e-4f));
+
+        hit (engine, 1);
+        const auto block = render (engine, 512);
+        CHECK (engine.getStolenVoiceCount() == 1);
+        CHECK (largestStep (block, before.left[63]) < 1.0e-5f);    // 0.0005를 144프레임에 나눠 줄인다
+        CHECK (block.left[100] > others + 0.0001f);                // 3ms가 지나기 전에는 아직 남아 있다
+        CHECK (isNear (block.left[511], others, 1.0e-4f));         // 작은 소리만 빠졌다
+
+        // 줄어드는 중인 소리도 킷을 바꾸면 바로 멈춘다 (이전 킷의 샘플을 가리키지 않게).
+        hit (engine, 1);
+        render (engine, 16);
+        setKit (engine, kit);
+        CHECK (render (engine, 64).left[0] == 0.0f && engine.getActiveVoiceCount() == 0);
+    }
+
+    // 2. 사라지는 중인 것 (작지도 오래되지도 않았다)
+    {
+        hvd::Engine engine;
+        engine.prepare (48000.0);
+        setKit (engine, kit);
+        fill (engine, 0, 3);
+
+        hvd::EngineCommand choke;
+        choke.type = hvd::EngineCommand::Type::chokePad;
+        choke.pad = 3;
+        engine.postFromInput (choke);
+        render (engine, 64);
+
+        hit (engine, 1);
+        render (engine, 512);
+        CHECK (isNear (render (engine, 64).left[0], others, 1.0e-4f));    // 큰 소리만 빠졌다
+    }
+
+    // 3. 같은 패드의 가장 오래된 것. 그 전에 친 소리는 작고 오래됐어도 남는다 (롤을 누르는 동안의 심벌).
+    {
+        hvd::Engine engine;
+        engine.prepare (48000.0);
+        setKit (engine, kit);
+        fill (engine, 2, -1);
+
+        const auto before = render (engine, 64);
+        hit (engine, 0);
+        render (engine, 512);
+        CHECK (isNear (render (engine, 64).left[0], before.left[63], 1.0e-4f));    // a 하나가 나가고 a 하나가 들어왔다
+        engine.takePadPeak (2);
+        render (engine, 64);
+        CHECK (isNear (engine.takePadPeak (2), 0.0005f));
+    }
+}
+
+void testRollKeepsCymbals()
+{
+    // 버즈 롤(85ms마다 네 번 튐, 초당 47타)과 크래시 스웰(60ms 반복)을 7초 동안 함께 누르면 보이스가 모자란다.
+    // 그래도 그 전에 친 라이드는 끊기지 않는다. 롤과 스웰은 자기 패드의 오래된 소리를 내준다.
+    hvd::Kit kit;
+    kit.samples.push_back (makeConstantSample (0.001f, 48000 * 10));    // 라이드 10초
+    kit.samples.push_back (makeConstantSample (0.001f, 163680));        // 스네어 3.41초
+    kit.samples.push_back (makeConstantSample (0.001f, 48000 * 7));     // 크래시 7초
+    kit.pads.push_back (makePad ("ride", 0));
+    kit.pads.push_back (makePad ("snare", 1));
+    kit.pads.push_back (makePad ("crash", 2));
+
+    hvd::Engine engine;
+    engine.prepare (48000.0);
+    setKit (engine, kit);
+    hit (engine, 0);
+    render (engine, 128);
+
+    const auto start = [&engine] (std::uint32_t id, int pad, hvd::RunnerParams::Kind kind, double intervalSamples)
+    {
+        hvd::EngineCommand command;
+        command.type = hvd::EngineCommand::Type::runnerStart;
+        command.pad = static_cast<std::uint16_t> (pad);
+        command.runnerId = id;
+        command.runner.kind = kind;
+        command.runner.intervalSamples = intervalSamples;
+        engine.postFromInput (command);
+    };
+
+    start (1, 1, hvd::RunnerParams::Kind::buzz, 4080.0);
+    start (2, 2, hvd::RunnerParams::Kind::repeat, 2880.0);
+
+    auto mostVoices = 0;
+    auto rideKept = true;
+
+    for (int block = 0; block < 48000 * 7 / 128; ++block)
+    {
+        render (engine, 128);
+        mostVoices = std::max (mostVoices, engine.getActiveVoiceCount());
+        rideKept = rideKept && isNear (engine.takePadPeak (0), 0.001f);
+    }
+
+    CHECK (engine.getStolenVoiceCount() > 0);    // 보이스가 모자랐다
+    CHECK (mostVoices >= hvd::Engine::maxVoices && mostVoices <= hvd::Engine::maxVoices + hvd::Engine::maxReleasingVoices);
+    CHECK (rideKept);
 }
 
 void testKitSwap()
@@ -3318,6 +3473,8 @@ int hvd::runCoreTests (std::string& log)
         testResampledPlayback,
         testPan,
         testVoiceStealing,
+        testStealOrder,
+        testRollKeepsCymbals,
         testKitSwap,
         testQueueOverflow,
         testParseBeats,

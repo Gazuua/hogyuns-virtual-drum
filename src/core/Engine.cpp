@@ -205,9 +205,31 @@ void Engine::renderBlock (float* left, float* right, float* click, int numFrames
     std::fill_n (buses->sendLeft.begin(), count, 0.0f);
     std::fill_n (buses->sendRight.begin(), count, 0.0f);
 
-    auto active = 0;
+    // 보이스의 최근 크기는 50ms에 걸쳐 1/e로 놓는다 (낮은 소리의 한 주기보다 길게 잡는다).
+    levelDecay = static_cast<float> (std::exp (-static_cast<double> (numFrames) / (0.05 * sampleRate)));
 
-    for (auto& voice : voices)
+    auto active = 0;
+    auto span = 0;
+
+    for (int i = 0; i < voiceSpan; ++i)
+    {
+        auto& voice = voices[static_cast<std::size_t> (i)];
+
+        if (voice.sample == nullptr)
+            continue;
+
+        mixVoice (voice, numFrames);
+
+        if (voice.sample != nullptr)
+        {
+            ++active;
+            span = i + 1;
+        }
+    }
+
+    voiceSpan = span;    // 끝에서 쉬게 된 보이스는 다음 블록부터 훑지 않는다
+
+    for (auto& voice : releasing)
     {
         if (voice.sample == nullptr)
             continue;
@@ -281,8 +303,9 @@ void Engine::handle (const EngineCommand& command) noexcept
             break;
 
         case EngineCommand::Type::allSoundOff:
-            for (auto& voice : voices)
-                if (voice.sample != nullptr)
+            // 빼앗겨 줄어드는 중인 보이스(releasing)는 곧 끝난다.
+            for (int i = 0; i < voiceSpan; ++i)
+                if (auto& voice = voices[static_cast<std::size_t> (i)]; voice.sample != nullptr)
                     beginFade (voice, 0);
 
             stopAllRunners();
@@ -543,8 +566,8 @@ void Engine::beginFade (Voice& voice, int offset) noexcept
 
 void Engine::chokePad (std::uint16_t padIndex, int offset) noexcept
 {
-    for (auto& voice : voices)
-        if (voice.sample != nullptr && voice.pad == padIndex)
+    for (int i = 0; i < voiceSpan; ++i)
+        if (auto& voice = voices[static_cast<std::size_t> (i)]; voice.sample != nullptr && voice.pad == padIndex)
             beginFade (voice, offset);
 }
 
@@ -553,6 +576,10 @@ void Engine::stopAllVoices() noexcept
     for (auto& voice : voices)
         voice.sample = nullptr;
 
+    for (auto& voice : releasing)
+        voice.sample = nullptr;
+
+    voiceSpan = 0;
     activeVoices.store (0, std::memory_order_relaxed);
 }
 
@@ -565,21 +592,81 @@ void Engine::stopAllRunners() noexcept
     activeRunners.store (0, std::memory_order_relaxed);
 }
 
-Engine::Voice& Engine::allocateVoice() noexcept
+Engine::Voice& Engine::allocateVoice (std::uint16_t padIndex, int offset) noexcept
 {
-    Voice* oldest = &voices[0];
+    // 쓰는 범위 안의 빈자리부터 채워 범위를 좁게 둔다.
+    for (int i = 0; i < voiceSpan; ++i)
+        if (auto& voice = voices[static_cast<std::size_t> (i)]; voice.sample == nullptr)
+            return voice;
+
+    if (voiceSpan < maxVoices)
+        return voices[static_cast<std::size_t> (voiceSpan++)];
+
+    // 다 찼으면 하나를 빼앗는다: 사라지는 중인 것 → 같은 패드의 가장 오래된 것 → 가장 작게 울리는 것.
+    // 롤을 오래 누르면 그 패드의 오래된(이미 작아진) 소리부터 내주고, 그 전에 친 심벌은 끝까지 울린다.
+    const auto loudness = [] (const Voice& voice) noexcept
+    {
+        // 아직 소리를 내지 않은 보이스는 크기를 모르므로 샘플이 꽉 찬 것으로 친다.
+        return voice.sounded ? voice.level : std::max (voice.gainLeft, voice.gainRight) * voice.fade;
+    };
+
+    Voice* fading = nullptr;
+    Voice* samePad = nullptr;
+    Voice* quietest = nullptr;
 
     for (auto& voice : voices)
     {
-        if (voice.sample == nullptr)
-            return voice;
+        if (voice.fadeStep > 0.0f && (fading == nullptr || voice.fade < fading->fade))
+            fading = &voice;
 
-        if (voice.serial < oldest->serial)
-            oldest = &voice;
+        if (voice.pad == padIndex && (samePad == nullptr || voice.serial < samePad->serial))
+            samePad = &voice;
+
+        if (quietest == nullptr || loudness (voice) < loudness (*quietest)
+            || (loudness (voice) == loudness (*quietest) && voice.serial < quietest->serial))
+            quietest = &voice;
     }
 
-    // 빈 보이스가 없으면 가장 오래된 것을 빼앗는다.
-    return *oldest;
+    auto& victim = fading != nullptr ? *fading : (samePad != nullptr ? *samePad : *quietest);
+    releaseStolenVoice (victim, offset);
+    stolenVoices.fetch_add (1, std::memory_order_relaxed);
+    return victim;
+}
+
+void Engine::releaseStolenVoice (Voice& voice, int offset) noexcept
+{
+    // 한 번에 끊으면 딸깍 소리가 나므로, 따로 둔 자리로 옮겨 짧게 줄이며 끝낸다. 새 소리는 원래 자리에서 시작한다.
+    // 아직 소리를 내지 않은 보이스는 그냥 비운다.
+    if (voice.sounded)
+    {
+        Voice* slot = nullptr;
+
+        for (auto& candidate : releasing)
+        {
+            if (candidate.sample == nullptr)
+            {
+                slot = &candidate;
+                break;
+            }
+
+            // 자리가 모자라면 가장 많이 줄어든 것을 내준다 (3ms 안에 32번 넘게 빼앗아야 생긴다).
+            if (slot == nullptr || candidate.fade < slot->fade)
+                slot = &candidate;
+        }
+
+        const auto fadeStep = static_cast<float> (1.0 / std::max (1.0, stealFadeSeconds * sampleRate));
+
+        *slot = voice;
+
+        // 새 소리가 시작하는 때부터 줄인다. 이미 그보다 빨리 줄어드는 중이면 그대로 둔다.
+        if (slot->fadeStep < fadeStep)
+        {
+            slot->fadeDelay = slot->fadeStep > 0.0f ? std::min (slot->fadeDelay, std::max (0, offset)) : std::max (0, offset);
+            slot->fadeStep = fadeStep;
+        }
+    }
+
+    voice.sample = nullptr;
 }
 
 void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, HitOrigin origin, std::uint32_t skipSamples) noexcept
@@ -605,8 +692,9 @@ void Engine::startVoice (std::uint16_t padIndex, float velocity, int offset, Hit
 
     // 이 패드가 끊는 그룹에 속한 소리를 먼저 줄인다. (예: 하이햇을 닫으면 열린 소리가 끊긴다)
     if (pad.cutsMask != 0)
-        for (auto& voice : voices)
-            if (voice.sample != nullptr && voice.group >= 0 && ((pad.cutsMask >> voice.group) & 1u) != 0)
+        for (int i = 0; i < voiceSpan; ++i)
+            if (auto& voice = voices[static_cast<std::size_t> (i)];
+                voice.sample != nullptr && voice.group >= 0 && ((pad.cutsMask >> voice.group) & 1u) != 0)
                 beginFade (voice, offset);
 
     if (! playPad (padIndex, velocity, offset, 1.0f, skipSamples))
@@ -679,7 +767,7 @@ bool Engine::playPad (std::uint16_t padIndex, float velocity, int offset, float 
     // 소리 중간부터 내면 첫 샘플에서 딸깍 소리가 나므로 3ms 동안 키운다.
     constexpr double rampSeconds = 0.003;
 
-    auto& voice = allocateVoice();
+    auto& voice = allocateVoice (padIndex, offset);
     voice.sample = &sample;
     voice.position = startFrame;
     voice.step = step;
@@ -693,6 +781,8 @@ bool Engine::playPad (std::uint16_t padIndex, float velocity, int offset, float 
     voice.fadeDelay = 0;
     voice.group = pad.group;
     voice.pad = padIndex;
+    voice.sounded = false;
+    voice.level = 0.0f;
     voice.serial = ++serialCounter;
     return true;
 }
@@ -712,6 +802,7 @@ void Engine::mixVoice (Voice& voice, int numFrames) noexcept
     }
 
     voice.startOffset = 0;
+    voice.sounded = true;
 
     const auto& sample = *voice.sample;
     const auto* sourceLeft = sample.left.data();
@@ -720,9 +811,11 @@ void Engine::mixVoice (Voice& voice, int numFrames) noexcept
     const auto plainCopy = voice.step == 1.0;
     auto peak = 0.0f;
 
-    // 이 보이스가 이번 블록에서 낸 가장 큰 크기를 패드의 레벨 미터에 반영한다.
+    // 이 보이스가 이번 블록에서 낸 가장 큰 크기를 패드의 레벨 미터와 보이스의 최근 크기에 반영한다.
     const auto reportPeak = [this, &voice, &peak]() noexcept
     {
+        voice.level = std::max (peak, voice.level * levelDecay);
+
         auto& padPeak = padPeaks[voice.pad];
 
         if (peak > padPeak.load (std::memory_order_relaxed))

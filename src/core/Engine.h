@@ -84,7 +84,11 @@ struct EngineCommand
 class Engine
 {
 public:
-    static constexpr int maxVoices = 96;
+    // 동시에 울릴 수 있는 소리. 버즈 롤(초당 47타 × 스네어 3.4초)과 심벌 스웰을 함께 눌러도 남는다.
+    // 쉬는 보이스는 훑지 않으므로(voiceSpan) 늘려도 오디오 스레드의 일은 울리는 만큼만 는다.
+    static constexpr int maxVoices = 256;
+    static constexpr int maxReleasingVoices = 32;    // 빼앗긴 보이스가 짧게 줄어들며 끝나는 자리
+    static constexpr double stealFadeSeconds = 0.003;
     static constexpr int maxPads = 128;
     static constexpr int maxScheduled = 512;
     static constexpr int maxRunners = 32;
@@ -144,7 +148,11 @@ public:
     float takePadPeak (int pad) noexcept;
 
     //==============================================================================
+    /** 울리는 보이스 수. 빼앗겨 줄어드는 중인 것도 센다. */
     int getActiveVoiceCount() const noexcept              { return activeVoices.load (std::memory_order_relaxed); }
+
+    /** 보이스가 모자라 울리던 소리를 빼앗은 횟수. */
+    std::uint32_t getStolenVoiceCount() const noexcept    { return stolenVoices.load (std::memory_order_relaxed); }
     int getActiveRunnerCount() const noexcept             { return activeRunners.load (std::memory_order_relaxed); }
     std::uint32_t getHitCount (int pad) const noexcept;
     float getLastVelocity (int pad) const noexcept;
@@ -169,6 +177,8 @@ private:
         int fadeDelay = 0;                 // 초크가 시작되기까지 남은 프레임
         int group = -1;
         std::uint16_t pad = 0;
+        bool sounded = false;              // 한 프레임이라도 냈는지. 아직 안 냈으면 빼앗을 때 줄일 필요 없이 비운다
+        float level = 0.0f;                // 최근에 낸 크기 (봉우리를 잡았다가 천천히 놓는다). 빼앗을 보이스를 고를 때 쓴다
         std::uint64_t serial = 0;          // 시작 순서. 가장 오래된 보이스를 찾는 데 쓴다
     };
 
@@ -211,7 +221,8 @@ private:
     void chokePad (std::uint16_t padIndex, int offset) noexcept;
     void stopAllVoices() noexcept;
     void stopAllRunners() noexcept;
-    Voice& allocateVoice() noexcept;
+    Voice& allocateVoice (std::uint16_t padIndex, int offset) noexcept;
+    void releaseStolenVoice (Voice& voice, int offset) noexcept;
     void mixVoice (Voice& voice, int numFrames) noexcept;
     void renderMetronome (float* left, float* right, int numFrames) noexcept;
     double samplesPerBeat() const noexcept;
@@ -227,6 +238,9 @@ private:
     float liveVelocityScale = 1.0f;
 
     std::array<Voice, maxVoices> voices {};
+    int voiceSpan = 0;                     // voices에서 쓰는 앞쪽 범위. 이 뒤로는 모두 쉬는 보이스다
+    std::array<Voice, maxReleasingVoices> releasing {};
+    float levelDecay = 1.0f;               // 이번 블록에서 Voice::level을 놓는 배율
     std::array<ScheduledHit, maxScheduled> scheduled {};
     int numScheduled = 0;
     std::array<Runner, maxRunners> runners {};
@@ -264,6 +278,7 @@ private:
     std::array<std::atomic<float>, maxPads> lastVelocities {};
     std::array<std::atomic<float>, maxPads> padPeaks {};
     std::atomic<int> activeVoices { 0 };
+    std::atomic<std::uint32_t> stolenVoices { 0 };
     std::atomic<int> activeRunners { 0 };
     std::atomic<std::uint32_t> droppedCommands { 0 };
 
