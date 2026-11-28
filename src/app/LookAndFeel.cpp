@@ -1,5 +1,7 @@
 #include "LookAndFeel.h"
 
+#include "Text.h"
+
 namespace ui
 {
 
@@ -109,6 +111,11 @@ void setButtonKind (juce::Button& button, ButtonKind kind)
 ButtonKind getButtonKind (const juce::Button& button)
 {
     return static_cast<ButtonKind> (static_cast<int> (button.getProperties().getWithDefault (kindProperty, 0)));
+}
+
+juce::String typingHint()
+{
+    return ko ("연주 멈춤  ·  Esc");
 }
 
 //==============================================================================
@@ -638,6 +645,25 @@ void LookAndFeel::drawTextEditorOutline (juce::Graphics& g, int width, int heigh
     {
         g.setColour (editor.findColour (juce::TextEditor::focusedOutlineColourId));
         g.drawRoundedRectangle (bounds.reduced (0.75f), radius, 1.5f);
+
+        // 커서가 있는 동안 연주가 멈춘다는 것을 칸 안 오른쪽에 알린다 (적은 글이 가려지지 않을 때만).
+        if (width >= typingHintMinWidth)
+        {
+            const auto hint = typingHint();
+            const auto hintFont = font (type::caption);
+            const auto hintWidth = juce::GlyphArrangement::getStringWidthInt (hintFont, hint) + 16;
+
+            if (editor.getTextWidth() + hintWidth + 16 <= width)
+            {
+                const auto chip = juce::Rectangle<float> (static_cast<float> (width - hintWidth - 4), 4.0f,
+                                                          static_cast<float> (hintWidth), static_cast<float> (height - 8));
+                g.setColour (t.accent.withAlpha (t.dark ? 0.18f : 0.12f));
+                g.fillRoundedRectangle (chip, juce::jmax (2.0f, radius - 2.0f));
+                g.setColour (t.dark ? t.accent : t.accent.darker (0.3f));
+                g.setFont (hintFont);
+                g.drawText (hint, chip, juce::Justification::centred, false);
+            }
+        }
     }
     else if (const auto outline = editor.findColour (juce::TextEditor::outlineColourId); ! outline.isTransparent())
     {

@@ -22,6 +22,7 @@ public:
     void pageShown() override;
     void pageHidden() override;
     bool escapePressed() override;
+    bool hidesTransport() const override    { return playView; }
     void resized() override;
     void paint (juce::Graphics&) override;
 

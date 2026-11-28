@@ -58,14 +58,6 @@ juce::String starsText (float stars)
     return stars < 0.0f ? juce::String::fromUTF8 ("\xe2\x80\x94") : juce::String::fromUTF8 ("\xe2\x98\x85 ") + juce::String (stars, 1);
 }
 
-void setupToggle (juce::Component& parent, juce::ToggleButton& toggle, const juce::String& text, std::function<void()> onClick)
-{
-    toggle.setButtonText (text);
-    toggle.onClick = std::move (onClick);
-    ui::noFocus (toggle);
-    parent.addAndMakeVisible (toggle);
-}
-
 } // namespace
 
 GamePage::GamePage (Session& sessionToUse)
@@ -87,7 +79,7 @@ GamePage::GamePage (Session& sessionToUse)
     searchEditor.onEscapeKey = [this] { searchEditor.giveAwayKeyboardFocus(); };
     addAndMakeVisible (searchEditor);
 
-    setupToggle (*this, chartedToggle, ko ("채보 있는 곡만"), [this]
+    ui::setupToggle (*this, chartedToggle, ko ("채보 있는 곡만"), [this]
     {
         session.setSetting ("gameChartedOnly", chartedToggle.getToggleState());
         rebuildRows();
@@ -147,15 +139,15 @@ GamePage::GamePage (Session& sessionToUse)
     offsetSlider.onDragEnd = [this] { session.setSetting ("gameOffsetMs", offsetSlider.getValue()); };
     offsetSlider.setTooltip (ko ("늘 늦다고 나오면 값을 올리고, 늘 빠르다고 나오면 내립니다. 한 판이 끝난 뒤 \"보정에 반영\"을 눌러도 됩니다."));
 
-    setupToggle (*this, drumlessToggle, ko ("원곡의 드럼을 빼고 틀기"), [this] { session.setSetting ("gameDrumless", drumlessToggle.getToggleState()); });
+    ui::setupToggle (*this, drumlessToggle, ko ("원곡의 드럼을 빼고 틀기"), [this] { session.setSetting ("gameDrumless", drumlessToggle.getToggleState()); });
     drumlessToggle.setToggleState (static_cast<bool> (session.getSetting ("gameDrumless", true)), juce::dontSendNotification);
     drumlessToggle.setTooltip (ko ("드럼을 분리한 곡에서만 됩니다. 내가 친 드럼만 들립니다."));
 
-    setupToggle (*this, relaxedToggle, ko ("비슷한 악기는 바꿔 쳐도 인정"), [this] { session.setSetting ("gameRelaxed", relaxedToggle.getToggleState()); });
+    ui::setupToggle (*this, relaxedToggle, ko ("비슷한 악기는 바꿔 쳐도 인정"), [this] { session.setSetting ("gameRelaxed", relaxedToggle.getToggleState()); });
     relaxedToggle.setToggleState (static_cast<bool> (session.getSetting ("gameRelaxed", false)), juce::dontSendNotification);
     relaxedToggle.setTooltip (ko ("탐끼리, 심벌끼리는 바꿔 쳐도 맞은 것으로 봅니다."));
 
-    setupToggle (*this, autoplayToggle, ko ("오토 모드 (대신 연주)"), [] {});
+    ui::setupToggle (*this, autoplayToggle, ko ("오토 모드 (대신 연주)"), [] {});
     autoplayToggle.setTooltip (ko ("프로그램이 채보대로 정확한 박자에 대신 칩니다. 기록은 남지 않습니다. 연주 도중에도 아래의 \"오토\" 버튼으로 켜고 끌 수 있습니다."));
 
     ui::setupLabel (*this, orderLabel, ko ("레인 순서"), ui::Text::caption);
@@ -205,7 +197,7 @@ GamePage::GamePage (Session& sessionToUse)
         library.cancelAnalysis();
     });
 
-    setupToggle (*this, separatorToggle, ko ("드럼을 분리해서 정밀하게 받아 적기"), [this]
+    ui::setupToggle (*this, separatorToggle, ko ("드럼을 분리해서 정밀하게 받아 적기"), [this]
     {
         library.setUseSeparator (separatorToggle.getToggleState());
         session.setSetting ("gameSeparator", separatorToggle.getToggleState());

@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 
+#include "MasterGainSlider.h"
 #include "Session.h"
 #include "Ui.h"
 
@@ -37,6 +38,35 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NoticeBand)
 };
 
+/** 윗줄의 템포 값 칸 ("120 BPM"). 위아래(또는 좌우)로 끌면 바뀌고, 두 번 누르면 숫자를 적는다. */
+class TempoField final : public juce::Label
+{
+public:
+    TempoField();
+
+    /** 보여 줄 템포. 끄는 중이거나 적는 중에는 바꾸지 않는다. */
+    void setTempo (float beatsPerMinute);
+
+    /** 끌거나 적어서 템포를 바꿨을 때 불린다. */
+    std::function<void (float)> onTempoChange;
+
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+
+protected:
+    juce::TextEditor* createEditorComponent() override;
+    void editorShown (juce::TextEditor*) override;
+    void textWasEdited() override;
+
+private:
+    float tempo = 120.0f;
+    float dragStartTempo = 120.0f;
+    bool dragging = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TempoField)
+};
+
 /** 메인 화면. 위 한 줄에 탭과 트랜스포트(전체 음량, 템포, 메트로놈)와 설정, 가운데에 고른 화면
     (연주, 킷, 키 배열, 믹서, 반주·녹음, 리듬 게임, 연습 기록), 아래에 한 줄짜리 상태 표시줄을 둔다. */
 class MainComponent final : public juce::Component,
@@ -58,6 +88,10 @@ public:
 
     Session& getSession() noexcept    { return session; }
 
+    /** 창의 크기와 자리를 settings.json에서 되살린다 / 적는다. 평소에 켠 창만 부른다 (검사와 화면 찍기는 창이 없다). */
+    void restoreWindowState (juce::ResizableWindow& window);
+    void saveWindowState (juce::ResizableWindow& window);
+
     /** 0 연주, 1 킷, 2 키 배열, 3 믹서, 4 반주·녹음, 5 리듬 게임, 6 연습 기록 */
     void showPage (int index);
 
@@ -73,7 +107,7 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     void updateTempoControls();
-    void updateMasterControl();
+    void updateTransportVisibility();
     void tapTempoFromButton();
     void showAudioSettings();
     void layoutNotices();
@@ -94,18 +128,19 @@ private:
     int lateCallbackBaseline = -1;
     int dropouts = 0;
 
-    juce::Label statusLabel, latencyLabel, tempoLabel;
+    juce::Label statusLabel, latencyLabel;
+    TempoField tempoField;
     juce::TextButton settingsButton, tempoDownButton, tempoUpButton, tapButton, metronomeButton;
     NoticeBand notices;
+    bool transportHidden = false;    // 리듬 게임을 하는 동안 템포, 탭, 메트로놈을 숨긴다
 
-    // 전체 음량. 어느 화면에서든 보이게 윗줄에 둔다 (믹서 화면의 "전체 음량"과 같은 값).
-    juce::Slider masterSlider;
-    bool masterDirty = false;
+    // 전체 음량. 어느 화면에서든 보이게 윗줄에 둔다 (믹서 화면의 "전체 음량"과 같은 부품, 같은 값).
+    MasterGainSlider masterSlider { session };
     juce::Component::SafePointer<juce::DialogWindow> settingsDialog;
 
     // paint가 그리는 것들: 탭 묶음, 머리줄 아래 선, 트랜스포트 칸과 그 안의 나눔 선, 음량 그림, 상태 표시줄 위 선, 끊김 칩
     juce::Rectangle<int> tabArea, headerLine, transportArea, speakerArea, statusLine, dropoutChip;
-    std::array<int, 2> transportDividers {};
+    std::array<int, 2> transportDividers {};    // 0이면 그리지 않는다
     juce::Rectangle<int> contentArea;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

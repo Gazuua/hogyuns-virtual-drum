@@ -3,7 +3,10 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <functional>
+#include <memory>
+#include <span>
 
+#include "Format.h"
 #include "LookAndFeel.h"
 #include "Text.h"
 #include "Theme.h"
@@ -27,6 +30,9 @@ public:
 
     /** Esc를 눌렀을 때 불린다. 이 화면이 처리했으면 true를 돌려준다. */
     virtual bool escapePressed() { return false; }
+
+    /** true이면 윗줄에서 템포, 탭, 메트로놈을 숨긴다 (리듬 게임을 하는 동안 채보의 BPM과 헷갈리지 않게). */
+    virtual bool hidesTransport() const { return false; }
 };
 
 /** 연주 중에 스페이스나 엔터가 조작 부품을 건드리지 않도록 키보드 포커스를 갖지 않게 한다. */
@@ -123,20 +129,176 @@ inline void setupCombo (juce::Component& parent, juce::ComboBox& combo, std::fun
     parent.addAndMakeVisible (combo);
 }
 
+/** 켜고 끄는 설정: 체크 상자. */
+inline void setupToggle (juce::Component& parent, juce::ToggleButton& toggle, const juce::String& text,
+                         std::function<void()> onClick, bool initial = false)
+{
+    toggle.setButtonText (text);
+    toggle.setToggleState (initial, juce::dontSendNotification);
+    toggle.onClick = std::move (onClick);
+    noFocus (toggle);
+    parent.addAndMakeVisible (toggle);
+}
+
+/** 보기 전환: 붙은 버튼 묶음. 하나를 누르면 onSelect (번호)가 불린다. 고른 칸은 setToggleState로 정한다. */
+inline void setupSegmented (juce::Component& parent, std::span<juce::TextButton> buttons, const juce::StringArray& texts,
+                            int radioGroup, std::function<void (int)> onSelect)
+{
+    const auto last = static_cast<int> (buttons.size()) - 1;
+
+    for (int i = 0; i <= last; ++i)
+    {
+        auto& button = buttons[static_cast<std::size_t> (i)];
+        setupButton (parent, button, texts[i], [onSelect, i] { if (onSelect) onSelect (i); });
+        button.setClickingTogglesState (true);
+        button.setRadioGroupId (radioGroup);
+        button.setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0) | (i < last ? juce::Button::ConnectedOnRight : 0));
+        setButtonKind (button, ButtonKind::segment);
+    }
+}
+
+/** 한 줄 배치: 왼쪽에 항목 이름(captionWidth), 나머지에 조절 부품. area의 위에서 height만큼 떼어 쓴다. */
+inline void placeLabelled (juce::Rectangle<int>& area, juce::Label& caption, juce::Component& control,
+                           int captionWidth, int height = space::control, int gapBelow = space::tight)
+{
+    auto row = area.removeFromTop (height);
+    caption.setBounds (row.removeFromLeft (captionWidth));
+    control.setBounds (row);
+    area.removeFromTop (gapBelow);
+}
+
+/** 오래 걸리는 일을 하는 동안 모래시계 커서를 보인다. */
+struct WaitCursor
+{
+    WaitCursor()     { juce::MouseCursor::showWaitCursor(); }
+    ~WaitCursor()    { juce::MouseCursor::hideWaitCursor(); }
+
+    JUCE_DECLARE_NON_COPYABLE (WaitCursor)
+};
+
+/** 파일 고르기 창을 띄운다. 고르면(취소가 아니면) onChosen이 불린다. holder는 창이 떠 있는 동안 살아 있어야 한다. */
+inline void chooseFile (std::unique_ptr<juce::FileChooser>& holder, const juce::String& title, const juce::File& start,
+                        const juce::String& patterns, int flags, std::function<void (const juce::File&)> onChosen)
+{
+    holder = std::make_unique<juce::FileChooser> (title, start, patterns);
+    holder->launchAsync (flags, [onChosen = std::move (onChosen)] (const juce::FileChooser& chooser)
+    {
+        if (const auto file = chooser.getResult(); file != juce::File() && onChosen)
+            onChosen (file);
+    });
+}
+
+//==============================================================================
+/** 글자 없이 작은 그림만 있는 조용한 버튼 (새로 고침, 폴더 열기). 무엇인지는 툴팁으로 알린다. */
+class IconButton final : public juce::Button
+{
+public:
+    enum class Icon
+    {
+        refresh,
+        folder
+    };
+
+    IconButton (Icon iconToDraw, const juce::String& tooltip)
+        : juce::Button (tooltip), icon (iconToDraw)
+    {
+        setTooltip (tooltip);
+        noFocus (*this);
+    }
+
+    void paintButton (juce::Graphics& g, bool highlighted, bool down) override
+    {
+        const auto& t = theme();
+        const auto bounds = getLocalBounds().toFloat();
+
+        if (isEnabled() && (highlighted || down))
+        {
+            g.setColour (down ? t.pressed : t.hover);
+            g.fillRoundedRectangle (bounds, t.controlRadius);
+        }
+
+        const auto box = bounds.withSizeKeepingCentre (16.0f, 16.0f);
+        juce::Path path;
+
+        if (icon == Icon::refresh)
+        {
+            // 거의 한 바퀴 도는 화살표
+            const auto c = box.getCentre();
+            path.addCentredArc (c.x, c.y, 6.0f, 6.0f, 0.0f, 0.6f, juce::MathConstants<float>::twoPi - 0.2f, true);
+            const auto tip = c.getPointOnCircumference (6.0f, juce::MathConstants<float>::twoPi - 0.2f);
+            path.startNewSubPath (tip.translated (-4.0f, -1.5f));
+            path.lineTo (tip);
+            path.lineTo (tip.translated (0.5f, -4.5f));
+        }
+        else
+        {
+            // 폴더: 탭이 달린 네모
+            const auto r = box.reduced (0.5f, 2.0f);
+            path.startNewSubPath (r.getX(), r.getBottom());
+            path.lineTo (r.getX(), r.getY());
+            path.lineTo (r.getX() + 5.0f, r.getY());
+            path.lineTo (r.getX() + 7.0f, r.getY() + 2.0f);
+            path.lineTo (r.getRight(), r.getY() + 2.0f);
+            path.lineTo (r.getRight(), r.getBottom());
+            path.closeSubPath();
+        }
+
+        g.setColour ((highlighted ? t.text : t.textMuted).withMultipliedAlpha (isEnabled() ? 1.0f : 0.45f));
+        g.strokePath (path, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+private:
+    Icon icon;
+};
+
+//==============================================================================
+/** "조절 값은 소리에 바로, 파일에는 마우스를 놓은 뒤에" 저장을 맡는다.
+    값을 바꿀 때마다 mark()를 부르면, 마우스 단추가 모두 떼어진 뒤에 save가 한 번 불린다.
+    화면이 가려져도 돈다 (값 상자에 적고 바로 탭을 바꿔도 저장된다). */
+class DeferredSave final : private juce::Timer
+{
+public:
+    explicit DeferredSave (std::function<void()> saveFunction = {}) : save (std::move (saveFunction)) {}
+    ~DeferredSave() override    { stopTimer(); }
+
+    std::function<void()> save;
+
+    void mark()
+    {
+        pending = true;
+
+        if (! isTimerRunning())
+            startTimerHz (20);
+    }
+
+    bool isPending() const noexcept    { return pending; }
+
+    /** 기다리지 않고 바로 저장한다 (기다리는 것이 있을 때만). */
+    void flush()
+    {
+        stopTimer();
+
+        if (std::exchange (pending, false) && save)
+            save();
+    }
+
+private:
+    void timerCallback() override
+    {
+        if (! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+            flush();
+    }
+
+    bool pending = false;
+
+    JUCE_DECLARE_NON_COPYABLE (DeferredSave)
+};
+
 inline bool isCymbalPad (const juce::String& padId)
 {
     const auto id = padId.toLowerCase();
     return id.startsWith ("hihat") || id.startsWith ("hat") || id.startsWith ("ride") || id.startsWith ("crash")
         || id.startsWith ("china") || id.startsWith ("splash") || id.startsWith ("cymbal");
-}
-
-/** 초를 "1:23.4" 꼴로 적는다. */
-inline juce::String formatTime (double seconds)
-{
-    seconds = juce::jmax (0.0, seconds);
-    const auto minutes = static_cast<int> (seconds / 60.0);
-    const auto rest = seconds - minutes * 60.0;
-    return juce::String (minutes) + ":" + juce::String (rest, 1).paddedLeft ('0', 4);
 }
 
 /** 소리 파일로 읽을 수 있는 확장자인지. */
@@ -171,7 +333,29 @@ inline void promptForText (juce::Component* parent, const juce::String& title, c
                              true);
 }
 
-/** 예/아니오를 물어본다. 예를 누르면 onYes가 불린다. */
+/** 할 일을 물어본다. 버튼은 동작 이름(confirmText, 예: "삭제")과 "취소"다. 동작 버튼을 누르면 onConfirm이 불린다.
+    dangerous이면 동작 버튼을 위험 모양(빨간 글자)으로 그린다. */
+inline void confirm (juce::Component* parent, const juce::String& title, const juce::String& message,
+                     const juce::String& confirmText, std::function<void()> onConfirm, bool dangerous = false)
+{
+    auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::QuestionIcon, parent);
+    window->addButton (confirmText, 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    if (dangerous)
+        if (auto* button = window->getButton (0))
+            setButtonKind (*button, ButtonKind::danger);
+
+    window->enterModalState (true,
+                             juce::ModalCallbackFunction::create ([onConfirm = std::move (onConfirm)] (int result)
+                             {
+                                 if (result == 1)
+                                     onConfirm();
+                             }),
+                             true);
+}
+
+/** 예/아니오를 물어본다. 예를 누르면 onYes가 불린다. 새로 쓰는 곳은 버튼 문구를 받는 confirm을 쓴다. */
 inline void confirm (juce::Component* parent, const juce::String& title, const juce::String& message, std::function<void()> onYes)
 {
     auto* window = new juce::AlertWindow (title, message, juce::MessageBoxIconType::QuestionIcon, parent);

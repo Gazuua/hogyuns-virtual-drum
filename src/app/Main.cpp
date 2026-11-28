@@ -1258,10 +1258,21 @@ public:
             setResizable (true, true);
             setResizeLimits (1000, 680, 4000, 3000);
             centreWithSize (getWidth(), getHeight());
+
+            // 지난번에 닫을 때의 크기와 자리로 연다.
+            if (auto* main = dynamic_cast<MainComponent*> (getContentComponent()))
+                main->restoreWindowState (*this);
+
             setVisible (true);
 
             if (auto* content = getContentComponent())
                 content->grabKeyboardFocus();
+        }
+
+        ~MainWindow() override
+        {
+            if (auto* main = dynamic_cast<MainComponent*> (getContentComponent()))
+                main->saveWindowState (*this);
         }
 
         void closeButtonPressed() override

@@ -187,6 +187,88 @@ void NoticeBand::mouseUp (const juce::MouseEvent& event)
 }
 
 //==============================================================================
+TempoField::TempoField()
+{
+    setJustificationType (juce::Justification::centred);
+    setEditable (false, true, false);    // 두 번 누르면 숫자를 적는다
+    setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+    setTooltip (ko ("끌어서 바꾸기, 두 번 눌러 적기"));
+    setWantsKeyboardFocus (false);
+    setMouseClickGrabsKeyboardFocus (false);
+    setTempo (tempo);
+}
+
+void TempoField::setTempo (float beatsPerMinute)
+{
+    if (dragging || isBeingEdited())
+        return;
+
+    tempo = beatsPerMinute;
+    setText (juce::String (juce::roundToInt (tempo)) + " BPM", juce::dontSendNotification);
+}
+
+void TempoField::mouseDown (const juce::MouseEvent& event)
+{
+    dragging = false;
+    dragStartTempo = static_cast<float> (juce::roundToInt (tempo));
+    juce::Label::mouseDown (event);
+}
+
+void TempoField::mouseDrag (const juce::MouseEvent& event)
+{
+    // 위나 오른쪽으로 4px마다 1 BPM
+    const auto offset = event.getDistanceFromDragStartX() - event.getDistanceFromDragStartY();
+
+    if (! dragging && std::abs (offset) < 3)
+        return;
+
+    dragging = true;
+    const auto next = juce::jlimit (30.0f, 300.0f, dragStartTempo + static_cast<float> (offset / 4));
+
+    if (juce::roundToInt (next) != juce::roundToInt (tempo))
+    {
+        tempo = next;
+        setText (juce::String (juce::roundToInt (tempo)) + " BPM", juce::dontSendNotification);
+
+        if (onTempoChange)
+            onTempoChange (tempo);
+    }
+}
+
+void TempoField::mouseUp (const juce::MouseEvent& event)
+{
+    dragging = false;
+    juce::Label::mouseUp (event);
+}
+
+juce::TextEditor* TempoField::createEditorComponent()
+{
+    auto* textEditor = juce::Label::createEditorComponent();
+    textEditor->setInputRestrictions (3, "0123456789");
+    textEditor->setJustification (juce::Justification::centred);
+    return textEditor;
+}
+
+void TempoField::editorShown (juce::TextEditor* textEditor)
+{
+    textEditor->setText (juce::String (juce::roundToInt (tempo)), false);
+    textEditor->selectAll();
+}
+
+void TempoField::textWasEdited()
+{
+    if (const auto value = getText().getIntValue(); value > 0)
+    {
+        tempo = juce::jlimit (30.0f, 300.0f, static_cast<float> (value));
+
+        if (onTempoChange)
+            onTempoChange (tempo);
+    }
+
+    setText (juce::String (juce::roundToInt (tempo)) + " BPM", juce::dontSendNotification);
+}
+
+//==============================================================================
 MainComponent::MainComponent (const Options& options)
     : session (options)
 {
@@ -232,19 +314,12 @@ MainComponent::MainComponent (const Options& options)
     for (auto* button : { &tempoDownButton, &tempoUpButton, &tapButton, &metronomeButton })
         ui::setButtonKind (*button, ui::ButtonKind::quiet);
 
-    ui::setupLabel (*this, tempoLabel, {}, ui::Text::heading);
-    tempoLabel.setJustificationType (juce::Justification::centred);
+    ui::setTextStyle (tempoField, ui::Text::heading);
+    tempoField.onTempoChange = [this] (float tempo) { session.getEngine().setTempo (tempo); };
+    addAndMakeVisible (tempoField);
 
-    // 전체 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다(timerCallback). 두 번 누르면 기본값.
-    ui::setupSlider (*this, masterSlider, 0.0, AudioHost::maxMasterGain, 0.01, AudioHost::defaultMasterGain);
-    masterSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 44, 22);
-    masterSlider.setTooltip (ko ("전체 음량: 드럼과 메트로놈. 두 번 누르면 ") + juce::String (AudioHost::defaultMasterGain, 1));
-    masterSlider.setValue (session.getMasterGain(), juce::dontSendNotification);
-    masterSlider.onValueChange = [this]
-    {
-        session.setMasterGain (static_cast<float> (masterSlider.getValue()), false);
-        masterDirty = true;
-    };
+    // 전체 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다. 두 번 누르면 기본값.
+    addAndMakeVisible (masterSlider);
 
     // 맨 아래 상태 표시줄 한 줄: 왼쪽은 킷과 키 배열, 오른쪽은 지연과 CPU (자세한 장치 정보는 툴팁)
     ui::setupLabel (*this, statusLabel, {}, ui::Text::caption);
@@ -339,7 +414,8 @@ void MainComponent::paint (juce::Graphics& g)
     g.setColour (t.border);
 
     for (const auto x : transportDividers)
-        g.fillRect (juce::Rectangle<int> (x, transportArea.getY() + 8, 1, transportArea.getHeight() - 16));
+        if (x > 0)
+            g.fillRect (juce::Rectangle<int> (x, transportArea.getY() + 8, 1, transportArea.getHeight() - 16));
 
     // 음량 그림 (스피커)
     {
@@ -391,17 +467,20 @@ void MainComponent::resized()
     header.removeFromRight (ui::space::large);
 
     // 트랜스포트 안의 고정 폭. 음량 슬라이더는 남는 자리를 쓰고, 좁으면 값 상자를 뺀다.
+    // 탭의 폭은 리듬 게임 중에 템포 무리를 숨겨도 그대로 둔다 (탭이 옆으로 움직이지 않게).
     constexpr int pad = ui::space::tight;
     constexpr int tempoWidth = 28 + 64 + 28;
-    constexpr int fixedWidth = pad + ui::space::small + 16 + ui::space::tight      // 여백, 스피커 그림
-                             + ui::space::small + 1 + ui::space::small              // 나눔 선
-                             + tempoWidth + ui::space::tight + 36                   // − 120 BPM + 탭
-                             + ui::space::small + 1 + ui::space::small              // 나눔 선
-                             + 84 + pad;                                            // 메트로놈
+    constexpr int speakerWidth = pad + ui::space::small + 16 + ui::space::tight;       // 여백, 스피커 그림
+    constexpr int tempoGroupWidth = ui::space::small + 1 + ui::space::small              // 나눔 선
+                                  + tempoWidth + ui::space::tight + 36                   // − 120 BPM + 탭
+                                  + ui::space::small + 1 + ui::space::small              // 나눔 선
+                                  + 84;                                                  // 메트로놈
+    constexpr int fullFixedWidth = speakerWidth + tempoGroupWidth + pad;
+    const int fixedWidth = transportHidden ? speakerWidth + ui::space::small + pad : fullFixedWidth;
     constexpr int minSlider = 96, sliderWithValue = 150, fullSlider = 200;
 
     // 탭은 음량 값 상자가 들어갈 자리를 남기고 넓힌다. 창이 좁으면 탭을 줄이고, 그래도 모자라면 값 상자를 뺀다.
-    const auto tabWidth = juce::jlimit (68, 84, (header.getWidth() - ui::space::large - fixedWidth - sliderWithValue) / numPages);
+    const auto tabWidth = juce::jlimit (68, 84, (header.getWidth() - ui::space::large - fullFixedWidth - sliderWithValue) / numPages);
     tabArea = header.removeFromLeft (tabWidth * numPages).withSizeKeepingCentre (tabWidth * numPages, 36);
 
     auto tabs = tabArea;
@@ -411,10 +490,7 @@ void MainComponent::resized()
 
     header.removeFromLeft (ui::space::large);
     const auto sliderWidth = juce::jlimit (minSlider, fullSlider, header.getWidth() - fixedWidth);
-    const auto showValue = sliderWidth >= sliderWithValue;
-
-    if (showValue != (masterSlider.getTextBoxPosition() != juce::Slider::NoTextBox))
-        masterSlider.setTextBoxStyle (showValue ? juce::Slider::TextBoxRight : juce::Slider::NoTextBox, false, 44, 22);
+    masterSlider.setValueBoxShown (sliderWidth >= sliderWithValue);
 
     transportArea = header.removeFromRight (fixedWidth + sliderWidth).withSizeKeepingCentre (fixedWidth + sliderWidth, 36);
 
@@ -423,18 +499,23 @@ void MainComponent::resized()
     speakerArea = transport.removeFromLeft (16);
     transport.removeFromLeft (ui::space::tight);
     masterSlider.setBounds (transport.removeFromLeft (sliderWidth));
-    transport.removeFromLeft (ui::space::small);
-    transportDividers[0] = transport.getX();
-    transport.removeFromLeft (ui::space::small + 1);
-    tempoDownButton.setBounds (transport.removeFromLeft (28));
-    tempoLabel.setBounds (transport.removeFromLeft (64));
-    tempoUpButton.setBounds (transport.removeFromLeft (28));
-    transport.removeFromLeft (ui::space::tight);
-    tapButton.setBounds (transport.removeFromLeft (36));
-    transport.removeFromLeft (ui::space::small);
-    transportDividers[1] = transport.getX();
-    transport.removeFromLeft (ui::space::small + 1);
-    metronomeButton.setBounds (transport);
+    transportDividers = {};
+
+    if (! transportHidden)
+    {
+        transport.removeFromLeft (ui::space::small);
+        transportDividers[0] = transport.getX();
+        transport.removeFromLeft (ui::space::small + 1);
+        tempoDownButton.setBounds (transport.removeFromLeft (28));
+        tempoField.setBounds (transport.removeFromLeft (64));
+        tempoUpButton.setBounds (transport.removeFromLeft (28));
+        transport.removeFromLeft (ui::space::tight);
+        tapButton.setBounds (transport.removeFromLeft (36));
+        transport.removeFromLeft (ui::space::small);
+        transportDividers[1] = transport.getX();
+        transport.removeFromLeft (ui::space::small + 1);
+        metronomeButton.setBounds (transport);
+    }
 
     area.removeFromTop (ui::space::medium);
 
@@ -508,17 +589,39 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 void MainComponent::updateTempoControls()
 {
     auto& engine = session.getEngine();
-    tempoLabel.setText (juce::String (juce::roundToInt (engine.getTempo())) + " BPM", juce::dontSendNotification);
+    tempoField.setTempo (engine.getTempo());
 
     const auto on = engine.isMetronomeOn();
     metronomeButton.setButtonText (on ? (beatFlashTicks > 0 ? ko ("메트로놈 ●") : ko ("메트로놈 ○")) : ko ("메트로놈"));
     metronomeButton.setToggleState (on, juce::dontSendNotification);    // 켜져 있으면 켜진 모양으로 그린다
 }
 
-void MainComponent::updateMasterControl()
+void MainComponent::updateTransportVisibility()
 {
-    if (! masterSlider.isMouseButtonDown() && std::abs (masterSlider.getValue() - session.getMasterGain()) > 0.001)
-        masterSlider.setValue (session.getMasterGain(), juce::dontSendNotification);
+    // 리듬 게임을 하는 동안에는 템포, 탭, 메트로놈을 숨긴다 (채보의 BPM과 헷갈리지 않게).
+    const auto hide = pages[static_cast<std::size_t> (currentPage)]->hidesTransport();
+
+    if (hide == transportHidden)
+        return;
+
+    transportHidden = hide;
+
+    for (auto* component : std::initializer_list<juce::Component*> { &tempoDownButton, &tempoField, &tempoUpButton, &tapButton, &metronomeButton })
+        component->setVisible (! hide);
+
+    resized();
+    repaint();
+}
+
+void MainComponent::restoreWindowState (juce::ResizableWindow& window)
+{
+    if (const auto saved = session.getSetting ("window", {}).toString(); saved.isNotEmpty())
+        window.restoreWindowStateFromString (saved);
+}
+
+void MainComponent::saveWindowState (juce::ResizableWindow& window)
+{
+    session.setSetting ("window", window.getWindowStateAsString());
 }
 
 void MainComponent::tapTempoFromButton()
@@ -554,8 +657,10 @@ void MainComponent::refreshStatus()
     if (audio.isRecording())
         text << "  ·  " << ko ("● 녹음 중");
 
-    if (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr)
-        text << "  ·  " << ko ("글자 입력 중 (연주 멈춤, 엔터나 Esc로 끝내기)");
+    // 글자 입력 칸에 커서가 있으면 연주가 멈춘다. 넓은 칸은 칸 안에 알리고, 좁은 칸(값 상자 등)은 여기에 적는다.
+    if (auto* editor = dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent());
+        editor != nullptr && editor->getWidth() < ui::typingHintMinWidth)
+        text << "  ·  " << ui::typingHint();
 
     statusLabel.setText (text, juce::dontSendNotification);
 
@@ -637,6 +742,7 @@ void MainComponent::timerCallback()
     session.setPlayingSuspended (dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent()) != nullptr);
 
     pages[static_cast<std::size_t> (currentPage)]->tick();
+    updateTransportVisibility();
 
     // 메트로놈 박에 맞춰 버튼의 점을 잠깐 채운다.
     if (const auto beats = session.getEngine().getBeatCount(); beats != seenBeatCount)
@@ -656,13 +762,6 @@ void MainComponent::timerCallback()
     {
         refreshStatus();
         updateTempoControls();    // 키로 템포나 메트로놈을 바꿨을 때 화면에 반영한다
-        updateMasterControl();    // 믹서 화면에서 전체 음량을 바꿨을 때 반영한다
-    }
-
-    if (masterDirty && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
-    {
-        masterDirty = false;
-        session.rememberMasterGain();
     }
 
     // 창이 다시 만들어져 핸들이 바뀌는 경우에 대비해 주기적으로 맞춰 둔다.

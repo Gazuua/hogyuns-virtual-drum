@@ -21,6 +21,13 @@ enum class ButtonKind
 void setButtonKind (juce::Button&, ButtonKind);
 ButtonKind getButtonKind (const juce::Button&);
 
+/** 글자 입력 칸에 커서가 있는 동안에는 연주를 멈춘다. 칸이 이 폭 이상이면 칸 안 오른쪽에 typingHint()를 띄우고,
+    좁은 칸(값 상자 등)이면 상태 표시줄에 적는다. */
+inline constexpr int typingHintMinWidth = 180;
+
+/** "연주 멈춤 · Esc" */
+juce::String typingHint();
+
 /** 앱 전체의 그리기. 색은 지금 테마(ui::theme())에서 읽는다. */
 class LookAndFeel final : public juce::LookAndFeel_V4
 {
