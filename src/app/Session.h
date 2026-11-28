@@ -14,6 +14,7 @@
 #include "Documents.h"
 #include "PlayLog.h"
 #include "RawKeyboard.h"
+#include "SessionLog.h"
 #include "TakeRecorder.h"
 #include "core/Engine.h"
 #include "core/InputTiming.h"
@@ -297,21 +298,22 @@ public:
     //==============================================================================
     // 연주 로그: 켜져 있는 동안 친 것(타격, 키)과 그때의 상황(곡의 위치, 템포, 킷 등)을 파일에 적어 둔다.
     // 파일은 처음으로 무언가를 쳤을 때 만든다. 설정의 "playLog"를 false로 두면 남기지 않는다.
-    bool isPlayLogActive() const noexcept                    { return playLog.isActive(); }
+    // 무엇을 언제 적는지는 SessionLog가 정한다.
+    bool isPlayLogActive() const noexcept                    { return sessionLog.isActive(); }
     juce::File getPlayLogFolder() const                      { return playLogFolder; }
-    juce::File getPlayLogFile() const                        { return playLog.getFile(); }
+    juce::File getPlayLogFile() const                        { return sessionLog.getFile(); }
 
     /** 지금 시각으로 로그 줄을 시작한다. 화면 쪽이 상황(게임을 시작했다 등)을 적을 때 쓴다. */
-    PlayLog::Line beginLogLine (const char* event) const;
+    PlayLog::Line beginLogLine (const char* event) const     { return sessionLog.beginLine (event); }
 
     /** 상황을 알리는 줄을 적는다. 아직 친 것이 없어 파일이 없으면 버린다. */
-    void writeLogNote (const PlayLog::Line& line)            { playLog.write (line); }
+    void writeLogNote (const PlayLog::Line& line)            { sessionLog.writeNote (line); }
 
     /** 연주에 해당하는 줄을 적는다. 파일이 없으면 만들고, 그때의 상황(장치, 킷, 곡, 템포)부터 적는다. */
-    void writeLogPlay (const PlayLog::Line& line);
+    void writeLogPlay (const PlayLog::Line& line)            { sessionLog.writePlay (line); }
 
     /** 아직 디스크에 넘기지 않은 로그를 넘긴다. */
-    void flushPlayLog()                                      { playLog.flush(); }
+    void flushPlayLog()                                      { sessionLog.flush(); }
 
     //==============================================================================
     // 프로그램 설정 (화면 쪽이 기억해 둘 값)
@@ -352,17 +354,6 @@ private:
 
     void noteContent (const juce::File& file, Remembered& remembered, bool evenIfRecent = false);
     juce::String restoreBackup (const juce::File& backup, const juce::File& target, Remembered& remembered);
-
-    double logSecondsAt (std::uint64_t clock) const noexcept;
-    void logSituation();
-    void logWholeSituation();
-    void logKeys();
-    void logHit (const hvd::HitEvent& event, const AudioHost::TrackSync& sync);
-    void logAudio (const AudioHost::Status& status);
-    void logKit();
-    void logKeymap();
-    void logTempo();
-    void logTrackFile();
 
     juce::File dataRoot;
     juce::File kitFolder;
@@ -433,30 +424,8 @@ private:
     Remembered rememberedKit, rememberedKeymap;
 
     // 연주 로그
-    struct LoggedKey
-    {
-        std::uint64_t clock = 0;    // 키가 들어왔을 때의 엔진 시계
-        hvd::KeyCode key = hvd::invalidKey;
-        bool down = false;
-    };
-
-    PlayLog playLog;
+    SessionLog sessionLog { *this, engine, track, audio };
     juce::File playLogFolder;
-    std::atomic<bool> logKeysWanted { false };          // 입력 스레드가 키를 큐에 넣을지
-    hvd::SpscQueue<LoggedKey, 1024> loggedKeys;         // 입력 스레드 → 화면 스레드
-    std::uint64_t logBaseClock = 0;                     // 로그의 시각 = logBaseSeconds + (엔진 시계 - logBaseClock) / logRate
-    double logBaseSeconds = 0.0;
-    double logRate = 0.0;
-
-    // 마지막으로 로그에 적은 상황. 달라지면 새 줄을 적는다.
-    AudioHost::Status loggedAudio;
-    AudioHost::TrackSync loggedSync;
-    juce::File loggedTrackFile;
-    float loggedTempo = 0.0f;
-    int loggedBeatsPerBar = 0;
-    bool loggedMetronome = false;
-    std::uint32_t loggedBeatCount = 0;
-    int logPollCount = 0;
 
     // 리듬 게임의 곡 목록과 채보
     ChartLibrary charts;

@@ -89,8 +89,7 @@ Session::Session (const Options& options)
 
     if (options.playLogFolder != juce::File() && options.writePlayLog && static_cast<bool> (getSetting ("playLog", true)))
     {
-        playLog.start (options.playLogFolder);
-        logKeysWanted.store (playLog.isActive(), std::memory_order_relaxed);
+        sessionLog.start (options.playLogFolder);
     }
 
     kitFolder = getKitsFolder().getChildFile (getSetting ("kit", "default").toString());
@@ -164,9 +163,7 @@ Session::~Session()
         saveSettings();
 
     keyboard.stop();       // 입력 스레드가 엔진에 더 보내지 않게 먼저 멈춘다
-    logKeysWanted.store (false, std::memory_order_relaxed);
-    writeLogNote (beginLogLine ("end"));
-    playLog.stop();
+    sessionLog.stop();
     audio.getDeviceManager().removeMidiInputDeviceCallback ({}, this);
     audio.stop();          // 오디오 콜백이 엔진과 킷을 더 쓰지 않게 멈춘다 (녹음 중이면 파일도 닫는다)
     engine.detachKit();    // 이제 ownedKits와 ownedTracks가 지워져도 안전하다
@@ -254,12 +251,10 @@ void Session::poll()
         updatePedalConnection();
 
     // 로그에는 상황, 키, 타격의 순서로 적는다. 그래야 누른 키가 그 키가 낸 타격보다 앞에 온다.
-    logSituation();
-    logKeys();
+    sessionLog.logSituation();
+    sessionLog.logKeys();
     drainHitEvents();
-
-    if (logPollCount % 60 == 0)
-        playLog.flush();
+    sessionLog.flushIfDue();
 
     charts.poll();
     outputPeak = audio.takePeak();
@@ -302,7 +297,7 @@ void Session::drainHitEvents()
 {
     const auto sampleRate = engine.getSampleRate();
     const auto measuring = engine.isMetronomeOn() && ! takes.isPlaying();
-    const auto logging = playLog.isActive();
+    const auto logging = sessionLog.isActive();
     const auto sync = logging ? audio.getTrackSync() : AudioHost::TrackSync();
     hvd::HitEvent event;
 
@@ -312,7 +307,7 @@ void Session::drainHitEvents()
             continue;
 
         if (logging)
-            logHit (event, sync);
+            sessionLog.logHit (event, *shownKit, sync);
 
         if (onHit != nullptr)
             onHit (event);
@@ -479,7 +474,7 @@ void Session::reloadKit()
 
         applyFxFromDocument();
         rebuildMidiTable();
-        logKit();
+        sessionLog.logKit();
     }
     else
     {
@@ -835,7 +830,7 @@ void Session::reloadKeymap()
                 engine.setTempo (loadedTempo);
             }
 
-            logKeymap();
+            sessionLog.logKeymap();
         }
         else
         {
@@ -936,9 +931,7 @@ void Session::handleKey (hvd::KeyCode key, bool down)
             return;
 
         forwarded[key] = true;
-
-        if (logKeysWanted.load (std::memory_order_relaxed))
-            loggedKeys.push (LoggedKey { engine.getClock(), key, true });
+        sessionLog.noteKey (key, true);
 
         performer.keyDown (key, time);
     }
@@ -946,9 +939,7 @@ void Session::handleKey (hvd::KeyCode key, bool down)
     {
         // 누름을 넘긴 키만 뗌도 넘긴다. 그래야 뗄 때 치는 방식의 키가 엉뚱하게 울리지 않는다.
         forwarded[key] = false;
-
-        if (logKeysWanted.load (std::memory_order_relaxed))
-            loggedKeys.push (LoggedKey { engine.getClock(), key, false });
+        sessionLog.noteKey (key, false);
 
         performer.keyUp (key, time);
     }
@@ -1205,224 +1196,4 @@ juce::String Session::importTakeFromMidi (const juce::File& file)
         sendChangeMessage();
 
     return message;
-}
-
-//==============================================================================
-// 연주 로그
-//
-// 줄마다 t(초)와 e(무슨 일인지)가 있다. t는 엔진 시계를 초로 바꾼 값이라 타격끼리는 샘플 단위로 정확하다.
-//   hit     타격 하나: pad, v(세기), src(key / mouse / midi / screen / replay / auto), key(누른 키), song(곡 안의 위치)
-//   down/up 키를 누르고 뗀 것: key
-//   beat    메트로놈의 박: n
-//   play / pause / seek / speed    반주의 진행: song, speed
-//   start, audio, kit, keymap, tempo, track, game, end    그때의 상황
-// song은 그 타격의 소리가 곡의 어느 자리에 놓였는지다 (녹음하면 그 자리에 들린다).
-
-double Session::logSecondsAt (std::uint64_t clock) const noexcept
-{
-    const auto rate = logRate > 0.0 ? logRate : 48000.0;
-    return logBaseSeconds + static_cast<double> (static_cast<std::int64_t> (clock - logBaseClock)) / rate;
-}
-
-PlayLog::Line Session::beginLogLine (const char* event) const
-{
-    return PlayLog::Line (logSecondsAt (engine.getClock()), event);
-}
-
-void Session::writeLogPlay (const PlayLog::Line& line)
-{
-    if (! playLog.hasFile())
-    {
-        if (! playLog.begin())
-            return;
-
-        logWholeSituation();
-        playLog.writeKept();
-    }
-
-    playLog.write (line);
-}
-
-void Session::logWholeSituation()
-{
-    playLog.write (beginLogLine ("start").integer ("version", 1)
-                                         .text ("time", juce::Time::getCurrentTime().toISO8601 (true)));
-    logAudio (audio.getStatus());
-    logKit();
-    logKeymap();
-    logTempo();
-    logTrackFile();
-
-    loggedSync = audio.getTrackSync();
-    loggedSync.active = loggedSync.active && trackFile != juce::File();
-    loggedBeatCount = engine.getBeatCount();
-
-    if (loggedSync.active)
-        playLog.write (PlayLog::Line (logSecondsAt (loggedSync.clock), "play").number ("song", loggedSync.position, 4)
-                                                                                 .number ("speed", loggedSync.speed, 3));
-}
-
-void Session::logAudio (const AudioHost::Status& status)
-{
-    loggedAudio = status;
-
-    const auto latencyMs = status.sampleRate > 0.0 ? 1000.0 * status.outputLatency / status.sampleRate : 0.0;
-
-    playLog.write (beginLogLine ("audio").flag ("open", status.open)
-                                         .text ("type", status.typeName)
-                                         .text ("device", status.deviceName)
-                                         .number ("rate", status.sampleRate, 0)
-                                         .integer ("buffer", status.bufferSize)
-                                         .number ("latencyMs", latencyMs, 2));
-}
-
-void Session::logKit()
-{
-    if (shownKit != nullptr)
-        playLog.write (beginLogLine ("kit").text ("folder", getKitFolderName())
-                                           .text ("name", fromUtf8 (shownKit->name))
-                                           .integer ("pads", static_cast<juce::int64> (shownKit->pads.size())));
-}
-
-void Session::logKeymap()
-{
-    playLog.write (beginLogLine ("keymap").text ("name", getKeymapName()));
-}
-
-void Session::logTempo()
-{
-    loggedTempo = engine.getTempo();
-    loggedBeatsPerBar = engine.getBeatsPerBar();
-    loggedMetronome = engine.isMetronomeOn();
-
-    playLog.write (beginLogLine ("tempo").number ("bpm", loggedTempo, 2)
-                                         .integer ("beatsPerBar", loggedBeatsPerBar)
-                                         .flag ("metronome", loggedMetronome));
-}
-
-void Session::logTrackFile()
-{
-    loggedTrackFile = trackFile;
-
-    playLog.write (beginLogLine ("track").text ("file", trackFile.getFullPathName())
-                                         .number ("length", trackFile != juce::File() ? track.getLength() : 0.0, 3));
-}
-
-void Session::logSituation()
-{
-    ++logPollCount;
-
-    if (! playLog.isActive())
-        return;
-
-    // 장치의 샘플레이트가 바뀌면 그때부터 새 배율로 센다. 로그의 시각은 이어진다.
-    if (const auto rate = engine.getSampleRate(); rate > 0.0 && rate != logRate)
-    {
-        const auto now = engine.getClock();
-        logBaseSeconds = logSecondsAt (now);
-        logBaseClock = now;
-        logRate = rate;
-    }
-
-    if (! playLog.hasFile())
-        return;    // 아직 친 것이 없다. 처음 칠 때 그때의 상황을 통째로 적는다
-
-    // 장치와 템포는 0.5초에 한 번만 살핀다 (템포 슬라이더를 끄는 동안 줄이 쏟아지지 않게).
-    if (logPollCount % 30 == 0)
-    {
-        const auto status = audio.getStatus();
-
-        if (status.open != loggedAudio.open || status.typeName != loggedAudio.typeName || status.deviceName != loggedAudio.deviceName
-            || status.sampleRate != loggedAudio.sampleRate || status.bufferSize != loggedAudio.bufferSize
-            || status.outputLatency != loggedAudio.outputLatency)
-            logAudio (status);
-
-        if (engine.getTempo() != loggedTempo || engine.getBeatsPerBar() != loggedBeatsPerBar)
-            logTempo();
-    }
-
-    if (engine.isMetronomeOn() != loggedMetronome)
-        logTempo();
-
-    // 메트로놈의 박. 타격이 박에서 얼마나 벗어났는지 나중에 잴 수 있게 한다.
-    if (auto count = engine.getBeatCount(); count != loggedBeatCount)
-    {
-        auto time = engine.getLastBeatTime();
-
-        // 읽는 사이에 다음 박이 쳐졌으면 다시 읽는다.
-        for (int attempt = 0; attempt < 4 && engine.getBeatCount() != count; ++attempt)
-        {
-            count = engine.getBeatCount();
-            time = engine.getLastBeatTime();
-        }
-
-        loggedBeatCount = count;
-
-        if (loggedMetronome)
-            playLog.write (PlayLog::Line (logSecondsAt (time), "beat").integer ("n", count));
-    }
-
-    // 반주. 곡을 연 것은 그 곡의 진행보다 먼저, 닫은 것은 멈춘 것 다음에 적는다.
-    const auto loaded = trackFile != juce::File();
-    const auto trackChanged = trackFile != loggedTrackFile;
-    auto sync = audio.getTrackSync();
-    sync.active = sync.active && loaded;    // 곡을 닫은 직후에는 오디오 쪽의 값이 닫기 전 그대로일 수 있다
-
-    const auto at = logSecondsAt (sync.clock);
-
-    if (trackChanged && loaded)
-        logTrackFile();
-
-    if (sync.active != loggedSync.active || (trackChanged && sync.active))
-    {
-        playLog.write (PlayLog::Line (at, sync.active ? "play" : "pause").number ("song", sync.position, 4)
-                                                                         .number ("speed", sync.speed, 3));
-    }
-    else if (sync.active)
-    {
-        const auto expected = loggedSync.positionAt (sync.clock, engine.getSampleRate());
-
-        if (std::abs (sync.speed - loggedSync.speed) > 1.0e-4f)
-            playLog.write (PlayLog::Line (at, "speed").number ("song", sync.position, 4).number ("speed", sync.speed, 3));
-        else if (std::abs (sync.position - expected) > 0.03)
-            playLog.write (PlayLog::Line (at, "seek").number ("song", sync.position, 4).number ("from", expected, 4));
-    }
-    else if (loaded && ! trackChanged && std::abs (sync.position - loggedSync.position) > 0.03)
-    {
-        playLog.write (PlayLog::Line (at, "seek").number ("song", sync.position, 4).number ("from", loggedSync.position, 4));
-    }
-
-    if (trackChanged && ! loaded)
-        logTrackFile();
-
-    loggedSync = sync;
-}
-
-void Session::logKeys()
-{
-    LoggedKey entry;
-
-    while (loggedKeys.pop (entry))
-        playLog.writeOrKeep (PlayLog::Line (logSecondsAt (entry.clock), entry.down ? "down" : "up")
-                                 .text ("key", fromUtf8 (hvd::keyName (entry.key))));
-}
-
-void Session::logHit (const hvd::HitEvent& event, const AudioHost::TrackSync& sync)
-{
-    static constexpr const char* sources[] = { "screen", "key", "midi", "replay", "auto", "mouse" };    // HitSource의 순서
-    const auto source = static_cast<std::size_t> (event.origin.source);
-
-    PlayLog::Line line (logSecondsAt (event.time), "hit");
-    line.text ("pad", juce::String (shownKit->pads[event.pad].id))
-        .number ("v", event.velocity, 3)
-        .text ("src", source < std::size (sources) ? sources[source] : "screen");
-
-    if (event.origin.source == hvd::HitSource::key && event.origin.key != hvd::invalidKey)
-        line.text ("key", fromUtf8 (hvd::keyName (event.origin.key)));
-
-    // 반주가 진행 중이면 이 타격의 소리가 곡의 어느 자리에 놓였는지 적는다. 준비 시간 동안에는 음수다.
-    if (sync.active && trackFile != juce::File())
-        line.number ("song", sync.positionAt (event.time, engine.getSampleRate()), 4);
-
-    writeLogPlay (line);
 }

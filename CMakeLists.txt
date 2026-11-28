@@ -123,6 +123,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/PracticePage.cpp
     src/app/RawKeyboard.cpp
     src/app/Session.cpp
+    src/app/SessionLog.cpp
     src/app/SfzImport.cpp
     src/app/TakeRecorder.cpp
     src/app/Theme.cpp
