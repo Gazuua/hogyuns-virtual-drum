@@ -9,11 +9,6 @@ constexpr int listWidth = 250;
 constexpr int captionHeight = 20;       // 조절 항목의 이름 줄
 constexpr int valueBoxWidth = 72;       // 슬라이더 값 상자 ("가운데", "+1.5 반음")
 
-int textWidth (const juce::Label& label)
-{
-    return juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText());
-}
-
 /** 팬 값(-1 ~ 1)을 "가운데", "L30", "R30" 꼴로. */
 juce::String panText (double value)
 {
@@ -302,10 +297,10 @@ void KitPage::layoutEditor()
     mediumButton.setBounds (title.removeFromRight (previewWidth));
     softButton.setBounds (title.removeFromRight (previewWidth));
     title.removeFromRight (ui::space::small);
-    previewCaption.setBounds (title.removeFromRight (textWidth (previewCaption) + 4));
+    previewCaption.setBounds (title.removeFromRight (ui::textWidth (previewCaption) + 4));
     title.removeFromRight (ui::space::large);
 
-    padTitle.setBounds (title.removeFromLeft (juce::jmin (title.getWidth() - 96, textWidth (padTitle) + ui::space::small)));
+    padTitle.setBounds (title.removeFromLeft (juce::jmin (title.getWidth() - 96, ui::textWidth (padTitle) + ui::space::small)));
     renamePadButton.setBounds (title.removeFromLeft (92));
 
     editor.removeFromTop (ui::space::large);
@@ -349,7 +344,7 @@ void KitPage::layoutEditor()
     // 샘플: 요약 한 줄. 펼쳤거나 샘플이 없으면 아래에 목록과 버튼
     samplesCaption.setBounds (editor.removeFromTop (captionHeight));
     auto summary = editor.removeFromTop (ui::space::control);
-    samplesSummary.setBounds (summary.removeFromLeft (juce::jmin (summary.getWidth() - 96, textWidth (samplesSummary) + ui::space::large)));
+    samplesSummary.setBounds (summary.removeFromLeft (juce::jmin (summary.getWidth() - 96, ui::textWidth (samplesSummary) + ui::space::large)));
     filesButton.setBounds (summary.removeFromLeft (88));
     filesButton.setVisible (hasSamples);
 
@@ -459,10 +454,10 @@ void KitPage::rebuild()
     // 킷의 이름은 창 아래의 상태 줄에 나오므로 여기에는 적지 않는다.
     juce::String info;
     info << ko ("샘플 ") << stats.numSamples << ko ("개")
-         << "  ·  " << juce::roundToInt (static_cast<double> (stats.memoryBytes) / 1.0e6) << " MB";
+         << ui::separator() << juce::roundToInt (static_cast<double> (stats.memoryBytes) / 1.0e6) << " MB";
 
     if (const auto license = document.getProperty ("license").toString(); license.isNotEmpty())
-        info << "  ·  " << license;
+        info << ui::separator() << license;
 
     kitInfo.setText (info, juce::dontSendNotification);
     documents.setInfo (info);

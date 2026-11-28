@@ -83,6 +83,12 @@ inline void setupLabel (juce::Component& parent, juce::Label& label, const juce:
     parent.addAndMakeVisible (label);
 }
 
+/** 꼬리표의 글이 지금 글꼴로 차지하는 폭 (테두리 여백은 빼고). 글 길이에 맞춰 자리를 줄 때 쓴다. */
+inline int textWidth (const juce::Label& label)
+{
+    return juce::GlyphArrangement::getStringWidthInt (label.getFont(), label.getText());
+}
+
 /** 큰 칸(패널): 면으로 채운 둥근 네모. 테두리는 없다. */
 inline void fillPanel (juce::Graphics& g, juce::Rectangle<float> area)
 {

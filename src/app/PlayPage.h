@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include "KitView.h"
@@ -62,7 +63,8 @@ private:
     bool showingSet = true;
 
     // 툴바: [타일 | 드럼 세트] [이름 · 키] ... [배치 편집] [소리 끄기]
-    juce::TextButton tilesButton, setButton, editButton, silenceButton;
+    std::array<juce::TextButton, 2> viewButtons;    // 타일, 드럼 세트
+    juce::TextButton editButton, silenceButton;
     juce::ToggleButton labelsToggle;
 
     // 배치 편집 중의 툴바: 배치 편집 · 끌기 이동 · 휠 크기 ... [기본 배치로] [완료]

@@ -373,8 +373,7 @@ void PedalBanner::resized()
     cancelButton.setBounds (doneButton.getBounds().translated (-72 - ui::space::tight, 0));
     area.setRight (cancelButton.getX() - ui::space::large);
 
-    text.setBounds (area.removeFromLeft (juce::jmin (area.getWidth() / 2,
-                                                     juce::GlyphArrangement::getStringWidthInt (text.getFont(), text.getText()) + ui::space::xlarge)));
+    text.setBounds (area.removeFromLeft (juce::jmin (area.getWidth() / 2, ui::textWidth (text) + ui::space::xlarge)));
     keys.setBounds (area);
 }
 
@@ -443,8 +442,7 @@ void KeysPage::resized()
 
     if (pedalLabel.isVisible())
     {
-        const auto textWidth = juce::GlyphArrangement::getStringWidthInt (pedalLabel.getFont(), pedalLabel.getText());
-        pedalChip = top.removeFromRight (juce::jmin (textWidth + 36, juce::jmax (0, top.getWidth() - 150)));
+        pedalChip = top.removeFromRight (juce::jmin (ui::textWidth (pedalLabel) + 36, juce::jmax (0, top.getWidth() - 150)));
         pedalLabel.setBounds (pedalChip.withTrimmedLeft (22).withTrimmedRight (8));
         top.removeFromRight (ui::space::small);
     }
@@ -489,11 +487,10 @@ void KeysPage::layoutEditor()
     title.removeFromRight (ui::space::tight);
     quickPadCombo.setBounds (title.removeFromRight (150));
     title.removeFromRight (ui::space::small);
-    quickCaption.setBounds (title.removeFromRight (juce::GlyphArrangement::getStringWidthInt (quickCaption.getFont(), quickCaption.getText()) + 4));
+    quickCaption.setBounds (title.removeFromRight (ui::textWidth (quickCaption) + 4));
     title.removeFromRight (ui::space::large);
 
-    keyTitle.setBounds (title.removeFromLeft (juce::jmin (title.getWidth() / 3,
-                                                          juce::GlyphArrangement::getStringWidthInt (keyTitle.getFont(), keyTitle.getText()) + ui::space::large)));
+    keyTitle.setBounds (title.removeFromLeft (juce::jmin (title.getWidth() / 3, ui::textWidth (keyTitle) + ui::space::large)));
 
     for (auto* slot : slotButtons)
         if (slot->isVisible())
@@ -952,14 +949,14 @@ void KeysPage::updatePedalStatus()
         if (pedalConnected)
         {
             const auto interval = intervalText (session.getReportInterval (true));
-            chip << ko ("  ·  ") << interval;
-            tip << ko ("  ·  보고 간격 ") << interval;
+            chip << ui::separator() << interval;
+            tip << ui::separator() << ko ("보고 간격 ") << interval;
         }
     }
 
     // 견주어 볼 수 있게 키보드의 것도 함께 적는다.
     if (const auto ofKeyboard = session.getReportInterval (false); ofKeyboard.enough)
-        tip << (tip.isNotEmpty() ? ko ("  ·  ") : juce::String()) << ko ("키보드 보고 간격 ") << intervalText (ofKeyboard);
+        tip << (tip.isNotEmpty() ? ui::separator() : juce::String()) << ko ("키보드 보고 간격 ") << intervalText (ofKeyboard);
 
     pedalButton.setButtonText (registered ? ko ("페달") : ko ("페달 등록"));
     pedalButton.setTooltip (registered ? tip : ko ("풋스위치를 등록하면 키보드와 따로 정할 수 있습니다"));

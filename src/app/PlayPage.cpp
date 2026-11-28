@@ -44,30 +44,18 @@ PlayPage::PlayPage (Session& sessionToUse)
         session.markKitEdited();
     };
 
-    ui::setupButton (*this, tilesButton, ko ("타일"), [this] { setShowingSet (false); });
-    ui::setupButton (*this, setButton, ko ("드럼 세트"), [this] { setShowingSet (true); });
+    // 보기 전환: [타일 | 드럼 세트]
+    ui::setupSegmented (*this, viewButtons, juce::StringArray (ko ("타일"), ko ("드럼 세트")), 1, [this] (int view) { setShowingSet (view == 1); });
     ui::setupButton (*this, editButton, ko ("배치 편집"), [this] { setEditing (true); });
     ui::setupButton (*this, silenceButton, ko ("소리 끄기"), [this] { session.allSoundOff(); });
 
-    tilesButton.setRadioGroupId (1);
-    setButton.setRadioGroupId (1);
-    tilesButton.setClickingTogglesState (true);
-    setButton.setClickingTogglesState (true);
-
-    // 보기 전환(타일 / 드럼 세트)은 붙은 세그먼트로 그린다.
-    ui::setButtonKind (tilesButton, ui::ButtonKind::segment);
-    ui::setButtonKind (setButton, ui::ButtonKind::segment);
-    tilesButton.setConnectedEdges (juce::Button::ConnectedOnRight);
-    setButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
-
     // 그림 위에 이름과 키를 적을지: 켜고 끄는 설정이라 체크로 둔다.
-    ui::setupButton (*this, labelsToggle, ko ("이름 · 키"), [this]
+    ui::setupToggle (*this, labelsToggle, ko ("이름 · 키"), [this]
     {
         kitView.setShowingLabels (labelsToggle.getToggleState());
         session.setSetting ("kitLabels", labelsToggle.getToggleState());
-    });
+    }, static_cast<bool> (session.getSetting ("kitLabels", true)));
 
-    labelsToggle.setToggleState (static_cast<bool> (session.getSetting ("kitLabels", true)), juce::dontSendNotification);
     kitView.setShowingLabels (labelsToggle.getToggleState());
 
     // 배치 편집 막대. 기본 배치로는 사용자가 맞춘 배치를 지우므로 위험 버튼으로 두고 확인을 받는다.
@@ -98,8 +86,8 @@ void PlayPage::setShowingSet (bool shouldShowSet)
     showingSet = shouldShowSet;
     session.setSetting ("padView", showingSet ? "set" : "tiles");
 
-    tilesButton.setToggleState (! showingSet, juce::dontSendNotification);
-    setButton.setToggleState (showingSet, juce::dontSendNotification);
+    viewButtons[0].setToggleState (! showingSet, juce::dontSendNotification);
+    viewButtons[1].setToggleState (showingSet, juce::dontSendNotification);
 
     if (! showingSet)
         setEditing (false);
@@ -124,7 +112,7 @@ void PlayPage::updateToolbar()
 {
     const auto editing = kitView.isEditing();
 
-    for (auto* component : std::initializer_list<juce::Component*> { &tilesButton, &setButton, &silenceButton })
+    for (auto* component : std::initializer_list<juce::Component*> { &viewButtons[0], &viewButtons[1], &silenceButton })
         component->setVisible (! editing);
 
     labelsToggle.setVisible (showingSet && ! editing);
@@ -142,8 +130,8 @@ void PlayPage::resized()
     const auto row = area.removeFromTop (ui::space::control);
 
     auto normal = row;
-    tilesButton.setBounds (normal.removeFromLeft (64));
-    setButton.setBounds (normal.removeFromLeft (92));
+    viewButtons[0].setBounds (normal.removeFromLeft (64));
+    viewButtons[1].setBounds (normal.removeFromLeft (92));
     normal.removeFromLeft (ui::space::large);
     labelsToggle.setBounds (normal.removeFromLeft (96));
     silenceButton.setBounds (normal.removeFromRight (92));
@@ -155,8 +143,7 @@ void PlayPage::resized()
     edit.removeFromRight (ui::space::small);
     resetButton.setBounds (edit.removeFromRight (100));
     edit.removeFromRight (ui::space::large);
-    editTitle.setBounds (edit.removeFromLeft (juce::GlyphArrangement::getStringWidthInt (editTitle.getFont(), editTitle.getText())
-                                              + editTitle.getBorderSize().getLeftAndRight() + ui::space::tight));
+    editTitle.setBounds (edit.removeFromLeft (ui::textWidth (editTitle) + editTitle.getBorderSize().getLeftAndRight() + ui::space::tight));
     editHint.setBounds (edit);
 
     // 그림 아래 줄: 오른쪽에 박자. 그림의 크기가 바뀌지 않도록 줄의 높이는 그대로 둔다.

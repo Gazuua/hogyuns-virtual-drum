@@ -647,7 +647,7 @@ void MainComponent::refreshStatus()
     if (const auto* kit = session.getKit())
     {
         const auto mapping = session.getMapping();
-        text << fromUtf8 (kit->name) << "  ·  " << (mapping != nullptr ? fromUtf8 (mapping->name) : ko ("키 배열 없음"));
+        text << fromUtf8 (kit->name) << ui::separator() << (mapping != nullptr ? fromUtf8 (mapping->name) : ko ("키 배열 없음"));
     }
     else
     {
@@ -655,12 +655,12 @@ void MainComponent::refreshStatus()
     }
 
     if (audio.isRecording())
-        text << "  ·  " << ko ("● 녹음 중");
+        text << ui::separator() << ko ("● 녹음 중");
 
     // 글자 입력 칸에 커서가 있으면 연주가 멈춘다. 넓은 칸은 칸 안에 알리고, 좁은 칸(값 상자 등)은 여기에 적는다.
     if (auto* editor = dynamic_cast<juce::TextEditor*> (juce::Component::getCurrentlyFocusedComponent());
         editor != nullptr && editor->getWidth() < ui::typingHintMinWidth)
-        text << "  ·  " << ui::typingHint();
+        text << ui::separator() << ui::typingHint();
 
     statusLabel.setText (text, juce::dontSendNotification);
 
@@ -675,7 +675,7 @@ void MainComponent::refreshStatus()
 
     latency << "  ·  CPU " << juce::roundToInt (audio.getCpuUsage() * 100.0) << "%";
     latencyLabel.setText (latency, juce::dontSendNotification);
-    latencyLabel.setTooltip (ko ("출력: ") + audio.describe() + "  ·  " + ko ("늦은 콜백 ") + juce::String (audio.getLateCallbackCount()));
+    latencyLabel.setTooltip (ko ("출력: ") + audio.describe() + ui::separator() + ko ("늦은 콜백 ") + juce::String (audio.getLateCallbackCount()));
 
     // 끊김: 켜고 2초 뒤부터 생긴 늦은 콜백 수
     if (lateCallbackBaseline < 0 && tick >= 120)
