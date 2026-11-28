@@ -102,6 +102,7 @@ add_executable(HogyunsVirtualDrum WIN32
     src/app/ChartFile.cpp
     src/app/ChartLibrary.cpp
     src/app/ChartTools.cpp
+    src/app/DocumentBar.cpp
     src/app/Documents.cpp
     src/app/DrumSeparator.cpp
     src/app/GameHighway.cpp

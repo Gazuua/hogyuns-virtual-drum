@@ -10,34 +10,16 @@ constexpr int listWidth = 250;
 } // namespace
 
 KitPage::KitPage (Session& sessionToUse)
-    : session (sessionToUse)
+    : session (sessionToUse),
+      documents (makeDocumentSource())
 {
-    ui::setupLabel (*this, kitCaption, ko ("킷"), ui::Text::hint);
-    ui::setupCombo (*this, kitCombo, [this]
-    {
-        if (! updating && kitCombo.getSelectedItemIndex() >= 0)
-            session.selectKit (kitCombo.getText());
-    });
+    addAndMakeVisible (documents);
+    documents.addMenuItem (ko ("ZIP 가져오기"), [this] { importKit(); }, true);
+    documents.addMenuItem (ko ("SFZ 가져오기"), [this] { importSfzKit(); });
+    documents.addMenuItem (ko ("내보내기"), [this] { exportKit(); });
 
-    ui::setupButton (*this, duplicateButton, ko ("복제"), [this] { duplicateKit(); });
-    ui::setupButton (*this, renameKitButton, ko ("이름 바꾸기"), [this] { renameKit(); });
-    ui::setupButton (*this, importButton, ko ("가져오기"), [this] { importKit(); });
-    ui::setupButton (*this, sfzButton, ko ("SFZ 가져오기"), [this] { importSfzKit(); });
-    importButton.setTooltip (ko ("내보내기로 만든 ZIP 파일에서 킷을 가져옵니다"));
-    sfzButton.setTooltip (ko ("SFZ 형식의 드럼 킷을 읽어 새 킷을 만듭니다"));
-    ui::setupButton (*this, exportButton, ko ("내보내기"), [this] { exportKit(); });
-    ui::setupButton (*this, folderButton, ko ("폴더 열기"), [this] { session.getKitFile().revealToUser(); });
-    ui::setupButton (*this, restoreButton, ko ("되돌리기…"), [this]
-    {
-        // 킷 파일이 바뀔 때마다 남겨 둔 이전 내용 가운데 하나로 되돌린다 (패드 값, 고른 소리, 드럼 그림의 배치).
-        showBackupMenu (restoreButton, session.getBackups(), session.getKitFile(), [this] (juce::File backup)
-        {
-            if (const auto error = session.restoreKitBackup (backup); error.isNotEmpty())
-                ui::showMessage (ko ("되돌리지 못했습니다"), error);
-        });
-    });
-    restoreButton.setTooltip (ko ("고치기 전 상태로 되돌립니다."));
     ui::setupLabel (*this, kitInfo, {}, ui::Text::caption);
+    kitInfo.setJustificationType (juce::Justification::centredRight);
 
     padList.setRowHeight (28);
     ui::noFocus (padList);
@@ -121,13 +103,33 @@ KitPage::KitPage (Session& sessionToUse)
     ui::setupLabel (*this, hintLabel,
                     ko ("소리 파일을 끌어다 놓으면 바꿉니다. Ctrl을 누른 채 놓으면 더합니다."), ui::Text::caption);
 
-    // 버튼 종류: 드문 일(폴더, 되돌리기)은 조용하게, 지우는 일은 위험 표시
-    ui::setButtonKind (folderButton, ui::ButtonKind::quiet);
-    ui::setButtonKind (restoreButton, ui::ButtonKind::quiet);
+    // 버튼 종류: 지우는 일은 위험 표시
     ui::setButtonKind (removePadButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
     rebuild();
+}
+
+DocumentBar::Source KitPage::makeDocumentSource()
+{
+    DocumentBar::Source source;
+    source.noun = ko ("킷");
+    source.names = [this] { return session.getKitFolderNames(); };
+    source.current = [this] { return session.getKitFolderName(); };
+    source.select = [this] (const juce::String& name) { session.selectKit (name); };
+    source.copyName = [this] { return session.getKitDocument().getName() + ko (" 사본"); };
+    source.duplicate = [this] (const juce::String& name) { return session.duplicateKit (name); };
+    source.displayName = [this] { return session.getKitDocument().getName(); };
+    source.renameNote = ko ("화면에 보여 줄 킷 이름을 적으세요. 폴더 이름은 바뀌지 않습니다.");
+    source.rename = [this] (const juce::String& name)
+    {
+        session.getKitDocument().setName (name);
+        session.saveKit (true);
+    };
+    source.file = [this] { return session.getKitFile(); };
+    source.restore = [this] (const juce::File& backup) { return session.restoreKitBackup (backup); };
+    source.backups = &session.getBackups();
+    return source;
 }
 
 KitPage::~KitPage()
@@ -146,20 +148,12 @@ void KitPage::resized()
 {
     auto area = getLocalBounds();
 
+    // 윗줄: [킷 목록] [복제] [되돌리기] [⋯]  ……  샘플 수 · 크기 · 라이선스
     auto top = area.removeFromTop (ui::space::control);
-    kitCaption.setBounds (top.removeFromLeft (28));
-    kitCombo.setBounds (top.removeFromLeft (196));
-    top.removeFromLeft (ui::space::small);
-
-    for (auto* button : { &duplicateButton, &renameKitButton, &importButton, &sfzButton, &exportButton, &folderButton, &restoreButton })
-    {
-        button->setBounds (top.removeFromLeft ((button == &renameKitButton || button == &sfzButton) ? 100 : (button == &restoreButton ? 88 : 76)));
-        top.removeFromLeft (ui::space::tight);
-    }
-
-    top.removeFromLeft (ui::space::small);
-
+    documents.setBounds (top.removeFromLeft (juce::jmin (documents.getIdealWidth(), top.getWidth())));
+    top.removeFromLeft (ui::space::large);
     kitInfo.setBounds (top);
+    kitInfo.setVisible (top.getWidth() >= 160);    // 모자라면 목록의 툴팁으로만 본다
     area.removeFromTop (ui::space::medium);
 
     auto left = area.removeFromLeft (listWidth);
@@ -288,10 +282,7 @@ void KitPage::rebuild()
 {
     const juce::ScopedValueSetter<bool> guard (updating, true);
 
-    const auto names = session.getKitFolderNames();
-    kitCombo.clear (juce::dontSendNotification);
-    kitCombo.addItemList (names, 1);
-    kitCombo.setSelectedItemIndex (names.indexOf (session.getKitFolderName()), juce::dontSendNotification);
+    documents.refresh();
 
     const auto& stats = session.getKitStats();
     const auto& document = session.getKitDocument();
@@ -304,6 +295,7 @@ void KitPage::rebuild()
         info << "  ·  " << license;
 
     kitInfo.setText (info, juce::dontSendNotification);
+    documents.setInfo (info);
 
     padList.updateContent();
     selectedPad = juce::jlimit (0, juce::jmax (0, getNumRows() - 1), selectedPad);
@@ -505,32 +497,6 @@ void KitPage::removePad()
                      session.getKitDocument().removePad (id);
                      session.saveKit (true);
                  });
-}
-
-void KitPage::duplicateKit()
-{
-    ui::promptForText (this, ko ("킷 복제"),
-                       ko ("지금 킷을 복사해 새로 만듭니다. 이름을 적으세요."),
-                       session.getKitDocument().getName() + ko (" 사본"),
-                       [this] (juce::String name)
-                       {
-                           if (const auto error = session.duplicateKit (name); error.isNotEmpty())
-                               ui::showMessage (ko ("킷을 복제하지 못했습니다"), error);
-                       });
-}
-
-void KitPage::renameKit()
-{
-    ui::promptForText (this, ko ("킷 이름 바꾸기"), ko ("화면에 보여 줄 킷 이름을 적으세요. 폴더 이름은 바뀌지 않습니다."),
-                       session.getKitDocument().getName(),
-                       [this] (juce::String name)
-                       {
-                           if (name.trim().isEmpty())
-                               return;
-
-                           session.getKitDocument().setName (name.trim());
-                           session.saveKit (true);
-                       });
 }
 
 void KitPage::importKit()

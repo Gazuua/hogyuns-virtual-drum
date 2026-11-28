@@ -3,6 +3,7 @@
 #include <functional>
 #include <vector>
 
+#include "DocumentBar.h"
 #include "KeyboardView.h"
 #include "Session.h"
 #include "Ui.h"
@@ -26,6 +27,18 @@ public:
 };
 
 //==============================================================================
+/** 페달을 등록하는 동안 키보드 그림의 기능 키 줄에 겹쳐 띄우는 띠. 페달 스위치 자리는 가리지 않는다. */
+class PedalBanner final : public juce::Component
+{
+public:
+    juce::Label text, keys;
+    juce::TextButton doneButton, cancelButton;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+};
+
+//==============================================================================
 /** 키 배열 편집 화면. 키를 고르고 그 키가 할 일을 정한다. 고치면 바로 파일에 저장되고 연주에 반영된다. */
 class KeysPage final : public ui::Page,
                        private juce::ChangeListener
@@ -41,6 +54,8 @@ public:
 
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override    { rebuild(); }
+
+    DocumentBar::Source makeDocumentSource();
 
     void pedalButtonClicked();
     void startPedalLearning();
@@ -76,6 +91,7 @@ private:
     };
 
     Session& session;
+    DocumentBar documents;
     KeyboardView keyboard;
     std::vector<std::vector<int>> bindingsByKey;    // 키 코드 → 키 배열 문서의 줄 번호들
     juce::StringArray padIds;
@@ -87,11 +103,15 @@ private:
     int tickCount = 0;
 
     bool pedalConnected = false;
+    juce::String shownChip;             // 칩에 놓아 둔 글
 
-    juce::Label keymapCaption, quickCaption, heldLabel, pedalLabel, keyTitle, emptyHint;
-    juce::Rectangle<int> editorPanel;    // paint가 편집 칸 바탕을 그리는 자리
-    juce::ComboBox keymapCombo, quickPadCombo, slotCombo;
-    juce::TextButton duplicateButton, renameButton, folderButton, restoreButton, quickButton, pedalButton, resetHeldButton, addButton, removeButton;
+    juce::Label quickCaption, heldLabel, pedalLabel, keyTitle, emptyHint;
+    juce::Rectangle<int> editorPanel, pedalChip;                // paint가 바탕을 그리는 자리
+    juce::Rectangle<int> titleArea, fieldsArea;                 // 편집 칸의 제목 줄과 항목 자리
+    juce::ComboBox quickPadCombo;
+    juce::TextButton quickButton, pedalButton, resetHeldButton, addButton, removeButton, emptyAddButton;
+    PedalBanner banner;
+    juce::OwnedArray<juce::TextButton> slotButtons;    // 한 키에 동작이 여럿일 때의 탭
     juce::ToggleButton followButton;
 
     juce::ComboBox actionCombo, padCombo, strokeCombo, rateCombo, divisionCombo, pressPadCombo, releasePadCombo, splashPadCombo;

@@ -3,6 +3,8 @@
 namespace
 {
 
+constexpr int rowCaptionHeight = 20;    // 편집 항목의 이름 줄
+
 struct Choice
 {
     const char* value;
@@ -81,86 +83,62 @@ juce::String intervalText (const hvd::ReportInterval& interval)
 
 //==============================================================================
 KeysPage::KeysPage (Session& sessionToUse)
-    : session (sessionToUse)
+    : session (sessionToUse),
+      documents (makeDocumentSource())
 {
-    ui::setupLabel (*this, keymapCaption, ko ("키 배열"), ui::Text::hint);
-    ui::setupCombo (*this, keymapCombo, [this]
-    {
-        if (! updating && keymapCombo.getSelectedItemIndex() >= 0)
-            session.selectKeymap (keymapCombo.getText());
-    });
-
-    ui::setupButton (*this, duplicateButton, ko ("복제"), [this]
-    {
-        ui::promptForText (this, ko ("키 배열 복제"), ko ("지금 키 배열을 복사해 새로 만듭니다. 이름을 적으세요."),
-                           session.getKeymapName() + "-2",
-                           [this] (juce::String name)
-                           {
-                               if (const auto error = session.duplicateKeymap (name); error.isNotEmpty())
-                                   ui::showMessage (ko ("키 배열을 복제하지 못했습니다"), error);
-                           });
-    });
-
-    ui::setupButton (*this, renameButton, ko ("이름 바꾸기"), [this]
-    {
-        ui::promptForText (this, ko ("키 배열 이름 바꾸기"), ko ("화면에 보여 줄 이름을 적으세요. 파일 이름은 바뀌지 않습니다."),
-                           session.getKeymapDocument().getName(),
-                           [this] (juce::String name)
-                           {
-                               if (name.trim().isNotEmpty())
-                               {
-                                   session.getKeymapDocument().setName (name.trim());
-                                   commit();
-                               }
-                           });
-    });
-
-    ui::setupButton (*this, folderButton, ko ("폴더 열기"), [this] { session.getKeymapFile().revealToUser(); });
-    ui::setupButton (*this, restoreButton, ko ("되돌리기…"), [this]
-    {
-        // 키 배열 파일이 바뀔 때마다 남겨 둔 이전 내용 가운데 하나로 되돌린다.
-        showBackupMenu (restoreButton, session.getBackups(), session.getKeymapFile(), [this] (juce::File backup)
-        {
-            if (const auto error = session.restoreKeymapBackup (backup); error.isNotEmpty())
-                ui::showMessage (ko ("되돌리지 못했습니다"), error);
-        });
-    });
-    restoreButton.setTooltip (ko ("고치기 전 상태로 되돌립니다."));
-
-    ui::setupLabel (*this, quickCaption, ko ("빠른 지정"), ui::Text::hint);
-    ui::setupCombo (*this, quickPadCombo, [] {});
-    ui::setupButton (*this, quickButton, ko ("이 패드를 칠 키 누르기"), [this] { startQuickAssign(); });
+    addAndMakeVisible (documents);
 
     followButton.setButtonText (ko ("누른 키 따라가기"));
     followButton.setToggleState (true, juce::dontSendNotification);
     ui::noFocus (followButton);
     addAndMakeVisible (followButton);
 
-    ui::setupButton (*this, pedalButton, ko ("페달 등록"), [this] { pedalButtonClicked(); });
     ui::setupLabel (*this, pedalLabel, {}, ui::Text::caption);
     pedalLabel.setMinimumHorizontalScale (0.75f);
-
-    ui::setupLabel (*this, heldLabel, {}, ui::Text::caption);
-    heldLabel.setJustificationType (juce::Justification::centredRight);
-    ui::setupButton (*this, resetHeldButton, ko ("최대값 지우기"), [this] { session.resetMaxHeldKeyCount(); });
+    ui::setupButton (*this, pedalButton, ko ("페달 등록"), [this] { pedalButtonClicked(); });
 
     keyboard.onKeyClicked = [this] (hvd::KeyCode key) { selectKey (key); };
     keyboard.isKeyHeld = [this] (hvd::KeyCode key) { return session.isKeyHeld (key); };
     addAndMakeVisible (keyboard);
 
-    ui::setupLabel (*this, keyTitle, {}, ui::Text::section);
-    ui::setupCombo (*this, slotCombo, [this]
+    // 페달을 등록하는 동안 키보드 그림 윗줄에 겹쳐 띄우는 띠 (그림보다 나중에 넣어야 위에 보인다)
+    ui::setupLabel (banner, banner.text, ko ("왼쪽 스위치부터 밟으세요"), ui::Text::section);
+    ui::setupLabel (banner, banner.keys, {}, ui::Text::body);
+    ui::setupButton (banner, banner.doneButton, ko ("완료"), [this] { pedalButtonClicked(); });
+    ui::setupButton (banner, banner.cancelButton, ko ("취소"), [this]
     {
-        if (! updating)
-        {
-            selectedSlot = juce::jmax (0, slotCombo.getSelectedItemIndex());
-            showBinding();
-        }
+        session.endPedalLearning (false);
+        updatePedalStatus();
     });
-    ui::setupButton (*this, addButton, ko ("이 키에 동작 추가"), [this] { addBinding(); });
-    ui::setupButton (*this, removeButton, ko ("이 동작 지우기"), [this] { removeBinding(); });
+    ui::setButtonKind (banner.doneButton, ui::ButtonKind::primary);
+    banner.cancelButton.setTooltip (ko ("Esc"));
+    addChildComponent (banner);
+
+    // 동시 입력 검사: 키보드 그림의 빈자리에 겹쳐 둔다 (그림보다 나중에 넣어야 위에 보인다).
+    ui::setupLabel (*this, heldLabel, {}, ui::Text::caption);
+    heldLabel.setJustificationType (juce::Justification::centred);
+    heldLabel.setTooltip (ko ("동시에 눌린 키와 그 최대값. 키보드가 한꺼번에 몇 개까지 알아듣는지 봅니다."));
+    ui::setupButton (*this, resetHeldButton, ko ("초기화"), [this] { session.resetMaxHeldKeyCount(); });
+    resetHeldButton.setTooltip (ko ("최대값을 지웁니다"));
+    ui::setButtonKind (resetHeldButton, ui::ButtonKind::quiet);
+
+    ui::setupLabel (*this, keyTitle, {}, ui::Text::section);
+    ui::setupButton (*this, addButton, ko ("동작 추가"), [this] { addBinding(); });
+    ui::setupButton (*this, removeButton, ko ("삭제"), [this] { removeBinding(); });
+    removeButton.setTooltip (ko ("이 동작을 지웁니다"));
+
+    ui::setupLabel (*this, quickCaption, ko ("빠른 지정"), ui::Text::caption);
+    quickCaption.setJustificationType (juce::Justification::centredRight);
+    ui::setupCombo (*this, quickPadCombo, [] {});
+    quickPadCombo.setTooltip (ko ("이 패드를 칠 키를 정합니다"));
+    ui::setupButton (*this, quickButton, ko ("키 지정"), [this] { startQuickAssign(); });
+    quickButton.setTooltip (ko ("누르고 나서 칠 키를 누르세요"));
+
+    // 키를 고르지 않았거나 동작이 없는 키: 패널 가운데에 한 줄과 버튼
     ui::setupLabel (*this, emptyHint, {}, ui::Text::hint);
-    emptyHint.setJustificationType (juce::Justification::topLeft);
+    emptyHint.setJustificationType (juce::Justification::centred);
+    ui::setupButton (*this, emptyAddButton, ko ("동작 추가"), [this] { addBinding(); });
+    ui::setButtonKind (emptyAddButton, ui::ButtonKind::primary);
 
     //==============================================================================
     // 편집 항목들
@@ -317,34 +295,47 @@ KeysPage::KeysPage (Session& sessionToUse)
     stepsEditor.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 15.0f, juce::Font::plain));
     addAndMakeVisible (stepsEditor);
 
-    const std::pair<const char*, juce::Component*> rowSpecs[] = {
-        { "동작", &actionCombo },
-        { "패드", &padCombo },
-        { "함께 칠 패드", &padsButton },
-        { "세기", &velocitySlider },
-        { "타격 방식", &strokeCombo },
-        { "반복 간격", &rateCombo },
-        { "악센트 주기 (몇 번째마다, 0은 첫 타만)", &accentSlider },
-        { "악센트가 아닌 타의 세기 (악센트 대비)", &softSlider },
-        { "두 타 사이 간격", &gapSlider },
-        { "패턴 (X 세게, x 보통, o 약하게, . 쉼)", &stepsEditor },
-        { "한 박을 나누는 수", &divisionCombo },
-        { "누를 때 칠 패드", &pressPadCombo },
-        { "뗄 때 칠 패드", &releasePadCombo },
-        { "누르는 동안 바꿔 칠 패드", &heldSwap },
-        { "뗀 동안 바꿔 칠 패드", &releasedSwap },
-        { "빨리 떼면 칠 패드", &splashPadCombo },
+    struct RowSpec
+    {
+        const char* caption;
+        const char* tip;    // 마우스를 올렸을 때 보일 설명. 없으면 nullptr
+        juce::Component* control;
+    };
+
+    const RowSpec rowSpecs[] = {
+        { "동작", nullptr, &actionCombo },
+        { "패드", nullptr, &padCombo },
+        { "함께 칠 패드", "같은 키로 겹쳐 칠 패드", &padsButton },
+        { "세기", nullptr, &velocitySlider },
+        { "타격 방식", nullptr, &strokeCombo },
+        { "반복 간격", nullptr, &rateCombo },
+        { "악센트 주기", "몇 번째마다 세게 칠지. 0은 첫 타만", &accentSlider },
+        { "나머지 세기", "악센트가 아닌 타의 세기 (악센트 대비)", &softSlider },
+        { "두 타 사이 간격", nullptr, &gapSlider },
+        { "패턴", "X 세게, x 보통, o 약하게, . 쉼", &stepsEditor },
+        { "한 박을 나누는 수", nullptr, &divisionCombo },
+        { "누를 때 칠 패드", nullptr, &pressPadCombo },
+        { "뗄 때 칠 패드", nullptr, &releasePadCombo },
+        { "누르는 동안 바꿔 칠 패드", nullptr, &heldSwap },
+        { "뗀 동안 바꿔 칠 패드", nullptr, &releasedSwap },
+        { "빨리 떼면 칠 패드", "페달을 밟았다가 금방 떼면 칠 패드 (풋 스플래시)", &splashPadCombo },
     };
 
     for (std::size_t i = 0; i < rows.size(); ++i)
     {
-        ui::setupLabel (*this, rows[i].caption, ko (rowSpecs[i].first), ui::Text::caption);
-        rows[i].control = rowSpecs[i].second;
+        ui::setupLabel (*this, rows[i].caption, ko (rowSpecs[i].caption), ui::Text::caption);
+        rows[i].control = rowSpecs[i].control;
+
+        if (rowSpecs[i].tip != nullptr)
+        {
+            rows[i].caption.setTooltip (ko (rowSpecs[i].tip));
+
+            if (auto* client = dynamic_cast<juce::SettableTooltipClient*> (rows[i].control))
+                client->setTooltip (ko (rowSpecs[i].tip));
+        }
     }
 
-    // 버튼 종류: 드문 일(폴더, 되돌리기)은 조용하게, 지우는 일은 위험 표시
-    ui::setButtonKind (folderButton, ui::ButtonKind::quiet);
-    ui::setButtonKind (restoreButton, ui::ButtonKind::quiet);
+    // 버튼 종류: 지우는 일은 위험 표시
     ui::setButtonKind (removeButton, ui::ButtonKind::danger);
 
     session.addChangeListener (this);
@@ -361,6 +352,58 @@ KeysPage::~KeysPage()
     session.removeChangeListener (this);
 }
 
+void PedalBanner::paint (juce::Graphics& g)
+{
+    // 밑의 키가 비치지 않게 바탕부터 칠하고, 고른 것의 색과 액센트 테두리로 모드를 보인다.
+    const auto& t = ui::theme();
+    const auto area = getLocalBounds().toFloat();
+    const auto radius = juce::jmin (t.panelRadius, area.getHeight() * 0.5f);
+
+    g.setColour (t.background);
+    g.fillRoundedRectangle (area, radius);
+    g.setColour (t.selection);
+    g.fillRoundedRectangle (area, radius);
+    g.setColour (t.accent.withAlpha (t.dark ? 0.75f : 0.6f));
+    g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.0f);
+}
+
+void PedalBanner::resized()
+{
+    auto area = getLocalBounds().reduced (ui::space::large, 0);
+    const auto buttons = area.withSizeKeepingCentre (area.getWidth(), ui::space::control);
+
+    doneButton.setBounds (buttons.withLeft (buttons.getRight() - 72));
+    cancelButton.setBounds (doneButton.getBounds().translated (-72 - ui::space::tight, 0));
+    area.setRight (cancelButton.getX() - ui::space::large);
+
+    text.setBounds (area.removeFromLeft (juce::jmin (area.getWidth() / 2,
+                                                     juce::GlyphArrangement::getStringWidthInt (text.getFont(), text.getText()) + ui::space::xlarge)));
+    keys.setBounds (area);
+}
+
+//==============================================================================
+DocumentBar::Source KeysPage::makeDocumentSource()
+{
+    DocumentBar::Source source;
+    source.noun = ko ("키 배열");
+    source.names = [this] { return session.getKeymapNames(); };
+    source.current = [this] { return session.getKeymapName(); };
+    source.select = [this] (const juce::String& name) { session.selectKeymap (name); };
+    source.copyName = [this] { return session.getKeymapName() + "-2"; };
+    source.duplicate = [this] (const juce::String& name) { return session.duplicateKeymap (name); };
+    source.displayName = [this] { return session.getKeymapDocument().getName(); };
+    source.renameNote = ko ("화면에 보여 줄 이름을 적으세요. 파일 이름은 바뀌지 않습니다.");
+    source.rename = [this] (const juce::String& name)
+    {
+        session.getKeymapDocument().setName (name);
+        commit();
+    };
+    source.file = [this] { return session.getKeymapFile(); };
+    source.restore = [this] (const juce::File& backup) { return session.restoreKeymapBackup (backup); };
+    source.backups = &session.getBackups();
+    return source;
+}
+
 void KeysPage::visibilityChanged()
 {
     // 다른 화면으로 넘어가면 페달 등록을 그만둔다. 그대로 두면 누르는 키가 계속 연주되지 않는다.
@@ -370,6 +413,19 @@ void KeysPage::visibilityChanged()
 
 void KeysPage::paint (juce::Graphics& g)
 {
+    const auto& t = ui::theme();
+
+    // 페달 상태 칩: 둥근 면에 연결 상태 점
+    if (pedalLabel.isVisible() && ! pedalChip.isEmpty())
+    {
+        const auto chip = pedalChip.toFloat();
+        g.setColour (t.surface);
+        g.fillRoundedRectangle (chip, chip.getHeight() * 0.5f);
+
+        g.setColour (pedalConnected ? t.good : t.warning);
+        g.fillEllipse (chip.getX() + 10.0f, chip.getCentreY() - 3.5f, 7.0f, 7.0f);
+    }
+
     ui::fillPanel (g, editorPanel);
 }
 
@@ -377,66 +433,88 @@ void KeysPage::resized()
 {
     auto area = getLocalBounds();
 
+    //==============================================================================
+    // 윗줄: [키 배열 목록] [복제] [되돌리기] [⋯]  [누른 키 따라가기]  ……  [● 페달 상태] [페달]
     auto top = area.removeFromTop (ui::space::control);
-    keymapCaption.setBounds (top.removeFromLeft (56));
-    keymapCombo.setBounds (top.removeFromLeft (180));
-    top.removeFromLeft (8);
-    duplicateButton.setBounds (top.removeFromLeft (60));
-    top.removeFromLeft (ui::space::small);
-    renameButton.setBounds (top.removeFromLeft (96));
-    top.removeFromLeft (ui::space::small);
-    folderButton.setBounds (top.removeFromLeft (84));
-    top.removeFromLeft (ui::space::small);
-    restoreButton.setBounds (top.removeFromLeft (96));
-    top.removeFromLeft (24);
-    quickCaption.setBounds (top.removeFromLeft (64));
-    quickPadCombo.setBounds (top.removeFromLeft (150));
-    top.removeFromLeft (ui::space::small);
-    quickButton.setBounds (top.removeFromLeft (170));
+    documents.setBounds (top.removeFromLeft (juce::jmin (documents.getIdealWidth(), top.getWidth())));
+    top.removeFromLeft (ui::space::large);
 
-    area.removeFromTop (6);
-    auto second = area.removeFromTop (24);
-    followButton.setBounds (second.removeFromLeft (150));
-    second.removeFromLeft (8);
-    pedalButton.setBounds (second.removeFromLeft (96));
-    second.removeFromLeft (8);
-    resetHeldButton.setBounds (second.removeFromRight (104));
-    second.removeFromRight (8);
-    heldLabel.setBounds (second.removeFromRight (190));
-    second.removeFromRight (8);
-    pedalLabel.setBounds (second);
+    pedalButton.setBounds (top.removeFromRight (84));
+    top.removeFromRight (ui::space::small);
 
-    area.removeFromTop (6);
+    pedalChip = {};
 
+    if (pedalLabel.isVisible())
+    {
+        const auto textWidth = juce::GlyphArrangement::getStringWidthInt (pedalLabel.getFont(), pedalLabel.getText());
+        pedalChip = top.removeFromRight (juce::jmin (textWidth + 36, juce::jmax (0, top.getWidth() - 150)));
+        pedalLabel.setBounds (pedalChip.withTrimmedLeft (22).withTrimmedRight (8));
+        top.removeFromRight (ui::space::small);
+    }
+
+    followButton.setBounds (top.removeFromLeft (juce::jmin (160, top.getWidth())));
+
+    area.removeFromTop (ui::space::medium);
+
+    //==============================================================================
     // 키보드는 폭에 맞추되, 편집 칸이 들어갈 높이는 남긴다.
+    constexpr int editorMinHeight = ui::space::large + ui::space::control + ui::space::large
+                                    + 3 * (rowCaptionHeight + ui::space::control) + 2 * ui::space::small + ui::space::large;
     const auto keyboardHeight = juce::jmin (KeyboardView::heightForWidth (area.getWidth()),
-                                            juce::jmax (150, area.getHeight() - 236));
+                                            juce::jmax (150, area.getHeight() - editorMinHeight - ui::space::medium));
     keyboard.setBounds (area.removeFromTop (keyboardHeight));
+
+    // 페달 등록 띠는 기능 키 줄에, 동시 입력 검사는 그림의 빈자리에
+    banner.setBounds (keyboard.getFunctionRowArea().translated (keyboard.getX(), keyboard.getY()));
+    auto spare = keyboard.getSpareArea().translated (keyboard.getX(), keyboard.getY());
+    resetHeldButton.setBounds (spare.removeFromBottom (22).withSizeKeepingCentre (64, 22));
+    heldLabel.setBounds (spare);
 
     area.removeFromTop (ui::space::medium);
     editorPanel = area;
-    auto editor = area.reduced (ui::space::large, ui::space::medium);
 
-    auto title = editor.removeFromTop (28);
-    removeButton.setBounds (title.removeFromRight (120));
-    title.removeFromRight (6);
-    addButton.setBounds (title.removeFromRight (140));
-    title.removeFromRight (12);
-    slotCombo.setBounds (title.removeFromRight (100));
-    keyTitle.setBounds (title);
+    auto editor = area.reduced (ui::space::large);
+    titleArea = editor.removeFromTop (ui::space::control);
+    editor.removeFromTop (ui::space::large);
+    fieldsArea = editor;
 
-    editor.removeFromTop (6);
-    emptyHint.setBounds (editor);
     layoutEditor();
 }
 
 void KeysPage::layoutEditor()
 {
+    //==============================================================================
+    // 제목 줄: [D] [동작 1|동작 2] [동작 추가] [삭제]  ……  빠른 지정 [패드] [키 지정]
+    auto title = titleArea;
+
+    const auto quickWidth = juce::GlyphArrangement::getStringWidthInt (juce::Font (juce::FontOptions (ui::type::body)), quickButton.getButtonText()) + 32;
+    quickButton.setBounds (title.removeFromRight (juce::jmax (80, quickWidth)));
+    title.removeFromRight (ui::space::tight);
+    quickPadCombo.setBounds (title.removeFromRight (150));
+    title.removeFromRight (ui::space::small);
+    quickCaption.setBounds (title.removeFromRight (juce::GlyphArrangement::getStringWidthInt (quickCaption.getFont(), quickCaption.getText()) + 4));
+    title.removeFromRight (ui::space::large);
+
+    keyTitle.setBounds (title.removeFromLeft (juce::jmin (title.getWidth() / 3,
+                                                          juce::GlyphArrangement::getStringWidthInt (keyTitle.getFont(), keyTitle.getText()) + ui::space::large)));
+
+    for (auto* slot : slotButtons)
+        if (slot->isVisible())
+            slot->setBounds (title.removeFromLeft (64));
+
+    if (! slotButtons.isEmpty() && slotButtons.getFirst()->isVisible())
+        title.removeFromLeft (ui::space::large);
+
+    addButton.setBounds (title.removeFromLeft (88));
+    title.removeFromLeft (ui::space::tight);
+    removeButton.setBounds (title.removeFromLeft (64));
+
+    //==============================================================================
     // 보이는 항목을 세 칸짜리 격자에 차례로 놓는다.
-    auto area = emptyHint.getBounds();
+    const auto area = fieldsArea;
     constexpr int columns = 3;
-    constexpr int rowHeight = 50;
-    const auto cellWidth = area.getWidth() / columns;
+    constexpr int rowPitch = rowCaptionHeight + ui::space::control + ui::space::small;
+    const auto cellWidth = (area.getWidth() + ui::space::large) / columns;
     auto index = 0;
 
     for (auto& row : rows)
@@ -448,14 +526,26 @@ void KeysPage::layoutEditor()
             continue;
 
         auto cell = juce::Rectangle<int> (area.getX() + (index % columns) * cellWidth,
-                                          area.getY() + (index / columns) * rowHeight,
-                                          cellWidth - 18, rowHeight - 4);
-        row.caption.setBounds (cell.removeFromTop (19));
-        row.control->setBounds (cell.removeFromTop (26));
+                                          area.getY() + (index / columns) * rowPitch,
+                                          cellWidth - ui::space::large, rowPitch);
+        row.caption.setBounds (cell.removeFromTop (rowCaptionHeight));
+        row.control->setBounds (cell.removeFromTop (ui::space::control));
         ++index;
     }
 
-    emptyHint.setVisible (index == 0);
+    // 동작이 없으면 가운데에 한 줄과 버튼
+    const auto empty = index == 0;
+    emptyHint.setVisible (empty);
+    emptyAddButton.setVisible (empty && selectedKey != hvd::invalidKey);
+
+    auto centre = area.withSizeKeepingCentre (area.getWidth(), 22 + ui::space::medium + ui::space::control);
+
+    if (! emptyAddButton.isVisible())
+        centre = area.withSizeKeepingCentre (area.getWidth(), 22);
+
+    emptyHint.setBounds (centre.removeFromTop (22));
+    centre.removeFromTop (ui::space::medium);
+    emptyAddButton.setBounds (centre.withSizeKeepingCentre (104, ui::space::control));
 }
 
 //==============================================================================
@@ -550,7 +640,7 @@ void KeysPage::fillPadCombo (juce::ComboBox& combo, bool withNone) const
     combo.clear (juce::dontSendNotification);
 
     if (withNone)
-        combo.addItem (ko ("(없음)"), 1);
+        combo.addItem (ko ("없음"), 1);
 
     for (int i = 0; i < padIds.size(); ++i)
         combo.addItem (padName (padIds[i]), i + 2);
@@ -581,10 +671,7 @@ void KeysPage::rebuild()
     {
         const juce::ScopedValueSetter<bool> guard (updating, true);
 
-        const auto names = session.getKeymapNames();
-        keymapCombo.clear (juce::dontSendNotification);
-        keymapCombo.addItemList (names, 1);
-        keymapCombo.setSelectedItemIndex (names.indexOf (session.getKeymapName()), juce::dontSendNotification);
+        documents.refresh();
 
         padIds = session.getKitDocument().getPadIds();
 
@@ -654,23 +741,39 @@ void KeysPage::showBinding()
     const auto count = hasKey ? static_cast<int> (bindingsByKey[selectedKey].size()) : 0;
     selectedSlot = juce::jlimit (0, juce::jmax (0, count - 1), selectedSlot);
 
-    keyTitle.setText (hasKey ? ko ("고른 키: ") + fromUtf8 (hvd::keyLabel (selectedKey)) + "   (" + fromUtf8 (hvd::keyName (selectedKey)) + ")"
-                             : ko ("키를 고르세요"),
-                      juce::dontSendNotification);
+    keyTitle.setText (hasKey ? fromUtf8 (hvd::keyLabel (selectedKey)) : juce::String(), juce::dontSendNotification);
+    keyTitle.setTooltip (hasKey ? fromUtf8 (hvd::keyName (selectedKey)) : juce::String());
 
-    slotCombo.clear (juce::dontSendNotification);
+    // 한 키에 동작이 여럿이면 동작마다 탭을 둔다.
+    while (slotButtons.size() < count)
+    {
+        const auto index = slotButtons.size();
+        auto* slot = slotButtons.add (new juce::TextButton());
+        ui::setupButton (*this, *slot, ko ("동작 ") + juce::String (index + 1), [this, index]
+        {
+            selectedSlot = index;
+            showBinding();
+        });
+        ui::setButtonKind (*slot, ui::ButtonKind::segment);
+    }
 
-    for (int i = 0; i < count; ++i)
-        slotCombo.addItem (ko ("동작 ") + juce::String (i + 1), i + 1);
+    while (slotButtons.size() > count)
+        slotButtons.removeLast();
 
-    slotCombo.setSelectedItemIndex (selectedSlot, juce::dontSendNotification);
-    slotCombo.setVisible (count > 1);
+    for (int i = 0; i < slotButtons.size(); ++i)
+    {
+        auto* slot = slotButtons[i];
+        slot->setToggleState (i == selectedSlot, juce::dontSendNotification);
+        slot->setConnectedEdges ((i > 0 ? juce::Button::ConnectedOnLeft : 0) | (i < count - 1 ? juce::Button::ConnectedOnRight : 0));
+        slot->setVisible (count > 1);
+    }
+
     addButton.setEnabled (hasKey && ! padIds.isEmpty());
-    removeButton.setEnabled (count > 0);
+    emptyAddButton.setEnabled (addButton.isEnabled());
+    addButton.setVisible (count > 0);
+    removeButton.setVisible (count > 0);
 
-    emptyHint.setText (hasKey ? ko ("이 키에는 아직 지정된 동작이 없습니다. \"이 키에 동작 추가\"를 누르세요.")
-                              : ko ("위 그림의 키를 클릭하거나 키보드에서 누르세요."),
-                       juce::dontSendNotification);
+    emptyHint.setText (hasKey ? ko ("동작 없음") : ko ("키를 누르거나 클릭하세요"), juce::dontSendNotification);
 
     for (auto& row : rows)
         row.shown = false;
@@ -695,8 +798,8 @@ void KeysPage::showBinding()
             for (int i = 1; i < pads.size(); ++i)
                 extra.add (padName (pads[i]));
 
-            rows[2].caption.setText (ko ("함께 칠 패드 (겹쳐 치기)"), juce::dontSendNotification);
-            padsButton.setButtonText (extra.isEmpty() ? ko ("없음 (고르기…)") : extra.joinIntoString (", "));
+            rows[2].caption.setText (ko ("함께 칠 패드"), juce::dontSendNotification);
+            padsButton.setButtonText (extra.isEmpty() ? ko ("없음") : extra.joinIntoString (", "));
 
             velocitySlider.setValue (numberOr (binding["velocity"], 1.0), juce::dontSendNotification);
             strokeCombo.setSelectedItemIndex (indexOfChoice (strokes, stroke), juce::dontSendNotification);
@@ -732,12 +835,12 @@ void KeysPage::showBinding()
                 names.add (padName (pad));
 
             rows[2].caption.setText (ko ("멈출 패드"), juce::dontSendNotification);
-            padsButton.setButtonText (names.isEmpty() ? ko ("없음 (고르기…)") : names.joinIntoString (", "));
+            padsButton.setButtonText (names.isEmpty() ? ko ("없음") : names.joinIntoString (", "));
             rows[2].shown = true;
         }
         else if (action == "pedal")
         {
-            // 콤보의 번호: 1은 (없음), 패드는 순서 + 2
+            // 콤보의 번호: 1은 없음, 패드는 순서 + 2
             const auto selectPad = [this] (juce::ComboBox& combo, const juce::String& padId)
             {
                 combo.setSelectedId (padIds.indexOf (padId) + 2, juce::dontSendNotification);
@@ -857,7 +960,6 @@ void KeysPage::startPedalLearning()
 void KeysPage::updatePedalStatus()
 {
     auto learning = session.isPedalLearning();
-    juce::String text;
 
     if (learning)
     {
@@ -871,38 +973,56 @@ void KeysPage::updatePedalStatus()
         }
         else
         {
-            text = ko ("페달의 스위치를 왼쪽부터 하나씩 밟고 \"등록 마치기\"를 누르세요 (Esc 취소)");
+            // 밟은 스위치를 차례로 보인다: 1 F13   2 F14
+            juce::String keys;
 
             for (std::size_t i = 0; i < learned.keys.size(); ++i)
-                text << "   " << juce::String (static_cast<int> (i) + 1) << ": " << fromUtf8 (hvd::keyLabel (learned.keys[i]));
+                keys << (i > 0 ? "     " : "") << juce::String (static_cast<int> (i) + 1) << "  " << fromUtf8 (hvd::keyLabel (learned.keys[i]));
+
+            banner.keys.setText (keys, juce::dontSendNotification);
         }
     }
 
-    if (! learning)
+    const auto& pedal = session.getPedal();
+    const auto registered = pedal.device.isNotEmpty();
+    juce::String chip, tip;
+
+    if (registered)
     {
-        if (const auto& pedal = session.getPedal(); pedal.device.isNotEmpty())
-        {
-            text = ko ("페달: 스위치 ") + juce::String (static_cast<int> (pedal.keys.size())) + ko ("개")
-                     + "  ·  " + (pedalConnected ? ko ("연결됨") : ko ("연결 안 됨"));
+        chip = pedalConnected ? ko ("연결됨") : ko ("연결 안 됨");
+        tip = ko ("스위치 ") + juce::String (static_cast<int> (pedal.keys.size())) + ko ("개");
 
-            if (pedalConnected)
-                text << "  ·  " << ko ("보고 간격 ") << intervalText (session.getReportInterval (true));
-        }
-        else
+        if (pedalConnected)
         {
-            text = ko ("풋스위치를 등록하면 키보드와 따로 정할 수 있습니다");
+            const auto interval = intervalText (session.getReportInterval (true));
+            chip << ko ("  ·  ") << interval;
+            tip << ko ("  ·  보고 간격 ") << interval;
         }
-
-        // 견주어 볼 수 있게 키보드의 것도 보여 준다.
-        if (const auto ofKeyboard = session.getReportInterval (false); ofKeyboard.enough)
-            text << "  ·  " << ko ("키보드 ") << intervalText (ofKeyboard);
     }
 
-    const auto registered = session.getPedal().device.isNotEmpty();
+    // 견주어 볼 수 있게 키보드의 것도 함께 적는다.
+    if (const auto ofKeyboard = session.getReportInterval (false); ofKeyboard.enough)
+        tip << (tip.isNotEmpty() ? ko ("  ·  ") : juce::String()) << ko ("키보드 보고 간격 ") << intervalText (ofKeyboard);
 
-    pedalButton.setButtonText (learning ? ko ("등록 마치기") : (registered ? ko ("페달…") : ko ("페달 등록")));
-    pedalButton.setToggleState (learning, juce::dontSendNotification);    // 등록 중이면 켜진 모양
-    pedalLabel.setText (text, juce::dontSendNotification);
+    pedalButton.setButtonText (registered ? ko ("페달") : ko ("페달 등록"));
+    pedalButton.setTooltip (registered ? tip : ko ("풋스위치를 등록하면 키보드와 따로 정할 수 있습니다"));
+    pedalLabel.setText (chip, juce::dontSendNotification);
+    pedalLabel.setTooltip (tip);
+
+    // 등록하는 동안에는 키보드 위의 띠가 대신한다.
+    const auto chipShown = registered && ! learning;
+    const auto layoutChanged = chipShown != pedalLabel.isVisible() || chip != shownChip;
+
+    pedalButton.setVisible (! learning);
+    pedalLabel.setVisible (chipShown);
+    banner.setVisible (learning);
+    shownChip = chip;
+
+    if (layoutChanged)
+    {
+        resized();
+        repaint();
+    }
 }
 
 //==============================================================================
@@ -1093,13 +1213,17 @@ void KeysPage::tick()
 
     if (++tickCount % 6 == 0)
     {
-        heldLabel.setText (ko ("동시에 눌린 키 ") + juce::String (session.getHeldKeyCount())
-                               + "  ·  " + ko ("최대 ") + juce::String (session.getMaxHeldKeyCount()),
+        heldLabel.setText (ko ("동시 ") + juce::String (session.getHeldKeyCount())
+                               + ko ("  ·  최대 ") + juce::String (session.getMaxHeldKeyCount()),
                            juce::dontSendNotification);
 
-        const auto armed = session.isKeyCaptureArmed();
-        quickButton.setButtonText (armed ? ko ("키를 누르세요… (Esc 취소)") : ko ("이 패드를 칠 키 누르기"));
-        quickButton.setToggleState (armed, juce::dontSendNotification);    // 키를 기다리는 동안 켜진 모양
+        // 키를 기다리는 동안 켜진 모양. 글이 길어지므로 제목 줄을 다시 놓는다.
+        if (const auto armed = session.isKeyCaptureArmed(); armed != quickButton.getToggleState())
+        {
+            quickButton.setButtonText (armed ? ko ("키를 누르세요  ·  Esc") : ko ("키 지정"));
+            quickButton.setToggleState (armed, juce::dontSendNotification);
+            layoutEditor();
+        }
 
         // 페달이 꽂혀 있는지는 1초에 한 번쯤만 알아본다.
         if (tickCount % 60 == 0)

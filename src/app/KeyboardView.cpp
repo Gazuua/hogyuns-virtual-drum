@@ -146,6 +146,12 @@ juce::Rectangle<int> KeyboardView::getSpareArea() const
     return boundsOf (spareX, spareY, spareW, spareH).toNearestInt();
 }
 
+juce::Rectangle<int> KeyboardView::getFunctionRowArea() const
+{
+    // 밑의 키 테두리가 비치지 않게 한 화소씩 넉넉히 덮는다.
+    return boundsOf (0.0f, 0.0f, 18.25f, 1.0f).getSmallestIntegerContainer().expanded (1);
+}
+
 const KeyboardView::Shape* KeyboardView::shapeAt (juce::Point<float> position) const
 {
     for (const auto& shape : shapes())

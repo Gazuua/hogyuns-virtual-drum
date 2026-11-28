@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "DocumentBar.h"
 #include "Session.h"
 #include "Ui.h"
 
@@ -30,6 +31,8 @@ private:
     void selectedRowsChanged (int lastRowSelected) override;
     void listBoxItemClicked (int row, const juce::MouseEvent&) override;
 
+    DocumentBar::Source makeDocumentSource();
+
     void rebuild();
     void showPad();
     juce::String selectedPadId() const;
@@ -40,8 +43,6 @@ private:
     void renamePad();
     void addPad();
     void removePad();
-    void duplicateKit();
-    void renameKit();
     void importKit();
     void importSfzKit();
     void exportKit();
@@ -54,14 +55,13 @@ private:
     };
 
     Session& session;
+    DocumentBar documents;
     int selectedPad = 0;
     bool valuesDirty = false;
     bool updating = false;
 
-    juce::Label kitCaption, padTitle, samplesCaption, samplesText, hintLabel, kitInfo;
+    juce::Label padTitle, samplesCaption, samplesText, hintLabel, kitInfo;
     juce::Rectangle<int> listPanel, editorPanel;    // paint가 칸 바탕을 그리는 자리
-    juce::ComboBox kitCombo;
-    juce::TextButton duplicateButton, renameKitButton, importButton, sfzButton, exportButton, folderButton, restoreButton;
     juce::ListBox padList { {}, this };
     juce::TextButton addPadButton, removePadButton;
     juce::TextButton renamePadButton, softButton, mediumButton, hardButton, replaceButton, appendButton;

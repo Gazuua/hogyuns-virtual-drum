@@ -35,6 +35,9 @@ public:
     /** 키가 없는 빈자리(가운데 줄 오른쪽, 이동 키 위). 화면이 작은 표시를 겹쳐 둘 때 쓴다. */
     juce::Rectangle<int> getSpareArea() const;
 
+    /** 기능 키 줄 가운데 페달 스위치 왼쪽 (Esc ~ ScrLk). 화면이 잠깐 띠를 겹쳐 둘 때 쓴다. */
+    juce::Rectangle<int> getFunctionRowArea() const;
+
     /** 눌린 키가 바뀌었으면 다시 그린다. */
     void refreshHeld();
 
