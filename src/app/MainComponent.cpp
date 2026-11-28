@@ -669,7 +669,7 @@ void MainComponent::refreshStatus()
     juce::String latency;
 
     if (status.open && status.sampleRate > 0.0)
-        latency << juce::String (1000.0 * status.bufferSize / status.sampleRate, 1) << " ms";
+        latency << juce::String (1000.0 * status.bufferSize / status.sampleRate, 1) << "ms";
     else
         latency << ko ("장치 없음");
 
