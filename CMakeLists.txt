@@ -96,6 +96,7 @@ target_compile_options(hvd_juce PRIVATE "$<$<CXX_COMPILER_ID:MSVC>:/bigobj;/EHsc
 set(HVD_PRODUCT_NAME "HogyunsVirtualDrum" CACHE STRING "Name of the executable")
 
 add_executable(HogyunsVirtualDrum WIN32
+    src/app/AppSettings.cpp
     src/app/AudioHost.cpp
     src/app/Backups.cpp
     src/app/ChartFile.cpp

@@ -72,15 +72,11 @@ bool copyDocument (const juce::File& from, const juce::File& to, const juce::Fil
 Session::Session (const Options& options)
     : dataRoot (options.dataRoot),
       remember (options.rememberSettings),
+      appSettings (options.rememberSettings),
       charts (options.dataRoot, options.chartsFolder)
 {
     for (auto& pad : midiPads)
         pad.store (-1, std::memory_order_relaxed);
-
-    settings = juce::var (new juce::DynamicObject());
-
-    if (remember)
-        loadSettings();
 
     backups.setFolders (options.backupsFolder, dataRoot);
 
@@ -159,8 +155,7 @@ Session::~Session()
     if (keymapEdited && keymapDocument.save())
         noteContent (keymapFile, rememberedKeymap);
 
-    if (settingsEdited)
-        saveSettings();
+    appSettings.saveIfPending();
 
     keyboard.stop();       // 입력 스레드가 엔진에 더 보내지 않게 먼저 멈춘다
     sessionLog.stop();
@@ -171,58 +166,6 @@ Session::~Session()
 }
 
 //==============================================================================
-juce::File Session::getSettingsFile()
-{
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-               .getChildFile ("HogyunsVirtualDrum")
-               .getChildFile ("settings.json");
-}
-
-void Session::loadSettings()
-{
-    juce::var parsed;
-
-    if (getSettingsFile().existsAsFile()
-        && juce::JSON::parse (getSettingsFile().loadFileAsString(), parsed).wasOk()
-        && parsed.isObject())
-        settings = parsed;
-}
-
-void Session::saveSettings() const
-{
-    if (! remember)
-        return;
-
-    const auto file = getSettingsFile();
-    file.getParentDirectory().createDirectory();
-    file.replaceWithText (juce::JSON::toString (settings));
-}
-
-juce::var Session::getSetting (const juce::Identifier& name, const juce::var& fallback) const
-{
-    const auto& value = settings[name];
-    return value.isVoid() ? fallback : value;
-}
-
-void Session::setSetting (const juce::Identifier& name, const juce::var& value)
-{
-    if (auto* object = settings.getDynamicObject(); object != nullptr && object->getProperty (name) != value)
-    {
-        object->setProperty (name, value);
-        saveSettings();
-        settingsEdited = false;    // 미뤄 둔 값도 함께 적혔다
-    }
-}
-
-void Session::markSettingEdited (const juce::Identifier& name, const juce::var& value)
-{
-    if (auto* object = settings.getDynamicObject(); object != nullptr && object->getProperty (name) != value)
-    {
-        object->setProperty (name, value);
-        settingsEdited = true;
-    }
-}
-
 void Session::savePendingEdits()
 {
     if (std::exchange (kitEdited, false))
@@ -231,8 +174,7 @@ void Session::savePendingEdits()
     if (std::exchange (keymapEdited, false))
         saveKeymap();
 
-    if (std::exchange (settingsEdited, false))
-        saveSettings();
+    appSettings.saveIfPending();
 }
 
 void Session::updateMessages()
@@ -271,7 +213,7 @@ void Session::poll()
         sendChangeMessage();    // 다시 재생이 끝났다
 
     // 고친 문서와 설정은 마우스를 놓은 뒤에 저장한다. 밖에서 고친 파일을 살피기 전에 한다.
-    if ((kitEdited || keymapEdited || settingsEdited) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+    if ((kitEdited || keymapEdited || appSettings.isPending()) && ! juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
         savePendingEdits();
 
     // 킷이나 키 배열 파일을 밖에서 고쳐 저장하면 바로 다시 읽는다.

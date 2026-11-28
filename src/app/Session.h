@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "AppSettings.h"
 #include "AudioHost.h"
 #include "Backups.h"
 #include "ChartLibrary.h"
@@ -316,21 +317,19 @@ public:
     void flushPlayLog()                                      { sessionLog.flush(); }
 
     //==============================================================================
-    // 프로그램 설정 (화면 쪽이 기억해 둘 값)
-    juce::var getSetting (const juce::Identifier& name, const juce::var& fallback) const;
-    void setSetting (const juce::Identifier& name, const juce::var& value);
+    // 프로그램 설정 (화면 쪽이 기억해 둘 값). 파일은 AppSettings가 맡는다.
+    juce::var getSetting (const juce::Identifier& name, const juce::var& fallback) const    { return appSettings.get (name, fallback); }
+    void setSetting (const juce::Identifier& name, const juce::var& value)                  { appSettings.set (name, value); }
 
     /** 프로그램 설정 파일(settings.json). 화면 테마처럼 세션을 만들기 전에 읽어야 하는 값에도 쓴다. */
-    static juce::File getSettingsFile();
+    static juce::File getSettingsFile()                                                     { return AppSettings::getFile(); }
 
     /** 설정 값을 바로 바꾸고, settings.json에는 poll()이 마우스를 놓은 뒤에 적는다 (슬라이더로 고르는 값). */
-    void markSettingEdited (const juce::Identifier& name, const juce::var& value);
+    void markSettingEdited (const juce::Identifier& name, const juce::var& value)           { appSettings.setLater (name, value); }
 
 private:
     void handleIncomingMidiMessage (juce::MidiInput* source, const juce::MidiMessage& message) override;
 
-    void loadSettings();
-    void saveSettings() const;
     void savePendingEdits();
     void updateMessages();
 
@@ -384,7 +383,7 @@ private:
     int pollCount = 0;
 
     // 마우스를 놓은 뒤에 저장할 것 (화면 스레드)
-    bool kitEdited = false, keymapEdited = false, settingsEdited = false;
+    bool kitEdited = false, keymapEdited = false;
 
     // 키 입력 (입력 스레드와 주고받는 값은 atomic)
     std::array<std::atomic<bool>, hvd::numKeyCodes> held {};
@@ -417,7 +416,7 @@ private:
     TakeRecorder takes { engine, track };
     Timing timing;
     float outputPeak = 0.0f;
-    juce::var settings;
+    AppSettings appSettings;
 
     // 백업
     FileBackups backups;
