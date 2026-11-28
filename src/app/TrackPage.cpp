@@ -5,6 +5,13 @@ namespace
 
 constexpr float timingRangeMs = 60.0f;
 
+/** Session::Timing의 고리 버퍼에서 age번째로 최근 값 (0이 가장 최근). */
+float recentOffset (const Session::Timing& timing, int age)
+{
+    constexpr auto size = Session::Timing::historySize;
+    return timing.offsetsMs[static_cast<std::size_t> (((timing.count - 1 - age) % size + size) % size)];
+}
+
 } // namespace
 
 //==============================================================================
@@ -93,9 +100,10 @@ void TimingView::paint (juce::Graphics& g)
         return centreX + juce::jlimit (-1.0f, 1.0f, ms / timingRangeMs) * (bounds.getWidth() * 0.5f - 10.0f);
     };
 
-    // "정확"으로 보는 범위(±10ms)와 가운데 선
+    // "박에 맞음" 범위와 가운데 선
+    constexpr auto onBeat = ui::timing::onBeatMs;
     g.setColour (t.good.withAlpha (0.14f));
-    g.fillRect (juce::Rectangle<float> (toX (-10.0f), bounds.getY(), toX (10.0f) - toX (-10.0f), bounds.getHeight()));
+    g.fillRect (juce::Rectangle<float> (toX (-onBeat), bounds.getY(), toX (onBeat) - toX (-onBeat), bounds.getHeight()));
     g.setColour (t.text.withAlpha (0.5f));
     g.fillRect (centreX - 0.5f, bounds.getY(), 1.0f, bounds.getHeight());
 
@@ -103,20 +111,19 @@ void TimingView::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (ui::type::caption));
     g.drawText (ko ("빠름"), getLocalBounds().reduced (8, 2), juce::Justification::topLeft);
     g.drawText (ko ("늦음"), getLocalBounds().reduced (8, 2), juce::Justification::topRight);
+    g.drawText (ko ("박에 맞음"), juce::Rectangle<float> (toX (-onBeat) + 6.0f, bounds.getY() + 2.0f, centreX - toX (-onBeat) - 8.0f, 14.0f),
+                juce::Justification::centredLeft, true);
 
     // 최근 타격일수록 아래쪽에, 진하게 그린다.
     const auto used = juce::jmin (timing.count, Session::Timing::historySize);
 
     for (int age = used - 1; age >= 0; --age)
     {
-        const auto index = static_cast<std::size_t> (((timing.count - 1 - age) % Session::Timing::historySize + Session::Timing::historySize)
-                                                     % Session::Timing::historySize);
-        const auto ms = timing.offsetsMs[index];
-        const auto distance = std::abs (ms);
+        const auto ms = recentOffset (timing, age);
         const auto freshness = 1.0f - static_cast<float> (age) / static_cast<float> (Session::Timing::historySize);
-        const auto y = bounds.getY() + 18.0f + (bounds.getHeight() - 30.0f) * freshness;
+        const auto y = bounds.getY() + 22.0f + (bounds.getHeight() - 34.0f) * freshness;
 
-        g.setColour ((distance <= 10.0f ? t.good : (distance <= 25.0f ? t.warning : t.danger)).withAlpha (0.25f + 0.75f * freshness));
+        g.setColour ((std::abs (ms) <= onBeat ? t.good : t.warning).withAlpha (0.25f + 0.75f * freshness));
         g.fillEllipse (toX (ms) - 4.0f, y - 4.0f, 8.0f, 8.0f);
     }
 }
@@ -131,7 +138,12 @@ TrackPage::TrackPage (Session& sessionToUse)
     ui::setupLabel (*this, timeLabel, {}, ui::Text::hint);
     timeLabel.setJustificationType (juce::Justification::centredRight);
 
-    ui::setupButton (*this, openButton, ko ("음악 파일 열기…"), [this] { openTrack(); });
+    // 곡이 없을 때: 반주 칸 전체가 끌어 놓는 자리
+    ui::setupLabel (*this, dropLabel, ko ("음악 파일을 끌어 놓기"), ui::Text::hint);
+    dropLabel.setJustificationType (juce::Justification::centred);
+
+    ui::setupButton (*this, openButton, ko ("열기"), [this] { openTrack(); });
+    openButton.setTooltip (ko ("반주로 쓸 음악 파일 열기"));
     ui::setupButton (*this, playButton, {}, [this] { session.getTrack().setPlaying (! session.getTrack().isPlaying()); refresh(); });
     ui::setupButton (*this, rewindButton, ko ("처음으로"), [this] { session.getTrack().seek (loopToggle.getToggleState() ? loopStart : 0.0); });
     ui::setupButton (*this, unloadButton, ko ("닫기"), [this] { session.unloadTrack(); });
@@ -139,15 +151,22 @@ TrackPage::TrackPage (Session& sessionToUse)
     bar.onSeek = [this] (double seconds) { session.getTrack().seek (seconds); };
     addAndMakeVisible (bar);
 
+    // 반주 음량: 소리에는 바로, 설정 파일에는 마우스를 놓은 뒤에 적는다.
     ui::setupLabel (*this, gainCaption, ko ("반주 음량"), ui::Text::caption);
     ui::setupSlider (*this, gainSlider, 0.0, 1.5, 0.01, 0.7);
-    gainSlider.onValueChange = [this] { session.setTrackGain (static_cast<float> (gainSlider.getValue())); };
+    gainSaver.save = [this] { session.setTrackGain (static_cast<float> (gainSlider.getValue())); };
+    gainSlider.onValueChange = [this]
+    {
+        session.getTrack().setGain (static_cast<float> (gainSlider.getValue()));
+        gainSaver.mark();
+    };
 
-    ui::setupLabel (*this, speedCaption, ko ("속도 (음높이는 그대로)"), ui::Text::caption);
-    ui::setupSlider (*this, speedSlider, 50.0, 150.0, 5.0, 100.0, " %", 0);
+    ui::setupLabel (*this, speedCaption, ko ("속도"), ui::Text::caption);
+    ui::setupSlider (*this, speedSlider, 50.0, 150.0, 5.0, 100.0, "%", 0);
+    speedSlider.setTooltip (ko ("음높이는 그대로"));
     speedSlider.onValueChange = [this] { session.getTrack().setSpeed (static_cast<float> (speedSlider.getValue() / 100.0)); };
 
-    ui::setupButton (*this, loopStartButton, ko ("여기부터 (A)"), [this]
+    ui::setupButton (*this, loopStartButton, ko ("구간 시작"), [this]
     {
         loopStart = session.getTrack().getPosition();
 
@@ -157,7 +176,7 @@ TrackPage::TrackPage (Session& sessionToUse)
         applyLoop();
     });
 
-    ui::setupButton (*this, loopEndButton, ko ("여기까지 (B)"), [this]
+    ui::setupButton (*this, loopEndButton, ko ("구간 끝"), [this]
     {
         loopEnd = session.getTrack().getPosition();
 
@@ -168,30 +187,28 @@ TrackPage::TrackPage (Session& sessionToUse)
         applyLoop();
     });
 
-    loopToggle.setButtonText (ko ("구간 반복"));
-    loopToggle.onClick = [this] { applyLoop(); };
-    ui::noFocus (loopToggle);
-    addAndMakeVisible (loopToggle);
+    loopStartButton.setTooltip (ko ("지금 위치를 반복 구간의 시작으로"));
+    loopEndButton.setTooltip (ko ("지금 위치를 반복 구간의 끝으로"));
+    ui::setupToggle (*this, loopToggle, ko ("구간 반복"), [this] { applyLoop(); });
     ui::setupLabel (*this, loopLabel, {}, ui::Text::caption);
 
     // 녹음
-    ui::setupLabel (*this, recordTitle, ko ("녹음 (WAV 파일)"), ui::Text::section);
+    ui::setupLabel (*this, recordTitle, ko ("녹음"), ui::Text::section);
     ui::setupButton (*this, recordButton, {}, [this] { toggleRecording(); });
-    ui::setupButton (*this, recordFolderButton, ko ("녹음 폴더 열기"), [this]
+    recordButton.setTooltip (ko ("드럼 소리를 WAV로 저장. 메트로놈은 빠진다"));
+    ui::setupButton (*this, recordFolderButton, ko ("폴더 열기"), [this]
     {
         session.getRecordingsFolder().createDirectory();
         session.getRecordingsFolder().revealToUser();
     });
 
-    recordTrackToggle.setButtonText (ko ("반주도 함께 녹음"));
-    recordTrackToggle.setToggleState (session.getSetting ("recordTrack", true), juce::dontSendNotification);
-    recordTrackToggle.onClick = [this] { session.setSetting ("recordTrack", recordTrackToggle.getToggleState()); };
-    ui::noFocus (recordTrackToggle);
-    addAndMakeVisible (recordTrackToggle);
+    ui::setupToggle (*this, recordTrackToggle, ko ("반주 포함"), [this] { session.setSetting ("recordTrack", recordTrackToggle.getToggleState()); },
+                     static_cast<bool> (session.getSetting ("recordTrack", true)));
     ui::setupLabel (*this, recordLabel, {}, ui::Text::caption);
 
-    // 연주 기록
-    ui::setupLabel (*this, takeTitle, ko ("연주 기록 (다시 듣기, MIDI)"), ui::Text::section);
+    // MIDI: 친 것을 기록해 다시 듣거나 MIDI 파일로 내보낸다.
+    ui::setupLabel (*this, takeTitle, "MIDI", ui::Text::section);
+    takeTitle.setTooltip (ko ("친 것을 기록해 다시 듣거나 MIDI 파일로 내보낸다"));
     ui::setupButton (*this, takeRecordButton, {}, [this]
     {
         if (session.isTakeRecording())
@@ -208,21 +225,26 @@ TrackPage::TrackPage (Session& sessionToUse)
             session.playTake();
     });
 
-    ui::setupButton (*this, takeExportButton, ko ("MIDI로 내보내기…"), [this] { exportMidi(); });
-    ui::setupButton (*this, takeImportButton, ko ("MIDI 불러오기…"), [this] { importMidi(); });
+    ui::setupButton (*this, takeExportButton, ko ("내보내기"), [this] { exportMidi(); });
+    ui::setupButton (*this, takeImportButton, ko ("불러오기"), [this] { importMidi(); });
+    takeExportButton.setTooltip (ko ("기록을 MIDI 파일로 내보내기"));
+    takeImportButton.setTooltip (ko ("MIDI 파일을 기록으로 불러오기"));
     ui::setupLabel (*this, takeLabel, {}, ui::Text::caption);
 
     // 박자 연습
     ui::setupLabel (*this, timingTitle, ko ("박자 연습"), ui::Text::section);
     ui::setupLabel (*this, timingLabel, {}, ui::Text::caption);
-    ui::setupButton (*this, timingResetButton, ko ("지우기"), [this] { session.resetTiming(); });
+    timingLabel.setTooltip (ko ("메트로놈의 16분음표 자리에서 벗어난 정도. 박에 맞음: ") + ui::plusMinus()
+                            + ui::formatMs (ui::timing::onBeatMs) + ko (" 안"));
+    ui::setupButton (*this, timingResetButton, ko ("초기화"), [this] { session.resetTiming(); });
     addAndMakeVisible (timingView);
 
-    // 버튼 종류: 재생이 주요, 녹음은 켜지면 빨간 바탕, 폴더 열기는 조용한 버튼
+    // 버튼 종류: 재생이 주요, 녹음은 켜지면 빨간 바탕, 폴더 열기·초기화는 조용한 버튼
     ui::setButtonKind (playButton, ui::ButtonKind::primary);
     ui::setButtonKind (recordButton, ui::ButtonKind::danger);
     ui::setButtonKind (takeRecordButton, ui::ButtonKind::danger);
     ui::setButtonKind (recordFolderButton, ui::ButtonKind::quiet);
+    ui::setButtonKind (timingResetButton, ui::ButtonKind::quiet);
 
     session.addChangeListener (this);
     refresh();
@@ -231,12 +253,35 @@ TrackPage::TrackPage (Session& sessionToUse)
 TrackPage::~TrackPage()
 {
     session.removeChangeListener (this);
+    gainSaver.flush();
 }
 
 void TrackPage::paint (juce::Graphics& g)
 {
     for (const auto& section : sections)
         ui::fillPanel (g, section);
+
+    // 곡이 없을 때의 끌어 놓는 자리 (끌고 들어오면 액센트로)
+    if (! hasTrack && ! dropZone.isEmpty())
+    {
+        const auto& t = ui::theme();
+        const auto zone = dropZone.toFloat().reduced (0.5f);
+        juce::Path outline;
+        outline.addRoundedRectangle (zone, t.controlRadius + 2.0f);
+
+        const float dashes[] = { 6.0f, 4.0f };
+        juce::Path dashed;
+        juce::PathStrokeType (1.5f).createDashedStroke (dashed, outline, dashes, 2);
+
+        if (dragOver)
+        {
+            g.setColour (t.accent.withAlpha (0.10f));
+            g.fillPath (outline);
+        }
+
+        g.setColour (dragOver ? t.accent : t.textFaint.withMultipliedAlpha (0.7f));
+        g.fillPath (dashed);
+    }
 }
 
 void TrackPage::resized()
@@ -246,121 +291,145 @@ void TrackPage::resized()
     //==============================================================================
     // 반주 (위쪽 전체 폭)
     sections[0] = area.removeFromTop (196);
-    auto track = sections[0].reduced (16, 12);
+    auto track = sections[0].reduced (ui::space::large, ui::space::medium);
 
-    auto row = track.removeFromTop (28);
+    auto row = track.removeFromTop (ui::space::control);
     trackTitle.setBounds (row.removeFromLeft (56));
-    openButton.setBounds (row.removeFromLeft (130));
-    row.removeFromLeft (ui::space::small);
-    unloadButton.setBounds (row.removeFromLeft (56));
-    row.removeFromLeft (12);
-    timeLabel.setBounds (row.removeFromRight (150));
-    trackName.setBounds (row);
 
-    track.removeFromTop (10);
-    row = track.removeFromTop (30);
-    playButton.setBounds (row.removeFromLeft (92));
-    row.removeFromLeft (ui::space::small);
-    rewindButton.setBounds (row.removeFromLeft (84));
-    row.removeFromLeft (12);
-    bar.setBounds (row.reduced (0, 3));
+    if (! hasTrack)
+    {
+        // 곡이 없으면 끌어 놓는 칸 하나: 가운데에 안내와 [열기]
+        track.removeFromTop (ui::space::small);
+        dropZone = track;
+        auto centre = dropZone.withSizeKeepingCentre (dropZone.getWidth(), 24 + ui::space::small + ui::space::control);
+        dropLabel.setBounds (centre.removeFromTop (24));
+        centre.removeFromTop (ui::space::small);
+        openButton.setBounds (centre.withSizeKeepingCentre (96, ui::space::control));
+    }
+    else
+    {
+        dropZone = {};
+        openButton.setBounds (row.removeFromLeft (72));
+        row.removeFromLeft (ui::space::small);
+        unloadButton.setBounds (row.removeFromLeft (56));
+        row.removeFromLeft (ui::space::medium);
+        timeLabel.setBounds (row.removeFromRight (150));
+        trackName.setBounds (row);
 
-    track.removeFromTop (12);
-    row = track.removeFromTop (46);
-    auto half = row.removeFromLeft (row.getWidth() / 2).withTrimmedRight (12);
-    gainCaption.setBounds (half.removeFromTop (18));
-    gainSlider.setBounds (half.removeFromTop (26));
-    half = row.withTrimmedLeft (12);
-    speedCaption.setBounds (half.removeFromTop (18));
-    speedSlider.setBounds (half.removeFromTop (26));
+        track.removeFromTop (ui::space::medium);
+        row = track.removeFromTop (30);
+        playButton.setBounds (row.removeFromLeft (92));
+        row.removeFromLeft (ui::space::small);
+        rewindButton.setBounds (row.removeFromLeft (84));
+        row.removeFromLeft (ui::space::medium);
+        bar.setBounds (row.reduced (0, 3));
 
-    track.removeFromTop (10);
-    row = track.removeFromTop (28);
-    loopStartButton.setBounds (row.removeFromLeft (110));
-    row.removeFromLeft (ui::space::small);
-    loopEndButton.setBounds (row.removeFromLeft (110));
-    row.removeFromLeft (12);
-    loopToggle.setBounds (row.removeFromLeft (110));
-    loopLabel.setBounds (row);
+        track.removeFromTop (ui::space::medium);
+        row = track.removeFromTop (46);
+        auto half = row.removeFromLeft (row.getWidth() / 2).withTrimmedRight (ui::space::medium);
+        gainCaption.setBounds (half.removeFromTop (18));
+        gainSlider.setBounds (half.removeFromTop (26));
+        half = row.withTrimmedLeft (ui::space::medium);
+        speedCaption.setBounds (half.removeFromTop (18));
+        speedSlider.setBounds (half.removeFromTop (26));
+
+        track.removeFromTop (ui::space::medium);
+        row = track.removeFromTop (ui::space::control);
+        loopStartButton.setBounds (row.removeFromLeft (96));
+        row.removeFromLeft (ui::space::small);
+        loopEndButton.setBounds (row.removeFromLeft (96));
+        row.removeFromLeft (ui::space::medium);
+        loopToggle.setBounds (row.removeFromLeft (110));
+        loopLabel.setBounds (row);
+    }
 
     //==============================================================================
-    area.removeFromTop (12);
-    auto left = area.removeFromLeft (area.getWidth() / 2 - 6);
-    area.removeFromLeft (12);
+    area.removeFromTop (ui::space::medium);
+    auto left = area.removeFromLeft (area.getWidth() / 2 - ui::space::medium / 2);
+    area.removeFromLeft (ui::space::medium);
 
     // 녹음 (왼쪽 위)
     sections[1] = left.removeFromTop (120);
-    auto record = sections[1].reduced (16, 12);
+    auto record = sections[1].reduced (ui::space::large, ui::space::medium);
     recordTitle.setBounds (record.removeFromTop (26));
-    record.removeFromTop (6);
-    row = record.removeFromTop (28);
-    recordButton.setBounds (row.removeFromLeft (120));
-    row.removeFromLeft (10);
-    recordTrackToggle.setBounds (row.removeFromLeft (160));
-    recordFolderButton.setBounds (row.removeFromRight (120));
-    record.removeFromTop (6);
+    record.removeFromTop (ui::space::small);
+    row = record.removeFromTop (ui::space::control);
+    recordButton.setBounds (row.removeFromLeft (96));
+    row.removeFromLeft (ui::space::medium);
+    recordTrackToggle.setBounds (row.removeFromLeft (120));
+    recordFolderButton.setBounds (row.removeFromRight (84));
+    record.removeFromTop (ui::space::small);
     recordLabel.setBounds (record.removeFromTop (22));
 
-    // 연주 기록 (왼쪽 아래)
-    left.removeFromTop (12);
+    // MIDI (왼쪽 아래)
+    left.removeFromTop (ui::space::medium);
     sections[2] = left;
-    auto take = sections[2].reduced (16, 12);
+    auto take = sections[2].reduced (ui::space::large, ui::space::medium);
     takeTitle.setBounds (take.removeFromTop (26));
-    take.removeFromTop (6);
-    row = take.removeFromTop (28);
-    takeRecordButton.setBounds (row.removeFromLeft (120));
+    take.removeFromTop (ui::space::small);
+    row = take.removeFromTop (ui::space::control);
+    takeRecordButton.setBounds (row.removeFromLeft (96));
     row.removeFromLeft (ui::space::small);
-    takePlayButton.setBounds (row.removeFromLeft (120));
-    take.removeFromTop (6);
-    row = take.removeFromTop (28);
-    takeExportButton.setBounds (row.removeFromLeft (150));
+    takePlayButton.setBounds (row.removeFromLeft (96));
+    row.removeFromLeft (ui::space::large);
+    takeExportButton.setBounds (row.removeFromLeft (96));
     row.removeFromLeft (ui::space::small);
-    takeImportButton.setBounds (row.removeFromLeft (150));
-    take.removeFromTop (6);
-    takeLabel.setBounds (take.removeFromTop (40));
+    takeImportButton.setBounds (row.removeFromLeft (96));
+    take.removeFromTop (ui::space::small);
+    takeLabel.setBounds (take.removeFromTop (22));
 
     // 박자 연습 (오른쪽)
     sections[3] = area;
-    auto timing = sections[3].reduced (16, 12);
+    auto timing = sections[3].reduced (ui::space::large, ui::space::medium);
     row = timing.removeFromTop (26);
-    timingResetButton.setBounds (row.removeFromRight (64));
+    timingResetButton.setBounds (row.removeFromRight (72));
     timingTitle.setBounds (row);
-    timing.removeFromTop (4);
-    timingLabel.setBounds (timing.removeFromTop (40));
-    timing.removeFromTop (6);
+    timing.removeFromTop (ui::space::tight);
+    timingLabel.setBounds (timing.removeFromTop (22));
+    timing.removeFromTop (ui::space::small);
     timingView.setBounds (timing);
+
+    repaint();
 }
 
 //==============================================================================
 void TrackPage::refresh()
 {
     auto& track = session.getTrack();
-    const auto hasTrack = session.getTrackFile() != juce::File() && track.getLength() > 0.0;
+    const auto nowHasTrack = session.getTrackFile() != juce::File() && track.getLength() > 0.0;
 
-    trackName.setText (session.getTrackFile() != juce::File()
-                           ? session.getTrackFile().getFileName()
-                           : ko ("연 음악이 없습니다. 파일을 끌어다 놓아도 됩니다."),
-                       juce::dontSendNotification);
+    // 곡이 없으면 반주 칸에는 끌어 놓는 자리와 [열기]만 둔다.
+    for (auto* component : std::initializer_list<juce::Component*> { &trackName, &timeLabel, &playButton, &rewindButton, &unloadButton, &bar,
+                                                                      &gainCaption, &gainSlider, &speedCaption, &speedSlider,
+                                                                      &loopStartButton, &loopEndButton, &loopToggle, &loopLabel })
+        component->setVisible (nowHasTrack);
 
-    playButton.setButtonText (track.isPlaying() ? ko ("일시 정지") : ko ("재생"));
+    dropLabel.setVisible (! nowHasTrack);
 
-    for (auto* component : std::initializer_list<juce::Component*> { &playButton, &rewindButton, &unloadButton, &loopStartButton,
-                                                                      &loopEndButton, &loopToggle, &speedSlider })
-        component->setEnabled (hasTrack);
+    if (nowHasTrack != hasTrack)
+    {
+        hasTrack = nowHasTrack;
+        resized();
+    }
 
-    gainSlider.setValue (track.getGain(), juce::dontSendNotification);
+    trackName.setText (session.getTrackFile().getFileName(), juce::dontSendNotification);
+    playButton.setButtonText (track.isPlaying() ? ko ("정지") : ko ("재생"));
+
+    if (! gainSlider.isMouseButtonDown())
+        gainSlider.setValue (track.getGain(), juce::dontSendNotification);
+
     speedSlider.setValue (juce::roundToInt (track.getSpeed() * 100.0f), juce::dontSendNotification);
 
     const auto recording = session.getAudio().isRecording();
-    recordButton.setButtonText (recording ? ko ("녹음 멈추기") : ko ("녹음 시작"));
+    recordButton.setButtonText (recording ? ko ("정지") : ko ("녹음"));
     recordButton.setToggleState (recording, juce::dontSendNotification);    // 녹음 중이면 빨간 바탕
     recordTrackToggle.setEnabled (! recording);
 
     const auto takeRecording = session.isTakeRecording();
     const auto takePlaying = session.isTakePlaying();
-    takeRecordButton.setButtonText (takeRecording ? ko ("기록 멈추기") : ko ("기록 시작"));
+    takeRecordButton.setButtonText (takeRecording ? ko ("정지") : ko ("기록"));
     takeRecordButton.setToggleState (takeRecording, juce::dontSendNotification);
-    takePlayButton.setButtonText (takePlaying ? ko ("재생 멈추기") : ko ("다시 재생"));
+    takePlayButton.setButtonText (takePlaying ? ko ("정지") : ko ("다시 듣기"));
     takePlayButton.setEnabled (session.hasTake() || takeRecording);
     takeExportButton.setEnabled (session.hasTake());
 }
@@ -376,14 +445,9 @@ void TrackPage::openTrack()
                                                       juce::File::getSpecialLocation (juce::File::userMusicDirectory).getFullPathName())
                                       .toString());
 
-    chooser = std::make_unique<juce::FileChooser> (ko ("반주로 쓸 음악 파일 고르기"), startFolder, ui::audioFilePatterns());
-
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [this] (const juce::FileChooser& fileChooser)
-                          {
-                              if (const auto file = fileChooser.getResult(); file != juce::File())
-                                  loadTrack (file);
-                          });
+    ui::chooseFile (chooser, ko ("반주로 쓸 음악 파일 고르기"), startFolder, ui::audioFilePatterns(),
+                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this] (const juce::File& file) { loadTrack (file); });
 }
 
 void TrackPage::loadTrack (const juce::File& file)
@@ -391,9 +455,12 @@ void TrackPage::loadTrack (const juce::File& file)
     session.setSetting ("trackFolder", file.getParentDirectory().getFullPathName());
 
     // 곡을 통째로 읽으므로 잠깐 걸린다.
-    juce::MouseCursor::showWaitCursor();
-    const auto error = session.loadTrack (file);
-    juce::MouseCursor::hideWaitCursor();
+    juce::String error;
+
+    {
+        const ui::WaitCursor wait;
+        error = session.loadTrack (file);
+    }
 
     if (error.isNotEmpty())
     {
@@ -412,8 +479,23 @@ bool TrackPage::isInterestedInFileDrag (const juce::StringArray& files)
     return files.size() == 1 && ui::isAudioFile (juce::File (files[0]));
 }
 
+void TrackPage::fileDragEnter (const juce::StringArray&, int, int)
+{
+    dragOver = true;
+    repaint();
+}
+
+void TrackPage::fileDragExit (const juce::StringArray&)
+{
+    dragOver = false;
+    repaint();
+}
+
 void TrackPage::filesDropped (const juce::StringArray& files, int, int)
 {
+    dragOver = false;
+    repaint();
+
     if (isInterestedInFileDrag (files))
         loadTrack (juce::File (files[0]));
 }
@@ -435,37 +517,25 @@ void TrackPage::exportMidi()
     const auto suggested = session.getRecordingsFolder().getChildFile ("take-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".mid");
     session.getRecordingsFolder().createDirectory();
 
-    chooser = std::make_unique<juce::FileChooser> (ko ("연주 기록을 MIDI 파일로 내보내기"), suggested, "*.mid");
-
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [this] (const juce::FileChooser& fileChooser)
-                          {
-                              const auto file = fileChooser.getResult();
-
-                              if (file == juce::File())
-                                  return;
-
-                              if (const auto error = session.exportTakeAsMidi (file.withFileExtension ("mid")); error.isNotEmpty())
-                                  ui::showMessage (ko ("내보내지 못했습니다"), error);
-                          });
+    ui::chooseFile (chooser, ko ("기록을 MIDI 파일로 내보내기"), suggested, "*.mid",
+                    juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                        | juce::FileBrowserComponent::warnAboutOverwriting,
+                    [this] (const juce::File& file)
+                    {
+                        if (const auto error = session.exportTakeAsMidi (file.withFileExtension ("mid")); error.isNotEmpty())
+                            ui::showMessage (ko ("내보내지 못했습니다"), error);
+                    });
 }
 
 void TrackPage::importMidi()
 {
-    chooser = std::make_unique<juce::FileChooser> (ko ("불러올 MIDI 파일 고르기"), session.getRecordingsFolder(), "*.mid;*.midi");
-
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [this] (const juce::FileChooser& fileChooser)
-                          {
-                              const auto file = fileChooser.getResult();
-
-                              if (file == juce::File())
-                                  return;
-
-                              if (const auto message = session.importTakeFromMidi (file); message.isNotEmpty())
-                                  ui::showMessage (ko ("MIDI 불러오기"), message);
-                          });
+    ui::chooseFile (chooser, ko ("불러올 MIDI 파일 고르기"), session.getRecordingsFolder(), "*.mid;*.midi",
+                    juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                    [this] (const juce::File& file)
+                    {
+                        if (const auto message = session.importTakeFromMidi (file); message.isNotEmpty())
+                            ui::showMessage (ko ("MIDI 불러오기"), message);
+                    });
 }
 
 void TrackPage::tick()
@@ -481,35 +551,41 @@ void TrackPage::tick()
                        juce::dontSendNotification);
 
     // 곡이 끝나 저절로 멈췄을 때 버튼 글자를 맞춘다.
-    const auto playText = track.isPlaying() ? ko ("일시 정지") : ko ("재생");
+    const auto playText = track.isPlaying() ? ko ("정지") : ko ("재생");
 
     if (playButton.getButtonText() != playText)
         playButton.setButtonText (playText);
 
-    loopLabel.setText (loopEnd > loopStart ? ui::formatTime (loopStart) + "  ~  " + ui::formatTime (loopEnd)
-                                           : ko ("재생하다가 반복할 구간의 처음과 끝에서 A, B를 누르세요"),
+    loopLabel.setText (loopEnd > loopStart ? ui::formatTime (loopStart) + "  ~  " + ui::formatTime (loopEnd) : ko ("구간 없음"),
                        juce::dontSendNotification);
 
+    // 녹음: 파일 이름만 적고, 전체 경로는 툴팁으로
     auto& audio = session.getAudio();
 
     if (audio.isRecording())
-        recordLabel.setText (ko ("녹음 중  ") + ui::formatTime (audio.getRecordedSeconds()) + "   " + audio.getRecordingFile().getFileName(),
+    {
+        recordLabel.setText (ko ("녹음 중  ") + ui::formatTime (audio.getRecordedSeconds()) + ui::separator() + audio.getRecordingFile().getFileName(),
                              juce::dontSendNotification);
+        recordLabel.setTooltip (audio.getRecordingFile().getFullPathName());
+    }
     else if (audio.getRecordingFile() != juce::File())
-        recordLabel.setText (ko ("저장했습니다: ") + audio.getRecordingFile().getFullPathName(), juce::dontSendNotification);
+    {
+        recordLabel.setText (ko ("저장함: ") + audio.getRecordingFile().getFileName(), juce::dontSendNotification);
+        recordLabel.setTooltip (audio.getRecordingFile().getFullPathName());
+    }
     else
-        recordLabel.setText (ko ("드럼 소리를 WAV로 저장합니다. 메트로놈은 빠집니다."), juce::dontSendNotification);
+    {
+        recordLabel.setText ({}, juce::dontSendNotification);
+    }
 
     juce::String takeText;
 
     if (session.isTakeRecording())
-        takeText << ko ("기록 중: 타격 ") << session.getTakeHitCount() << ko ("개");
+        takeText << ko ("기록 중  ·  타격 ") << session.getTakeHitCount() << ko ("개");
     else if (session.isTakePlaying())
-        takeText << ko ("다시 재생 중  ") << ui::formatTime (session.getTakePlaybackSeconds()) << " / " << ui::formatTime (session.getTakeLength());
+        takeText << ko ("다시 듣는 중  ") << ui::formatTime (session.getTakePlaybackSeconds()) << " / " << ui::formatTime (session.getTakeLength());
     else if (session.hasTake())
-        takeText << ko ("기록: 타격 ") << session.getTakeHitCount() << ko ("개, 길이 ") << ui::formatTime (session.getTakeLength());
-    else
-        takeText << ko ("친 것을 기록해 다시 듣거나 MIDI로 내보냅니다.");
+        takeText << ko ("타격 ") << session.getTakeHitCount() << ko ("개") << ui::separator() << ui::formatTime (session.getTakeLength());
 
     takeLabel.setText (takeText, juce::dontSendNotification);
 
@@ -519,13 +595,26 @@ void TrackPage::tick()
     juce::String timingText;
 
     if (! session.getEngine().isMetronomeOn())
-        timingText << ko ("메트로놈을 켜고 치면 16분음표에서 얼마나 벗어났는지 보여 줍니다.");
+    {
+        timingText << ko ("메트로놈을 켜고 치기");
+    }
     else if (timing.count == 0)
-        timingText << ko ("메트로놈에 맞춰 쳐 보세요.");
+    {
+        timingText << ko ("메트로놈에 맞춰 치기");
+    }
     else
-        timingText << ko ("마지막 ") << (timing.lastMs > 0.0f ? "+" : "") << juce::roundToInt (timing.lastMs) << " ms"
-                   << "  ·  " << ko ("평균 오차 ") << juce::roundToInt (timing.averageAbsMs) << " ms"
-                   << "  ·  " << ko ("잰 타격 ") << timing.count << ko ("개");
+    {
+        // 최근 타격 가운데 박에 맞은 비율 (연습 기록의 "박에 맞음"과 같은 기준)
+        const auto used = juce::jmin (timing.count, Session::Timing::historySize);
+        auto within = 0;
+
+        for (int age = 0; age < used; ++age)
+            within += std::abs (recentOffset (timing, age)) <= ui::timing::onBeatMs ? 1 : 0;
+
+        timingText << ko ("마지막 ") << ui::formatSignedMs (timing.lastMs)
+                   << ui::separator() << ko ("평균 오차 ") << ui::formatMs (timing.averageAbsMs)
+                   << ui::separator() << ko ("박에 맞음 ") << ui::formatPercent (100.0 * within / used);
+    }
 
     timingLabel.setText (timingText, juce::dontSendNotification);
 }

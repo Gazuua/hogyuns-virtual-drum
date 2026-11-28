@@ -27,7 +27,8 @@ private:
     bool loopEnabled = false;
 };
 
-/** 타격이 메트로놈의 16분음표 자리에서 얼마나 벗어났는지 점으로 보여 준다. */
+/** 타격이 메트로놈의 16분음표 자리에서 얼마나 벗어났는지 점으로 보여 준다.
+    가운데 띠가 "박에 맞음"(ui::timing::onBeatMs) 범위다. */
 class TimingView final : public juce::Component
 {
 public:
@@ -39,7 +40,7 @@ private:
     int shownCount = -1;
 };
 
-/** 반주, 녹음, 연주 기록, 박자 연습 화면. */
+/** 반주, 녹음, MIDI(친 것을 기록해 다시 듣기·내보내기), 박자 연습 화면. */
 class TrackPage final : public ui::Page,
                         public juce::FileDragAndDropTarget,
                         private juce::ChangeListener
@@ -53,6 +54,8 @@ public:
     void paint (juce::Graphics&) override;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void fileDragEnter (const juce::StringArray& files, int x, int y) override;
+    void fileDragExit (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
 
 private:
@@ -69,10 +72,14 @@ private:
     Session& session;
     double loopStart = 0.0, loopEnd = 0.0;
     int tickCount = 0;
+    bool hasTrack = false;
+    bool dragOver = false;    // 소리 파일을 끌고 들어와 있는 동안
     std::array<juce::Rectangle<int>, 4> sections;
+    juce::Rectangle<int> dropZone;
+    ui::DeferredSave gainSaver;
 
     // 반주
-    juce::Label trackTitle, trackName, timeLabel, gainCaption, speedCaption, loopLabel;
+    juce::Label trackTitle, trackName, timeLabel, gainCaption, speedCaption, loopLabel, dropLabel;
     juce::TextButton openButton, playButton, rewindButton, unloadButton, loopStartButton, loopEndButton;
     juce::ToggleButton loopToggle;
     juce::Slider gainSlider, speedSlider;
@@ -83,7 +90,7 @@ private:
     juce::TextButton recordButton, recordFolderButton;
     juce::ToggleButton recordTrackToggle;
 
-    // 연주 기록
+    // MIDI
     juce::Label takeTitle, takeLabel;
     juce::TextButton takeRecordButton, takePlayButton, takeExportButton, takeImportButton;
 
